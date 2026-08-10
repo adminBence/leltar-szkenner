@@ -165,6 +165,8 @@
 </div>
 
 <script>
+alert("DEBUG v10: szkript elindult, fájl betöltve");
+try {
 /* =========================================================================
    DEMO TERMÉKTÖRZS
    Éles verzióban ez egy Apps Script Web App hívás lenne, ami a BigQuery
@@ -593,7 +595,7 @@ function escapeHtml(str) {
 /* =========================================================================
    INDÍTÁS
    ========================================================================= */
-debugLog("verzió: v9 · fájl betöltve, várakozás gombnyomásra...");
+debugLog("verzió: v10 · fájl betöltve, várakozás gombnyomásra...");
 el("startBtn").addEventListener("click", () => {
   debugLog("gomb megnyomva, kamera indítása...");
   el("startBtn").style.display = "none";
@@ -604,6 +606,10 @@ renderList();
 window.addEventListener("online", () => el("netDot").className = "dot online");
 window.addEventListener("offline", () => el("netDot").className = "dot offline");
 el("netDot").className = navigator.onLine ? "dot online" : "dot offline";
+
+} catch (e) {
+  alert("KRITIKUS HIBA a szkriptben: " + (e && e.stack ? e.stack : e));
+}
 </script>
 </body>
 </html>
