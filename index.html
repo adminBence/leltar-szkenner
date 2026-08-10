@@ -347,12 +347,13 @@ function drawOverlay(barcodes) {
    Nincs pontos élő körvonal-rajzolás, de a felismerés ugyanúgy működik,
    és a középső keret (guide) segít pozicionálni a kódot.
    ========================================================================= */
-function loadScript(src) {
-  return new Promise((resolve, reject) => {
-    const s = document.createElement("script");
-    s.src = src; s.onload = resolve; s.onerror = reject;
-    document.head.appendChild(s);
-  });
+
+// Előtöltjük a tartalék könyvtárat MÁR az oldal betöltésekor, a háttérben —
+// így gombnyomáskor nincs hálózati késleltetés, ami elszakítaná iOS-en
+// a felhasználói érintésből eredő engedélyt a videó lejátszásához.
+let fallbackLibPromise = null;
+if (!("BarcodeDetector" in window)) {
+  fallbackLibPromise = loadScript("https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js");
 }
 
 async function startFallbackScanner() {
@@ -367,7 +368,10 @@ async function startFallbackScanner() {
   }
 
   try {
-    await loadScript("https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js");
+    if (!fallbackLibPromise) {
+      fallbackLibPromise = loadScript("https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js");
+    }
+    await fallbackLibPromise;
   } catch (e) {
     camMsg.textContent = "A szkenner könyvtár nem tölthető be.";
     debugLog("CDN betöltési hiba: " + e.message);
@@ -585,7 +589,7 @@ function escapeHtml(str) {
 /* =========================================================================
    INDÍTÁS
    ========================================================================= */
-debugLog("verzió: v7 · fájl betöltve, várakozás gombnyomásra...");
+debugLog("verzió: v8 · fájl betöltve, várakozás gombnyomásra...");
 el("startBtn").addEventListener("click", () => {
   el("startBtn").style.display = "none";
   startCamera();
