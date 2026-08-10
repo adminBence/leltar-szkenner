@@ -229,12 +229,15 @@ async function lookupProduct(barcode) {
 /* =========================================================================
    KAMERA INDÍTÁS
    ========================================================================= */
+let activeStream = null;
+
 async function startCamera() {
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
       video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } },
       audio: false,
     });
+    activeStream = stream;
     video.srcObject = stream;
     await video.play();
   } catch (err) {
@@ -344,13 +347,22 @@ function loadScript(src) {
 
 async function startFallbackScanner() {
   camMsg.textContent = "Tartalék szkenner betöltése…";
+
+  // Kritikus: a korábban megnyitott kamera-streamet le KELL állítani,
+  // különben a html5-qrcode nem tudja újra lefoglalni a kamerát
+  // (iOS Safari-n ez csendes elakadást okoz, hibaüzenet nélkül).
+  if (activeStream) {
+    activeStream.getTracks().forEach(t => t.stop());
+    activeStream = null;
+  }
+
   try {
     await loadScript("https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js");
   } catch (e) {
     camMsg.textContent = "A szkenner könyvtár nem tölthető be.";
+    debugLog("CDN betöltési hiba: " + e.message);
     return;
   }
-  camMsg.textContent = "";
 
   // Az eredeti <video> elemet elrejtjük, a könyvtár sajátot épít.
   video.style.display = "none";
@@ -360,12 +372,19 @@ async function startFallbackScanner() {
   el("camWrap").insertBefore(holder, overlay);
 
   html5Scanner = new Html5Qrcode("html5qr");
-  await html5Scanner.start(
-    { facingMode: "environment" },
-    { fps: 12, qrbox: { width: 260, height: 160 } },
-    (decodedText) => handleDetections([decodedText]),
-    () => {} // hibás/nincs találat kockánként — csendben elnyeljük
-  );
+  try {
+    await html5Scanner.start(
+      { facingMode: "environment" },
+      { fps: 12, qrbox: { width: 260, height: 160 } },
+      (decodedText) => handleDetections([decodedText]),
+      () => {} // hibás/nincs találat kockánként — csendben elnyeljük
+    );
+    camMsg.textContent = "";
+    debugLog("tartalék mód (html5-qrcode) · kamera fut");
+  } catch (e) {
+    camMsg.textContent = "A tartalék szkenner nem tudta elindítani a kamerát.";
+    debugLog("html5-qrcode start hiba: " + (e.message || e));
+  }
 }
 
 /* =========================================================================
