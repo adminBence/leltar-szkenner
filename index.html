@@ -242,15 +242,19 @@ async function lookupProduct(barcode) {
 let activeStream = null;
 
 async function startCamera() {
+  debugLog("getUserMedia hívása...");
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
       video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } },
       audio: false,
     });
+    debugLog("getUserMedia sikeres, videó lejátszása...");
     activeStream = stream;
     video.srcObject = stream;
     await video.play();
+    debugLog("videó lejátszás elindult");
   } catch (err) {
+    debugLog("getUserMedia HIBA: " + (err && err.message ? err.message : err) + " (" + (err && err.name) + ")");
     camMsg.textContent = "A kamera nem érhető el. Engedélyezd a hozzáférést a böngésző beállításaiban.";
     return;
   }
@@ -589,10 +593,11 @@ function escapeHtml(str) {
 /* =========================================================================
    INDÍTÁS
    ========================================================================= */
-debugLog("verzió: v8 · fájl betöltve, várakozás gombnyomásra...");
+debugLog("verzió: v9 · fájl betöltve, várakozás gombnyomásra...");
 el("startBtn").addEventListener("click", () => {
+  debugLog("gomb megnyomva, kamera indítása...");
   el("startBtn").style.display = "none";
-  startCamera();
+  startCamera().catch(err => debugLog("startCamera hiba: " + (err && err.message ? err.message : err)));
 });
 renderList();
 
