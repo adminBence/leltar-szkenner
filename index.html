@@ -122,6 +122,9 @@
     <canvas id="overlay"></canvas>
     <div class="guide" id="guide"></div>
     <div id="camMsg"></div>
+    <div id="debugBar" style="position:absolute; top:8px; left:8px; right:8px; font-size:11px;
+      color:#9fe1cb; background:rgba(0,0,0,0.55); padding:5px 8px; border-radius:6px;
+      font-family:monospace; pointer-events:none;"></div>
 
     <div id="hit">
       <div class="hitTop">
@@ -241,17 +244,28 @@ async function startCamera() {
 
   if ("BarcodeDetector" in window) {
     try {
-      const formats = await BarcodeDetector.getSupportedFormats();
-      barcodeDetector = new BarcodeDetector({
-        formats: formats.filter(f =>
-          ["ean_13","ean_8","upc_a","upc_e","code_128","code_39","itf","qr_code"].includes(f)),
-      });
+      const supported = await BarcodeDetector.getSupportedFormats();
+      const formats = supported.filter(f =>
+        ["ean_13","ean_8","upc_a","upc_e","code_128","code_39","itf","qr_code"].includes(f));
+      if (!formats.length) throw new Error("Nincs használható formátum: " + supported.join(","));
+      barcodeDetector = new BarcodeDetector({ formats });
       usingNative = true;
+      debugLog(`natív mód · formátumok: ${formats.join(", ")}`);
       requestAnimationFrame(nativeScanLoop);
       return;
-    } catch (e) { /* esik vissza a fallback-re */ }
+    } catch (e) {
+      debugLog("natív BarcodeDetector hiba, tartalékra váltás: " + e.message);
+    }
+  } else {
+    debugLog("BarcodeDetector nem elérhető ebben a böngészőben, tartalékra váltás");
   }
   startFallbackScanner();
+}
+
+let frameCount = 0, detectCount = 0;
+function debugLog(msg) {
+  const bar = document.getElementById("debugBar");
+  if (bar) bar.textContent = msg;
 }
 
 /* =========================================================================
@@ -266,11 +280,21 @@ window.addEventListener("resize", resizeOverlay);
 async function nativeScanLoop() {
   resizeOverlay();
   if (video.readyState >= 2 && video.videoWidth) {
+    frameCount++;
     try {
       const barcodes = await barcodeDetector.detect(video);
+      if (barcodes.length) detectCount++;
       drawOverlay(barcodes);
       handleDetections(barcodes.map(b => b.rawValue));
-    } catch (e) { /* átmeneti dekódolási hiba, folytatjuk */ }
+    } catch (e) {
+      debugLog("detect() hiba: " + e.message);
+    }
+    if (frameCount % 20 === 0) {
+      debugLog(`natív mód · videó: ${video.videoWidth}x${video.videoHeight} · `
+        + `${frameCount} kocka feldolgozva · ${detectCount} találat`);
+    }
+  } else {
+    debugLog(`videó nem kész (readyState=${video.readyState}, width=${video.videoWidth})`);
   }
   requestAnimationFrame(nativeScanLoop);
 }
