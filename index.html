@@ -390,8 +390,11 @@ async function startFallbackScanner() {
     const injectedVideo = holder.querySelector("video");
     const w = injectedVideo ? injectedVideo.videoWidth : 0;
     const h = injectedVideo ? injectedVideo.videoHeight : 0;
-    debugLog(`tartalék mód (html5-qrcode) · kamera fut · konténer: `
-      + `${holder.clientWidth}x${holder.clientHeight} · videó: ${w}x${h}`);
+    const children = Array.from(holder.children).map(c =>
+      `${c.tagName.toLowerCase()}(${c.offsetWidth}x${c.offsetHeight},op:${getComputedStyle(c).opacity},vis:${getComputedStyle(c).visibility})`
+    ).join(" | ") || "ÜRES";
+    debugLog(`tartalék · konténer:${holder.clientWidth}x${holder.clientHeight} · `
+      + `videó:${w}x${h} · elemek: ${children}`);
   } catch (e) {
     camMsg.textContent = "A tartalék szkenner nem tudta elindítani a kamerát.";
     debugLog("html5-qrcode start hiba: " + (e.message || e));
@@ -579,7 +582,7 @@ function escapeHtml(str) {
 /* =========================================================================
    INDÍTÁS
    ========================================================================= */
-debugLog("verzió: v5 · fájl betöltve, kamera indítása...");
+debugLog("verzió: v6 · fájl betöltve, kamera indítása...");
 startCamera();
 renderList();
 
