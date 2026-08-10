@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Leltár szkenner</title>
+<style>
+  :root{
+    --bg:#0d1210;
+    --panel:#161d1a;
+    --panel-2:#1f2925;
+    --line:#2a3530;
+    --text:#eef2f0;
+    --text-dim:#8fa199;
+    --accent:#3ecf8e;
+    --accent-dim:#1f6b4c;
+    --warn:#e0a63e;
+    --danger:#e0553e;
+    --radius:14px;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{margin:0; height:100%; background:var(--bg); color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
+    overscroll-behavior:none;}
+  #app{display:flex; flex-direction:column; height:100vh; height:100dvh;}
+
+  /* ---------- Fejléc ---------- */
+  header{flex:0 0 auto; display:flex; align-items:center; gap:10px;
+    padding:10px 14px; background:var(--panel); border-bottom:1px solid var(--line);}
+  header select{
+    flex:1; background:var(--panel-2); color:var(--text); border:1px solid var(--line);
+    border-radius:10px; padding:9px 10px; font-size:15px; font-weight:500;}
+  .stat{display:flex; flex-direction:column; align-items:flex-end; line-height:1.2;}
+  .stat b{font-size:16px; font-weight:600;}
+  .stat span{font-size:11px; color:var(--text-dim);}
+  .dot{width:8px; height:8px; border-radius:50%; background:var(--text-dim); flex:0 0 auto;}
+  .dot.online{background:var(--accent);}
+  .dot.offline{background:var(--danger);}
+
+  /* ---------- Kamera terület ---------- */
+  #camWrap{position:relative; flex:1 1 auto; min-height:0; background:#000; overflow:hidden;}
+  video{width:100%; height:100%; object-fit:cover; display:block;}
+  canvas#overlay{position:absolute; inset:0; width:100%; height:100%; pointer-events:none;}
+
+  .guide{
+    position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
+    width:78%; max-width:420px; aspect-ratio:16/9;
+    border:2px solid rgba(255,255,255,0.28); border-radius:16px; pointer-events:none;}
+  .guide::before,.guide::after{content:""; position:absolute; width:22px; height:22px;
+    border-color:var(--accent); border-style:solid;}
+  .guide::before{top:-2px; left:-2px; border-width:3px 0 0 3px; border-top-left-radius:16px;}
+  .guide::after{bottom:-2px; right:-2px; border-width:0 3px 3px 0; border-bottom-right-radius:16px;}
+
+  #camMsg{position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+    text-align:center; padding:24px; color:var(--text-dim); font-size:14px; background:var(--bg);}
+
+  /* ---------- Aktuális találat kártya ---------- */
+  #hit{
+    position:absolute; left:12px; right:12px; bottom:12px;
+    background:var(--panel); border:1px solid var(--line); border-radius:var(--radius);
+    padding:14px; display:none; box-shadow:0 8px 24px rgba(0,0,0,0.4);
+    transform:translateY(12px); opacity:0; transition:transform .18s ease, opacity .18s ease;}
+  #hit.show{display:block; transform:translateY(0); opacity:1;}
+  #hit.unknown{border-color:var(--warn);}
+  .hitTop{display:flex; justify-content:space-between; align-items:flex-start; gap:10px;}
+  .hitName{font-size:17px; font-weight:600; line-height:1.25;}
+  .hitBarcode{font-size:12px; color:var(--text-dim); margin-top:2px; font-variant-numeric:tabular-nums;}
+  .hitBadge{font-size:11px; padding:3px 8px; border-radius:999px; background:var(--accent-dim);
+    color:var(--accent); font-weight:600; white-space:nowrap;}
+  .hitBadge.warn{background:#4a3a17; color:var(--warn);}
+
+  .qtyRow{display:flex; align-items:center; gap:10px; margin-top:12px;}
+  .qtyBtn{width:44px; height:44px; border-radius:10px; border:1px solid var(--line);
+    background:var(--panel-2); color:var(--text); font-size:20px; font-weight:600;}
+  .qtyBtn:active{background:var(--line);}
+  #qtyInput{flex:1; text-align:center; font-size:22px; font-weight:600; height:44px;
+    background:var(--panel-2); border:1px solid var(--line); border-radius:10px; color:var(--text);}
+  #nextBtn{flex:0 0 auto; height:44px; padding:0 18px; border-radius:10px; border:none;
+    background:var(--accent); color:#06231a; font-size:15px; font-weight:700;}
+
+  /* ---------- Lista ---------- */
+  #listWrap{flex:0 0 auto; max-height:32vh; overflow-y:auto; background:var(--panel);
+    border-top:1px solid var(--line);}
+  #listWrap.empty{display:none;}
+  .rowItem{display:flex; align-items:center; gap:10px; padding:10px 14px; border-bottom:1px solid var(--line);}
+  .rowItem .info{flex:1; min-width:0;}
+  .rowItem .info b{display:block; font-size:14px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .rowItem .info span{font-size:11px; color:var(--text-dim);}
+  .rowItem .qty{font-size:16px; font-weight:600; min-width:34px; text-align:right;}
+  .rowItem button{background:none; border:none; color:var(--text-dim); font-size:18px; padding:4px 6px;}
+
+  /* ---------- Lábléc ---------- */
+  footer{flex:0 0 auto; display:flex; gap:10px; padding:10px 14px;
+    background:var(--panel); border-top:1px solid var(--line);}
+  footer button{flex:1; padding:12px; border-radius:10px; border:1px solid var(--line);
+    background:var(--panel-2); color:var(--text); font-size:14px; font-weight:600;}
+  footer button.primary{background:var(--accent); color:#06231a; border:none;}
+  footer button:disabled{opacity:.4;}
+
+  .sr-only{position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0);}
+</style>
+</head>
+<body>
+<div id="app">
+
+  <header>
+    <select id="sectorSelect" aria-label="Szektor kiválasztása">
+      <option value="">Szektor kiválasztása…</option>
+      <option>A-01</option><option>A-02</option><option>A-03</option>
+      <option>B-01</option><option>B-02</option>
+      <option>Raktár hátsó</option>
+    </select>
+    <div class="dot" id="netDot" title="Kapcsolat állapota"></div>
+    <div class="stat">
+      <b id="itemCount">0</b>
+      <span>tétel</span>
+    </div>
+  </header>
+
+  <div id="camWrap">
+    <video id="video" autoplay playsinline muted></video>
+    <canvas id="overlay"></canvas>
+    <div class="guide" id="guide"></div>
+    <div id="camMsg"></div>
+
+    <div id="hit">
+      <div class="hitTop">
+        <div>
+          <div class="hitName" id="hitName">—</div>
+          <div class="hitBarcode" id="hitBarcode">—</div>
+        </div>
+        <div class="hitBadge" id="hitBadge">ismert</div>
+      </div>
+      <div class="qtyRow">
+        <button class="qtyBtn" id="qtyMinus" aria-label="Mennyiség csökkentése">–</button>
+        <input id="qtyInput" inputmode="numeric" pattern="[0-9]*" value="1" aria-label="Mennyiség">
+        <button class="qtyBtn" id="qtyPlus" aria-label="Mennyiség növelése">+</button>
+        <button id="nextBtn">Rögzít</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="listWrap" class="empty">
+    <div id="list"></div>
+  </div>
+
+  <footer>
+    <button id="closeSectorBtn">Szektor lezárása</button>
+    <button id="syncBtn" class="primary">Szinkronizálás (<span id="pendingCount">0</span>)</button>
+  </footer>
+
+</div>
+
+<script>
+/* =========================================================================
+   DEMO TERMÉKTÖRZS
+   Éles verzióban ez egy Apps Script Web App hívás lenne, ami a BigQuery
+   cikktörzs táblát nézi le vonalkód alapján. Lásd a lookupProduct()
+   függvényt legalul — ott van kikommentezve a valós fetch hívás.
+   ========================================================================= */
+const DEMO_PRODUCTS = {
+  "5901234123457": "Coca-Cola 0,5L",
+  "5449000000996": "Fanta Narancs 0,5L",
+  "4006381333931": "Nivea testápoló 250ml",
+  "8710398503968": "Pampers pelenka 4-es",
+  "3017620422003": "Nutella 400g",
+  "5000159407236": "Mars csokoládé",
+  "7622210951557": "Milka tábla 100g",
+  "5410228131488": "Jägermeister 0,7L",
+};
+
+/* =========================================================================
+   ÁLLAPOT
+   ========================================================================= */
+let currentSector = "";
+let scanned = [];              // { barcode, name, qty, ts }
+let pendingHit = null;         // amit épp visszaigazolásra vár a kártya
+let lastAcceptedCode = null;
+let lastAcceptedAt = 0;
+let candidateCode = null;
+let candidateCount = 0;
+let usingNative = false;
+let barcodeDetector = null;
+let html5Scanner = null;
+
+const el = (id) => document.getElementById(id);
+const video = el("video");
+const overlay = el("overlay");
+const ctx = overlay.getContext("2d");
+const camMsg = el("camMsg");
+const hitCard = el("hit");
+const guide = el("guide");
+
+/* =========================================================================
+   HANG / REZGÉS VISSZAJELZÉS
+   ========================================================================= */
+const audioCtx = window.AudioContext ? new AudioContext() : null;
+function beep(freq = 880, dur = 0.06) {
+  if (!audioCtx) return;
+  const o = audioCtx.createOscillator();
+  const g = audioCtx.createGain();
+  o.frequency.value = freq;
+  o.type = "sine";
+  g.gain.value = 0.15;
+  o.connect(g).connect(audioCtx.destination);
+  o.start();
+  g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + dur);
+  o.stop(audioCtx.currentTime + dur);
+}
+function haptic(ms = 30) { if (navigator.vibrate) navigator.vibrate(ms); }
+
+/* =========================================================================
+   TERMÉK KERESÉS
+   ========================================================================= */
+async function lookupProduct(barcode) {
+  // --- DEMO MÓD ---
+  if (DEMO_PRODUCTS[barcode]) return { found: true, name: DEMO_PRODUCTS[barcode] };
+  return { found: false, name: null };
+
+  // --- ÉLES MÓD (Apps Script Web App hívás) ---
+  // const res = await fetch(`${APPS_SCRIPT_URL}?action=lookup&barcode=${barcode}`);
+  // const data = await res.json();
+  // return { found: !!data.name, name: data.name || null };
+}
+
+/* =========================================================================
+   KAMERA INDÍTÁS
+   ========================================================================= */
+async function startCamera() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } },
+      audio: false,
+    });
+    video.srcObject = stream;
+    await video.play();
+  } catch (err) {
+    camMsg.textContent = "A kamera nem érhető el. Engedélyezd a hozzáférést a böngésző beállításaiban.";
+    return;
+  }
+
+  if ("BarcodeDetector" in window) {
+    try {
+      const formats = await BarcodeDetector.getSupportedFormats();
+      barcodeDetector = new BarcodeDetector({
+        formats: formats.filter(f =>
+          ["ean_13","ean_8","upc_a","upc_e","code_128","code_39","itf","qr_code"].includes(f)),
+      });
+      usingNative = true;
+      requestAnimationFrame(nativeScanLoop);
+      return;
+    } catch (e) { /* esik vissza a fallback-re */ }
+  }
+  startFallbackScanner();
+}
+
+/* =========================================================================
+   NATÍV BARCODEDETECTOR CIKLUS — élő keretezéssel, akár több kóddal egyszerre
+   ========================================================================= */
+function resizeOverlay() {
+  overlay.width = video.clientWidth;
+  overlay.height = video.clientHeight;
+}
+window.addEventListener("resize", resizeOverlay);
+
+async function nativeScanLoop() {
+  resizeOverlay();
+  if (video.readyState >= 2 && video.videoWidth) {
+    try {
+      const barcodes = await barcodeDetector.detect(video);
+      drawOverlay(barcodes);
+      handleDetections(barcodes.map(b => b.rawValue));
+    } catch (e) { /* átmeneti dekódolási hiba, folytatjuk */ }
+  }
+  requestAnimationFrame(nativeScanLoop);
+}
+
+function drawOverlay(barcodes) {
+  ctx.clearRect(0, 0, overlay.width, overlay.height);
+  if (!barcodes.length) return;
+
+  const sx = overlay.width / video.videoWidth;
+  const sy = overlay.height / video.videoHeight;
+
+  barcodes.forEach(b => {
+    const pts = b.cornerPoints;
+    if (!pts || pts.length < 4) return;
+    const isCandidate = b.rawValue === candidateCode;
+
+    ctx.beginPath();
+    pts.forEach((p, i) => {
+      const x = p.x * sx, y = p.y * sy;
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    });
+    ctx.closePath();
+    ctx.lineWidth = isCandidate ? 3 : 2;
+    ctx.strokeStyle = isCandidate ? "#3ecf8e" : "rgba(255,255,255,0.55)";
+    ctx.stroke();
+
+    // Halvány felirat a kód fölött, hogy lásd melyiket olvassa
+    const top = pts.reduce((a, p) => (p.y < a.y ? p : a));
+    ctx.font = "12px sans-serif";
+    ctx.fillStyle = isCandidate ? "#3ecf8e" : "rgba(255,255,255,0.8)";
+    ctx.fillText(b.rawValue, top.x * sx, Math.max(14, top.y * sy - 6));
+  });
+}
+
+/* =========================================================================
+   FALLBACK: html5-qrcode (Safari / iOS, ahol nincs natív BarcodeDetector)
+   Nincs pontos élő körvonal-rajzolás, de a felismerés ugyanúgy működik,
+   és a középső keret (guide) segít pozicionálni a kódot.
+   ========================================================================= */
+function loadScript(src) {
+  return new Promise((resolve, reject) => {
+    const s = document.createElement("script");
+    s.src = src; s.onload = resolve; s.onerror = reject;
+    document.head.appendChild(s);
+  });
+}
+
+async function startFallbackScanner() {
+  camMsg.textContent = "Tartalék szkenner betöltése…";
+  try {
+    await loadScript("https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js");
+  } catch (e) {
+    camMsg.textContent = "A szkenner könyvtár nem tölthető be.";
+    return;
+  }
+  camMsg.textContent = "";
+
+  // Az eredeti <video> elemet elrejtjük, a könyvtár sajátot épít.
+  video.style.display = "none";
+  const holder = document.createElement("div");
+  holder.id = "html5qr";
+  holder.style.cssText = "position:absolute; inset:0;";
+  el("camWrap").insertBefore(holder, overlay);
+
+  html5Scanner = new Html5Qrcode("html5qr");
+  await html5Scanner.start(
+    { facingMode: "environment" },
+    { fps: 12, qrbox: { width: 260, height: 160 } },
+    (decodedText) => handleDetections([decodedText]),
+    () => {} // hibás/nincs találat kockánként — csendben elnyeljük
+  );
+}
+
+/* =========================================================================
+   FELISMERÉS FELDOLGOZÁSA
+   - Ugyanazt a kódot 3 egymást követő ciklusban kell látni, mielőtt
+     elfogadjuk (ez véd a "elmosódott, hibás" egyszeri leolvasás ellen).
+   - Ha egy MÁSIK kódot ismer fel, miközben az előző kártya még nyitva
+     van, az előzőt az aktuális mennyiséggel automatikusan rögzíti,
+     és rögtön az újra vált — ez adja a gördülékeny, megállás nélküli
+     scannelést.
+   ========================================================================= */
+function handleDetections(codes) {
+  if (!codes.length) { candidateCode = null; candidateCount = 0; return; }
+
+  // A guide-hoz legközelebbi / első kódot vesszük célnak.
+  const code = codes[0];
+
+  if (code === candidateCode) {
+    candidateCount++;
+  } else {
+    candidateCode = code;
+    candidateCount = 1;
+  }
+
+  if (candidateCount < 3) return;
+
+  const now = Date.now();
+  if (code === lastAcceptedCode && now - lastAcceptedAt < 1200) return; // duplikáció-védelem
+  if (pendingHit && code === pendingHit.barcode) return; // már ez van kártyán
+
+  acceptCode(code);
+}
+
+async function acceptCode(barcode) {
+  lastAcceptedCode = barcode;
+  lastAcceptedAt = Date.now();
+
+  // Ha volt függőben lévő tétel, azt előbb véglegesítjük az aktuális mennyiséggel.
+  if (pendingHit) commitPending();
+
+  beep(880); haptic(25);
+
+  const existing = scanned.find(s => s.barcode === barcode && s.sector === currentSector);
+  const result = await lookupProduct(barcode);
+
+  pendingHit = {
+    barcode,
+    name: result.found ? result.name : "Ismeretlen vonalkód",
+    found: result.found,
+    qty: existing ? existing.qty + 1 : 1,
+    existing: !!existing,
+  };
+  renderHitCard();
+}
+
+function renderHitCard() {
+  if (!pendingHit) { hitCard.classList.remove("show"); return; }
+  el("hitName").textContent = pendingHit.name;
+  el("hitBarcode").textContent = pendingHit.barcode;
+  el("qtyInput").value = pendingHit.qty;
+  const badge = el("hitBadge");
+  if (pendingHit.found) {
+    badge.textContent = pendingHit.existing ? "már szkennelve" : "ismert termék";
+    badge.className = "hitBadge";
+    hitCard.classList.remove("unknown");
+  } else {
+    badge.textContent = "nincs a törzsben";
+    badge.className = "hitBadge warn";
+    hitCard.classList.add("unknown");
+  }
+  hitCard.classList.add("show");
+  el("qtyInput").focus();
+  el("qtyInput").select();
+}
+
+function commitPending() {
+  if (!pendingHit) return;
+  const qty = Math.max(1, parseInt(el("qtyInput").value || "1", 10));
+  const existing = scanned.find(s => s.barcode === pendingHit.barcode && s.sector === currentSector);
+  if (existing) {
+    existing.qty = qty;
+    existing.ts = Date.now();
+  } else {
+    scanned.unshift({
+      barcode: pendingHit.barcode,
+      name: pendingHit.name,
+      qty,
+      sector: currentSector,
+      ts: Date.now(),
+    });
+  }
+  pendingHit = null;
+  hitCard.classList.remove("show");
+  renderList();
+}
+
+/* =========================================================================
+   UI ESEMÉNYEK
+   ========================================================================= */
+el("qtyMinus").addEventListener("click", () => {
+  const input = el("qtyInput");
+  input.value = Math.max(1, (parseInt(input.value || "1", 10) - 1));
+});
+el("qtyPlus").addEventListener("click", () => {
+  const input = el("qtyInput");
+  input.value = parseInt(input.value || "1", 10) + 1;
+});
+el("qtyInput").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") { e.preventDefault(); commitPending(); }
+});
+el("nextBtn").addEventListener("click", commitPending);
+
+el("sectorSelect").addEventListener("change", (e) => {
+  currentSector = e.target.value;
+  renderList();
+});
+
+el("closeSectorBtn").addEventListener("click", () => {
+  if (pendingHit) commitPending();
+  if (!currentSector) return;
+  alert(`"${currentSector}" szektor lezárva. Tételek: ${scanned.filter(s => s.sector === currentSector).length}`);
+});
+
+el("syncBtn").addEventListener("click", async () => {
+  if (pendingHit) commitPending();
+  const btn = el("syncBtn");
+  btn.disabled = true;
+  btn.textContent = "Szinkronizálás…";
+  // --- ÉLES MÓD ---
+  // await fetch(APPS_SCRIPT_URL, { method: "POST", body: JSON.stringify(scanned) });
+  await new Promise(r => setTimeout(r, 600)); // demo késleltetés
+  scanned.forEach(s => s.synced = true);
+  btn.disabled = false;
+  updatePendingCount();
+  btn.innerHTML = `Szinkronizálás (<span id="pendingCount">0</span>)`;
+});
+
+function updatePendingCount() {
+  const pending = scanned.filter(s => !s.synced).length;
+  el("pendingCount") && (el("pendingCount").textContent = pending);
+}
+
+/* =========================================================================
+   LISTA MEGJELENÍTÉS
+   ========================================================================= */
+function renderList() {
+  const items = scanned.filter(s => !currentSector || s.sector === currentSector);
+  el("itemCount").textContent = items.length;
+  updatePendingCount();
+
+  const listWrap = el("listWrap");
+  const list = el("list");
+  if (!items.length) { listWrap.classList.add("empty"); list.innerHTML = ""; return; }
+  listWrap.classList.remove("empty");
+
+  list.innerHTML = items.map(s => `
+    <div class="rowItem">
+      <div class="info">
+        <b>${escapeHtml(s.name)}</b>
+        <span>${s.barcode} · ${s.sector}</span>
+      </div>
+      <div class="qty">${s.qty} db</div>
+      <button data-barcode="${s.barcode}" data-sector="${s.sector}" aria-label="Tétel törlése">✕</button>
+    </div>
+  `).join("");
+
+  list.querySelectorAll("button[data-barcode]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      scanned = scanned.filter(s => !(s.barcode === btn.dataset.barcode && s.sector === btn.dataset.sector));
+      renderList();
+    });
+  });
+}
+
+function escapeHtml(str) {
+  const d = document.createElement("div");
+  d.textContent = str;
+  return d.innerHTML;
+}
+
+/* =========================================================================
+   INDÍTÁS
+   ========================================================================= */
+startCamera();
+renderList();
+
+window.addEventListener("online", () => el("netDot").className = "dot online");
+window.addEventListener("offline", () => el("netDot").className = "dot offline");
+el("netDot").className = navigator.onLine ? "dot online" : "dot offline";
+</script>
+</body>
+</html>
