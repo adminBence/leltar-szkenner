@@ -142,6 +142,8 @@
     <div id="debugBar" style="position:absolute; top:8px; left:8px; right:8px; font-size:11px;
       color:#9fe1cb; background:rgba(0,0,0,0.55); padding:5px 8px; border-radius:6px;
       font-family:monospace; pointer-events:none;"></div>
+    <canvas id="cropPreview" style="position:absolute; top:44px; left:8px; width:140px;
+      border:2px solid var(--accent); border-radius:4px; z-index:6; background:#000;"></canvas>
 
     <div id="hit">
       <div class="hitTop">
@@ -172,7 +174,7 @@
 </div>
 
 <script>
-alert("DEBUG v16: szkript elindult, fájl betöltve");
+alert("DEBUG v17: szkript elindult, fájl betöltve");
 try {
 /* =========================================================================
    DEMO TERMÉKTÖRZS
@@ -351,6 +353,15 @@ function captureGuideCrop(upscale = 2.2) {
   cropCanvas.width = Math.round(swC * upscale);
   cropCanvas.height = Math.round(shC * upscale);
   cropCtx.drawImage(video, sxC, syC, swC, shC, 0, 0, cropCanvas.width, cropCanvas.height);
+
+  // Láthatóvá tesszük a kivágott képet, hogy pontosan lássuk mit elemez a rendszer.
+  const preview = document.getElementById("cropPreview");
+  if (preview) {
+    preview.width = cropCanvas.width;
+    preview.height = cropCanvas.height;
+    preview.getContext("2d").drawImage(cropCanvas, 0, 0);
+  }
+
   return cropCanvas;
 }
 
@@ -452,20 +463,9 @@ async function startFallbackScanner() {
     return;
   }
 
-  // Formátum-szűrés és "próbálkozzon jobban" mód — ha a könyvtár engedi,
-  // ez gyorsítja és pontosabbá teszi a felismerést. Ha valamiért nem
-  // elérhetők ezek az osztályok, egyszerűen alapértelmezett móddal fut.
+  // Ideiglenesen KIKAPCSOLVA a formátum-szűrés hibakeresés céljából —
+  // alapértelmezett móddal próbálkozik minden formátummal.
   let hints;
-  try {
-    hints = new Map();
-    hints.set(ZXingBrowser.DecodeHintType.POSSIBLE_FORMATS, [
-      ZXingBrowser.BarcodeFormat.EAN_13, ZXingBrowser.BarcodeFormat.EAN_8,
-      ZXingBrowser.BarcodeFormat.UPC_A, ZXingBrowser.BarcodeFormat.UPC_E,
-      ZXingBrowser.BarcodeFormat.CODE_128, ZXingBrowser.BarcodeFormat.CODE_39,
-      ZXingBrowser.BarcodeFormat.ITF, ZXingBrowser.BarcodeFormat.QR_CODE,
-    ]);
-    hints.set(ZXingBrowser.DecodeHintType.TRY_HARDER, true);
-  } catch (e) { hints = undefined; }
 
   zxingReader = new ZXingBrowser.BrowserMultiFormatReader(hints);
   setCamMsg("");
@@ -679,7 +679,7 @@ function escapeHtml(str) {
 /* =========================================================================
    INDÍTÁS
    ========================================================================= */
-debugLog("verzió: v16 · fájl betöltve, várakozás gombnyomásra...");
+debugLog("verzió: v17 · fájl betöltve, várakozás gombnyomásra...");
 el("startBtn").addEventListener("click", () => {
   debugLog("gomb megnyomva, kamera indítása...");
   el("startBtn").style.display = "none";
