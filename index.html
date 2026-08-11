@@ -165,7 +165,7 @@
 </div>
 
 <script>
-alert("DEBUG v10: szkript elindult, fájl betöltve");
+alert("DEBUG v11: szkript elindult, fájl betöltve");
 try {
 /* =========================================================================
    DEMO TERMÉKTÖRZS
@@ -357,9 +357,18 @@ function drawOverlay(barcodes) {
 // Előtöltjük a tartalék könyvtárat MÁR az oldal betöltésekor, a háttérben —
 // így gombnyomáskor nincs hálózati késleltetés, ami elszakítaná iOS-en
 // a felhasználói érintésből eredő engedélyt a videó lejátszásához.
+function loadScript(src) {
+  return new Promise((resolve, reject) => {
+    const s = document.createElement("script");
+    s.src = src; s.onload = resolve; s.onerror = reject;
+    document.head.appendChild(s);
+  });
+}
+
 let fallbackLibPromise = null;
 if (!("BarcodeDetector" in window)) {
-  fallbackLibPromise = loadScript("https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js");
+  fallbackLibPromise = loadScript("https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js")
+    .catch(e => { debugLog("előtöltési hiba (nem végzetes): " + e); });
 }
 
 async function startFallbackScanner() {
@@ -595,7 +604,7 @@ function escapeHtml(str) {
 /* =========================================================================
    INDÍTÁS
    ========================================================================= */
-debugLog("verzió: v10 · fájl betöltve, várakozás gombnyomásra...");
+debugLog("verzió: v11 · fájl betöltve, várakozás gombnyomásra...");
 el("startBtn").addEventListener("click", () => {
   debugLog("gomb megnyomva, kamera indítása...");
   el("startBtn").style.display = "none";
