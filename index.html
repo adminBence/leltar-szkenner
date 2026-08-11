@@ -101,20 +101,16 @@
   #listPanel{flex:0 0 auto; background:var(--panel); border-top:1px solid var(--line);
     display:flex; flex-direction:column;}
   #listPanel.empty{display:none;}
+  #listPanel.bump{animation: toggleBump .28s ease;}
+  @keyframes toggleBump{35%{transform:scale(1.015);}}
 
-  #listToggle{flex:0 0 auto; width:100%; border:none; background:none; color:inherit;
-    display:flex; align-items:center; gap:10px; padding:12px 16px; text-align:left; cursor:pointer;}
-  #listToggle.bump{animation: toggleBump .28s ease;}
-  @keyframes toggleBump{35%{transform:scale(1.02);}}
+  #latestRow{flex:0 0 auto;}
 
-  #latestPreview{flex:1; min-width:0; display:flex; align-items:center; justify-content:space-between; gap:10px;}
-  #latestPreview .info{flex:1; min-width:0;}
-  #latestPreview b{display:block; font-size:16px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
-  #latestPreview span{font-size:12px; color:var(--text-dim);}
-  #latestPreview .qty{flex:0 0 auto; font-size:15px; padding:4px 12px; border-radius:999px;
-    background:var(--accent-dim); color:var(--accent); font-weight:700; white-space:nowrap;}
-
-  #listChevron{flex:0 0 auto; color:var(--text-dim); font-size:13px; transition:transform .2s ease;}
+  #listToggle{flex:0 0 auto; width:100%; border:none; background:none; color:var(--text-dim);
+    display:none; align-items:center; justify-content:center; gap:6px;
+    padding:4px 16px 8px; font-size:11px; cursor:pointer;}
+  #listToggle.show{display:flex;}
+  #listChevron{font-size:10px; transition:transform .2s ease;}
   #listPanel.expanded #listChevron{transform:rotate(180deg);}
 
   #list{overflow-y:auto; max-height:0; transition:max-height .22s ease; -webkit-overflow-scrolling:touch;}
@@ -204,12 +200,10 @@
   </div>
 
   <div id="listPanel" class="empty">
+    <div id="latestRow"></div>
     <button id="listToggle">
-      <div id="latestPreview">
-        <div class="info"><b id="latestName">—</b><span id="latestMeta">—</span></div>
-        <div class="qty" id="latestQty">0 db</div>
-      </div>
-      <div id="listChevron">︿</div>
+      <span id="toggleLabel">Korábbi tételek</span>
+      <span id="listChevron">︿</span>
     </button>
     <div id="list"></div>
   </div>
@@ -354,7 +348,7 @@ async function startCamera() {
   }
 }
 
-const APP_VERSION = "v29";
+const APP_VERSION = "v30";
 let frameCount = 0, detectCount = 0;
 function debugLog(msg) {
   // A felületen csak a verziószám látszik (lásd lent) — a részletes
@@ -721,31 +715,8 @@ function updatePendingCount() {
 let listExpanded = false;
 let lastRenderedCount = 0;
 
-function renderList() {
-  const items = scanned.filter(s => !currentSector || s.sector === currentSector);
-  el("itemCount").textContent = items.length;
-  updatePendingCount();
-
-  const panel = el("listPanel");
-  if (!items.length) {
-    panel.classList.add("empty");
-    el("list").innerHTML = "";
-    lastRenderedCount = 0;
-    return;
-  }
-  panel.classList.remove("empty");
-  panel.classList.toggle("expanded", listExpanded);
-
-  // Előnézeti sáv: mindig a legutoljára beolvasott (lista eleje, mert
-  // a scanned tömbbe mindig elölre kerül az új tétel).
-  const latest = items[0];
-  el("latestName").textContent = latest.name;
-  el("latestMeta").textContent = `${latest.barcode} · ${latest.sector}`
-    + (items.length > 1 ? ` · +${items.length - 1} korábbi` : "");
-  el("latestQty").textContent = `${latest.qty} db`;
-
-  // Teljes lista, szerkeszthető mennyiséggel.
-  el("list").innerHTML = items.map(s => `
+function rowItemHtml(s) {
+  return `
     <div class="rowItem">
       <div class="info">
         <b>${escapeHtml(s.name)}</b>
@@ -757,31 +728,68 @@ function renderList() {
         <button class="qPlus" data-barcode="${s.barcode}" data-sector="${s.sector}" aria-label="Mennyiség növelése">+</button>
       </div>
       <button class="delBtn" data-barcode="${s.barcode}" data-sector="${s.sector}" aria-label="Tétel törlése">✕</button>
-    </div>
-  `).join("");
+    </div>`;
+}
 
-  function findItem(barcode, sector) {
-    return scanned.find(s => s.barcode === barcode && s.sector === sector);
-  }
-  el("list").querySelectorAll(".qMinus").forEach(btn => btn.addEventListener("click", () => {
-    const it = findItem(btn.dataset.barcode, btn.dataset.sector);
+function findScannedItem(barcode, sector) {
+  return scanned.find(s => s.barcode === barcode && s.sector === sector);
+}
+
+function bindRowEvents(container) {
+  container.querySelectorAll(".qMinus").forEach(btn => btn.addEventListener("click", () => {
+    const it = findScannedItem(btn.dataset.barcode, btn.dataset.sector);
     if (it) { it.qty = Math.max(1, it.qty - 1); it.synced = false; renderList(); }
   }));
-  el("list").querySelectorAll(".qPlus").forEach(btn => btn.addEventListener("click", () => {
-    const it = findItem(btn.dataset.barcode, btn.dataset.sector);
+  container.querySelectorAll(".qPlus").forEach(btn => btn.addEventListener("click", () => {
+    const it = findScannedItem(btn.dataset.barcode, btn.dataset.sector);
     if (it) { it.qty += 1; it.synced = false; renderList(); }
   }));
-  el("list").querySelectorAll(".delBtn").forEach(btn => btn.addEventListener("click", () => {
+  container.querySelectorAll(".delBtn").forEach(btn => btn.addEventListener("click", () => {
     scanned = scanned.filter(s => !(s.barcode === btn.dataset.barcode && s.sector === btn.dataset.sector));
     renderList();
   }));
+}
 
-  // Bump animáció, ha új tétel érkezett, és épp csukva van a lista.
-  if (!listExpanded && items.length > lastRenderedCount) {
-    const toggle = el("listToggle");
-    toggle.classList.remove("bump");
-    void toggle.offsetWidth;
-    toggle.classList.add("bump");
+function renderList() {
+  const items = scanned.filter(s => !currentSector || s.sector === currentSector);
+  el("itemCount").textContent = items.length;
+  updatePendingCount();
+
+  const panel = el("listPanel");
+  if (!items.length) {
+    panel.classList.add("empty");
+    el("latestRow").innerHTML = "";
+    el("list").innerHTML = "";
+    el("listToggle").classList.remove("show");
+    lastRenderedCount = 0;
+    return;
+  }
+  panel.classList.remove("empty");
+  panel.classList.toggle("expanded", listExpanded);
+
+  // A legutolsó tétel — ugyanolyan, teljesen szerkeszthető sor, mint a
+  // lenyitható listában bármelyik másik.
+  const latest = items[0];
+  el("latestRow").innerHTML = rowItemHtml(latest);
+  bindRowEvents(el("latestRow"));
+
+  // Csak akkor mutatjuk a lenyitó fület, ha van mit lenyitni.
+  const toggle = el("listToggle");
+  toggle.classList.toggle("show", items.length > 1);
+  el("toggleLabel").textContent = listExpanded
+    ? "Összecsukás"
+    : `+${items.length - 1} korábbi tétel`;
+
+  // Lenyitható lista: a korábbiak (a legutolsó már fent, a rögzített
+  // sorban látszik, itt nem ismételjük meg).
+  el("list").innerHTML = items.slice(1).map(rowItemHtml).join("");
+  bindRowEvents(el("list"));
+
+  // Bump animáció, ha új tétel érkezett.
+  if (items.length > lastRenderedCount) {
+    panel.classList.remove("bump");
+    void panel.offsetWidth;
+    panel.classList.add("bump");
   }
   lastRenderedCount = items.length;
 }
