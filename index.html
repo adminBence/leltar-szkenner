@@ -92,9 +92,27 @@
     background:var(--accent); color:#06231a; font-size:15px; font-weight:700;}
 
   /* ---------- Lista ---------- */
-  #listWrap{flex:0 0 auto; max-height:32vh; overflow-y:auto; background:var(--panel);
-    border-top:1px solid var(--line);}
+  #listWrap{flex:0 0 auto; background:var(--panel); border-top:1px solid var(--line);
+    display:flex; flex-direction:column; transition:max-height .22s ease;}
   #listWrap.empty{display:none;}
+  #listWrap.collapsed{max-height:82px;}
+  #listWrap.expanded{max-height:50vh;}
+  #listHandle{flex:0 0 auto; padding:6px 14px 2px; cursor:pointer; user-select:none;}
+  .handleRow{display:flex; align-items:center; justify-content:center; gap:6px;
+    color:var(--text-dim); font-size:11px; padding:2px 0;}
+  .handleChevron{font-size:10px; transition:transform .2s ease;}
+  #listWrap.expanded .handleChevron{transform:rotate(180deg);}
+  /* Köteg-hatás: halvány "lapok" a fő sor mögött, ha több tétel is van */
+  .stackPeek{height:0; position:relative;}
+  #listWrap.collapsed.hasMore .stackPeek{height:6px;}
+  #listWrap.collapsed.hasMore .stackPeek::before,
+  #listWrap.collapsed.hasMore .stackPeek::after{content:""; position:absolute; left:14px; right:14px;
+    height:6px; border-radius:6px 6px 0 0; background:var(--panel-2);}
+  #listWrap.collapsed.hasMore .stackPeek::before{bottom:0; left:22px; right:22px; opacity:.7;}
+  #listWrap.collapsed.hasMore .stackPeek::after{bottom:3px; left:30px; right:30px; opacity:.4;}
+  #listWrap.bump{animation: listBump .28s ease;}
+  @keyframes listBump{0%{transform:translateY(0);} 35%{transform:translateY(-6px);} 100%{transform:translateY(0);}}
+  #list{overflow-y:auto; flex:1 1 auto; min-height:0;}
   .rowItem{display:flex; align-items:center; gap:10px; padding:10px 14px; border-bottom:1px solid var(--line);}
   .rowItem .info{flex:1; min-width:0;}
   .rowItem .info b{display:block; font-size:14px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
@@ -164,7 +182,11 @@
     </div>
   </div>
 
-  <div id="listWrap" class="empty">
+  <div id="listWrap" class="empty collapsed">
+    <div id="listHandle">
+      <div class="stackPeek"></div>
+      <div class="handleRow"><span class="handleChevron">▲</span><span id="handleLabel">Utolsó tétel</span></div>
+    </div>
     <div id="list"></div>
   </div>
 
@@ -308,7 +330,7 @@ async function startCamera() {
   }
 }
 
-const APP_VERSION = "v26";
+const APP_VERSION = "v27";
 let frameCount = 0, detectCount = 0;
 function debugLog(msg) {
   // A felületen csak a verziószám látszik (lásd lent) — a részletes
@@ -666,7 +688,15 @@ function updatePendingCount() {
 
 /* =========================================================================
    LISTA MEGJELENÍTÉS
+   - Összecsukva csak az utoljára beolvasott tétel látszik, pici
+     "köteg" utalással, ha van még alatta több is.
+   - Kibontva (a fogantyúra koppintva) a teljes lista görgethető.
+   - Új tétel beolvasásakor, ha összecsukott állapotban vagyunk, a
+     doboz egy rövid "bump" animációval jelzi az újdonságot.
    ========================================================================= */
+let listExpanded = false;
+let lastRenderedCount = 0;
+
 function renderList() {
   const items = scanned.filter(s => !currentSector || s.sector === currentSector);
   el("itemCount").textContent = items.length;
@@ -674,10 +704,23 @@ function renderList() {
 
   const listWrap = el("listWrap");
   const list = el("list");
-  if (!items.length) { listWrap.classList.add("empty"); list.innerHTML = ""; return; }
+  if (!items.length) {
+    listWrap.classList.add("empty");
+    list.innerHTML = "";
+    lastRenderedCount = 0;
+    return;
+  }
   listWrap.classList.remove("empty");
+  listWrap.classList.toggle("expanded", listExpanded);
+  listWrap.classList.toggle("collapsed", !listExpanded);
+  listWrap.classList.toggle("hasMore", items.length > 1);
+  el("handleLabel").textContent = listExpanded
+    ? `${items.length} tétel — koppints az összecsukáshoz`
+    : (items.length > 1 ? `Utolsó tétel · +${items.length - 1} másik` : "Utolsó tétel");
 
-  list.innerHTML = items.map(s => `
+  const visibleItems = listExpanded ? items : items.slice(0, 1);
+
+  list.innerHTML = visibleItems.map(s => `
     <div class="rowItem">
       <div class="info">
         <b>${escapeHtml(s.name)}</b>
@@ -694,7 +737,21 @@ function renderList() {
       renderList();
     });
   });
+
+  // Bump animáció, ha új tétel érkezett, és összecsukott állapotban vagyunk.
+  if (!listExpanded && items.length > lastRenderedCount) {
+    listWrap.classList.remove("bump");
+    void listWrap.offsetWidth;
+    listWrap.classList.add("bump");
+  }
+  lastRenderedCount = items.length;
 }
+
+el("listHandle").addEventListener("click", () => {
+  listExpanded = !listExpanded;
+  renderList();
+  if (listExpanded) el("list").scrollTop = 0;
+});
 
 function escapeHtml(str) {
   const d = document.createElement("div");
