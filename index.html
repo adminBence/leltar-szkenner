@@ -51,8 +51,9 @@
   .guide::before{top:-2px; left:-2px; border-width:3px 0 0 3px; border-top-left-radius:16px;}
   .guide::after{bottom:-2px; right:-2px; border-width:0 3px 3px 0; border-bottom-right-radius:16px;}
 
-  #camMsg{position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+  #camMsg{position:absolute; inset:0; display:none; align-items:center; justify-content:center;
     text-align:center; padding:24px; color:var(--text-dim); font-size:14px; background:var(--bg);}
+  #camMsg.show{display:flex;}
 
   /* ---------- Aktuális találat kártya ---------- */
   #hit{
@@ -158,7 +159,7 @@
 </div>
 
 <script>
-alert("DEBUG v12: szkript elindult, fájl betöltve");
+alert("DEBUG v13: szkript elindult, fájl betöltve");
 try {
 /* =========================================================================
    DEMO TERMÉKTÖRZS
@@ -192,6 +193,10 @@ let barcodeDetector = null;
 let zxingControls = null;
 
 const el = (id) => document.getElementById(id);
+function setCamMsg(text) {
+  camMsg.textContent = text;
+  camMsg.classList.toggle("show", !!text);
+}
 const video = el("video");
 const overlay = el("overlay");
 const ctx = overlay.getContext("2d");
@@ -258,7 +263,7 @@ async function startCamera() {
     debugLog("videó lejátszás elindult");
   } catch (err) {
     debugLog("getUserMedia HIBA: " + (err && err.message ? err.message : err) + " (" + (err && err.name) + ")");
-    camMsg.textContent = "A kamera nem érhető el. Engedélyezd a hozzáférést a böngésző beállításaiban.";
+    setCamMsg("A kamera nem érhető el. Engedélyezd a hozzáférést a böngésző beállításaiban.");
     return;
   }
 
@@ -269,6 +274,7 @@ async function startCamera() {
     if (!formats.length) throw new Error("Nincs használható formátum: " + supported.join(","));
     barcodeDetector = new BarcodeDetector({ formats });
     usingNative = true;
+    setCamMsg("");
     debugLog(`natív mód · formátumok: ${formats.join(", ")}`);
     requestAnimationFrame(nativeScanLoop);
   } catch (e) {
@@ -370,7 +376,7 @@ if (!("BarcodeDetector" in window)) {
 }
 
 async function startFallbackScanner() {
-  camMsg.textContent = "Tartalék szkenner betöltése…";
+  setCamMsg("Tartalék szkenner betöltése…");
 
   try {
     if (!fallbackLibPromise) {
@@ -378,7 +384,7 @@ async function startFallbackScanner() {
     }
     await fallbackLibPromise;
   } catch (e) {
-    camMsg.textContent = "A szkenner könyvtár nem tölthető be.";
+    setCamMsg("A szkenner könyvtár nem tölthető be.");
     debugLog("CDN betöltési hiba: " + e.message);
     return;
   }
@@ -396,10 +402,10 @@ async function startFallbackScanner() {
         if (result) handleDetections([result.getText()]);
       }
     );
-    camMsg.textContent = "";
+    setCamMsg("");
     debugLog(`tartalék mód (ZXing) · kamera fut · videó:${video.videoWidth}x${video.videoHeight}`);
   } catch (e) {
-    camMsg.textContent = "A tartalék szkenner nem tudta elindítani a kamerát.";
+    setCamMsg("A tartalék szkenner nem tudta elindítani a kamerát.");
     debugLog("ZXing hiba: " + (e.message || e));
   }
 }
@@ -585,7 +591,7 @@ function escapeHtml(str) {
 /* =========================================================================
    INDÍTÁS
    ========================================================================= */
-debugLog("verzió: v12 · fájl betöltve, várakozás gombnyomásra...");
+debugLog("verzió: v13 · fájl betöltve, várakozás gombnyomásra...");
 el("startBtn").addEventListener("click", () => {
   debugLog("gomb megnyomva, kamera indítása...");
   el("startBtn").style.display = "none";
