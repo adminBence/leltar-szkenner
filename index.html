@@ -178,7 +178,7 @@
 </div>
 
 <script>
-alert("DEBUG v21: szkript elindult, fájl betöltve");
+alert("DEBUG v22: szkript elindult, fájl betöltve");
 try {
 /* =========================================================================
    DEMO TERMÉKTÖRZS
@@ -432,18 +432,16 @@ function loadScript(src) {
 
 let fallbackLibPromise = null;
 if (!("BarcodeDetector" in window)) {
-  fallbackLibPromise = loadScript("https://unpkg.com/@zxing/browser@0.1.5")
+  fallbackLibPromise = loadScript("https://cdn.jsdelivr.net/npm/zxing-wasm@latest/dist/iife/reader/index.js")
     .catch(e => { debugLog("előtöltési hiba (nem végzetes): " + e); });
 }
-
-let zxingReader = null;
 
 async function startFallbackScanner() {
   setCamMsg("Tartalék szkenner betöltése…");
 
   try {
     if (!fallbackLibPromise) {
-      fallbackLibPromise = loadScript("https://unpkg.com/@zxing/browser@0.1.5");
+      fallbackLibPromise = loadScript("https://cdn.jsdelivr.net/npm/zxing-wasm@latest/dist/iife/reader/index.js");
     }
     await fallbackLibPromise;
   } catch (e) {
@@ -453,8 +451,7 @@ async function startFallbackScanner() {
   }
 
   // Itt MI kérjük le a kamerát (folyamatos autófókusszal, ha a telefon
-  // támogatja), a ZXing csak a kész képkockákat elemzi — nincs kettős
-  // kamera-igénylés, mert csak egy szereplő nyúl hozzá.
+  // támogatja) — a WASM dekóder csak a kész képkockákat elemzi.
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
       video: {
@@ -469,30 +466,13 @@ async function startFallbackScanner() {
     await video.play();
   } catch (e) {
     setCamMsg("A kamera nem érhető el. Engedélyezd a hozzáférést a böngésző beállításaiban.");
-    debugLog("ZXing getUserMedia hiba: " + (e.message || e));
+    debugLog("getUserMedia hiba: " + (e.message || e));
     return;
   }
 
-  // Formátum-szűrés (gyorsít, mert csak a szükséges típusokat keresi) és
-  // "próbálkozzon jobban" mód (segít a nehezebben olvasható kódoknál,
-  // valamivel lassabb, de a mi ütemezett — nem minden kockás — ciklusunkban
-  // ez nem gond).
-  let hints;
-  try {
-    hints = new Map();
-    hints.set(ZXingBrowser.DecodeHintType.POSSIBLE_FORMATS, [
-      ZXingBrowser.BarcodeFormat.EAN_13, ZXingBrowser.BarcodeFormat.EAN_8,
-      ZXingBrowser.BarcodeFormat.UPC_A, ZXingBrowser.BarcodeFormat.UPC_E,
-      ZXingBrowser.BarcodeFormat.CODE_128, ZXingBrowser.BarcodeFormat.CODE_39,
-      ZXingBrowser.BarcodeFormat.ITF, ZXingBrowser.BarcodeFormat.QR_CODE,
-    ]);
-    hints.set(ZXingBrowser.DecodeHintType.TRY_HARDER, true);
-  } catch (e) { hints = undefined; }
-
-  zxingReader = new ZXingBrowser.BrowserMultiFormatReader(hints);
   setCamMsg("");
   refreshTorchButton();
-  debugLog(`tartalék mód (ZXing) · kamera fut · videó:${video.videoWidth}x${video.videoHeight}`);
+  debugLog(`tartalék mód (ZXing-WASM) · kamera fut · videó:${video.videoWidth}x${video.videoHeight}`);
   requestAnimationFrame(fallbackScanLoop);
 }
 
@@ -501,33 +481,29 @@ let fallbackAttempts = 0, fallbackFound = 0;
 async function fallbackScanLoop() {
   try {
     const now = Date.now();
-    // ~5-6 elemzés/mp — a ZXing dekódolás CPU-igényes, ennyi bőven elég
-    // a gördülékenységhez, és nem terheli túl a telefont.
-    if (now - lastFallbackDecodeAt > 180 && video.videoWidth) {
+    // A WASM dekódolás sokkal gyorsabb, mint a tiszta JS verzió volt,
+    // ezért sűrűbben próbálkozhatunk anélkül, hogy akadozna a felület.
+    if (now - lastFallbackDecodeAt > 90 && video.videoWidth) {
       lastFallbackDecodeAt = now;
       const crop = captureGuideCrop();
       if (crop) {
         fallbackAttempts++;
         try {
-          const result = await zxingReader.decodeFromCanvas(crop);
-          if (result) {
+          const imageData = cropCtx.getImageData(0, 0, crop.width, crop.height);
+          const results = await ZXingWASM.readBarcodesFromImageData(imageData, {
+            tryHarder: true,
+            maxSymbols: 1,
+          });
+          if (results && results.length) {
             fallbackFound++;
             highlightGuide();
-            handleDetections([result.getText()]);
+            handleDetections([results[0].text]);
           }
         } catch (e) {
-          // A "nincs vonalkód a képen" a normális eset a legtöbb kockánál —
-          // ezt csendben elnyeljük. MINDEN MÁS hibát viszont kiírunk, mert
-          // az valós programozási/kompatibilitási problémára utalhat.
-          const name = e && e.name ? e.name : "";
-          const msg = e && e.message ? e.message : String(e);
-          const isNotFound = /NotFound|ChecksumException|FormatException|not.*able to detect|no.*code.*found/i.test(name + " " + msg);
-          if (!isNotFound) {
-            debugLog("ZXing decode hiba: " + name + " · " + msg);
-          }
+          debugLog("ZXing-WASM decode hiba: " + (e && e.message ? e.message : e));
         }
-        if (fallbackAttempts % 15 === 0) {
-          debugLog(`tartalék (ZXing) · ${fallbackAttempts} próbálkozás · ${fallbackFound} találat`);
+        if (fallbackAttempts % 20 === 0) {
+          debugLog(`tartalék (ZXing-WASM) · ${fallbackAttempts} próbálkozás · ${fallbackFound} találat`);
         }
       }
     }
@@ -712,7 +688,7 @@ function escapeHtml(str) {
 /* =========================================================================
    INDÍTÁS
    ========================================================================= */
-debugLog("verzió: v21 · fájl betöltve, várakozás gombnyomásra...");
+debugLog("verzió: v22 · fájl betöltve, várakozás gombnyomásra...");
 el("startBtn").addEventListener("click", () => {
   debugLog("gomb megnyomva, kamera indítása...");
   el("startBtn").style.display = "none";
