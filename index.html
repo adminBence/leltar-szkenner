@@ -178,7 +178,7 @@
 </div>
 
 <script>
-alert("DEBUG v20: szkript elindult, fájl betöltve");
+alert("DEBUG v21: szkript elindult, fájl betöltve");
 try {
 /* =========================================================================
    DEMO TERMÉKTÖRZS
@@ -278,7 +278,7 @@ async function startCamera() {
   debugLog("getUserMedia hívása (natív út)...");
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: "environment", width: { ideal: 1920 }, height: { ideal: 1080 },
+      video: { facingMode: "environment", width: { ideal: 4096 }, height: { ideal: 2160 },
         advanced: [{ focusMode: "continuous" }] },
       audio: false,
     });
@@ -357,9 +357,11 @@ function captureGuideCrop(upscale = 2.2) {
 
   cropCanvas.width = Math.round(swC * upscale);
   cropCanvas.height = Math.round(shC * upscale);
-  // Kikapcsolt simítás: felnagyításkor a vonalkód éles szélei jobban
-  // dekódolhatók, mint egy elmosott (simított) verzió.
-  cropCtx.imageSmoothingEnabled = false;
+  // A sima (nem kikapcsolt) simítás jobb eredményt ad a dekódolásnál,
+  // mint az élesen pixeles verzió — a dekóder algoritmusok a finom
+  // élátmenetekből pontosabban számolnak.
+  cropCtx.imageSmoothingEnabled = true;
+  cropCtx.imageSmoothingQuality = "high";
   cropCtx.drawImage(video, sxC, syC, swC, shC, 0, 0, cropCanvas.width, cropCanvas.height);
 
   // Láthatóvá tesszük a kivágott képet, hogy pontosan lássuk mit elemez a rendszer.
@@ -457,7 +459,7 @@ async function startFallbackScanner() {
     const stream = await navigator.mediaDevices.getUserMedia({
       video: {
         facingMode: { ideal: "environment" },
-        width: { ideal: 1920 }, height: { ideal: 1080 },
+        width: { ideal: 4096 }, height: { ideal: 2160 },
         advanced: [{ focusMode: "continuous" }],
       },
       audio: false,
@@ -471,9 +473,21 @@ async function startFallbackScanner() {
     return;
   }
 
-  // Ideiglenesen KIKAPCSOLVA a formátum-szűrés hibakeresés céljából —
-  // alapértelmezett móddal próbálkozik minden formátummal.
+  // Formátum-szűrés (gyorsít, mert csak a szükséges típusokat keresi) és
+  // "próbálkozzon jobban" mód (segít a nehezebben olvasható kódoknál,
+  // valamivel lassabb, de a mi ütemezett — nem minden kockás — ciklusunkban
+  // ez nem gond).
   let hints;
+  try {
+    hints = new Map();
+    hints.set(ZXingBrowser.DecodeHintType.POSSIBLE_FORMATS, [
+      ZXingBrowser.BarcodeFormat.EAN_13, ZXingBrowser.BarcodeFormat.EAN_8,
+      ZXingBrowser.BarcodeFormat.UPC_A, ZXingBrowser.BarcodeFormat.UPC_E,
+      ZXingBrowser.BarcodeFormat.CODE_128, ZXingBrowser.BarcodeFormat.CODE_39,
+      ZXingBrowser.BarcodeFormat.ITF, ZXingBrowser.BarcodeFormat.QR_CODE,
+    ]);
+    hints.set(ZXingBrowser.DecodeHintType.TRY_HARDER, true);
+  } catch (e) { hints = undefined; }
 
   zxingReader = new ZXingBrowser.BrowserMultiFormatReader(hints);
   setCamMsg("");
@@ -698,7 +712,7 @@ function escapeHtml(str) {
 /* =========================================================================
    INDÍTÁS
    ========================================================================= */
-debugLog("verzió: v20 · fájl betöltve, várakozás gombnyomásra...");
+debugLog("verzió: v21 · fájl betöltve, várakozás gombnyomásra...");
 el("startBtn").addEventListener("click", () => {
   debugLog("gomb megnyomva, kamera indítása...");
   el("startBtn").style.display = "none";
