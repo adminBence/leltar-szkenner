@@ -346,9 +346,9 @@ function drawOverlay(barcodes) {
 }
 
 /* =========================================================================
-   FALLBACK: html5-qrcode (Safari / iOS, ahol nincs natív BarcodeDetector)
-   Nincs pontos élő körvonal-rajzolás, de a felismerés ugyanúgy működik,
-   és a középső keret (guide) segít pozicionálni a kódot.
+   FALLBACK: ZXing (Safari / iOS, ahol nincs natív BarcodeDetector)
+   A ZXing maga kezeli a kamera-hozzáférést, közvetlenül a saját
+   <video> elemünkre kötve — nincs kettős kamera-igénylés.
    ========================================================================= */
 
 // Előtöltjük a tartalék könyvtárat MÁR az oldal betöltésekor, a háttérben —
