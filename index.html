@@ -54,11 +54,9 @@
   .guide::after{bottom:-2px; right:-2px; border-width:0 3px 3px 0; border-bottom-right-radius:16px;}
 
   .scanLine{
-    position:absolute; left:4%; right:4%; top:8%; height:2px; border-radius:2px;
+    position:absolute; left:4%; right:4%; top:50%; height:2px; border-radius:2px;
     background:var(--accent); box-shadow:0 0 10px 2px rgba(62,207,142,0.75);
-    animation: scanSweep 1.8s ease-in-out infinite;}
-  @keyframes scanSweep{
-    0%{top:8%; opacity:.9;} 50%{top:90%; opacity:.9;} 100%{top:8%; opacity:.9;}}
+    transform:translateY(-50%);}
 
   #camWrap.flash::after{content:""; position:absolute; inset:0; background:var(--accent);
     opacity:0; animation: flashPulse .35s ease-out; pointer-events:none;}
@@ -178,7 +176,7 @@
 </div>
 
 <script>
-alert("DEBUG v22: szkript elindult, fájl betöltve");
+alert("DEBUG v23: szkript elindult, fájl betöltve");
 try {
 /* =========================================================================
    DEMO TERMÉKTÖRZS
@@ -688,7 +686,7 @@ function escapeHtml(str) {
 /* =========================================================================
    INDÍTÁS
    ========================================================================= */
-debugLog("verzió: v22 · fájl betöltve, várakozás gombnyomásra...");
+debugLog("verzió: v23 · fájl betöltve, várakozás gombnyomásra...");
 el("startBtn").addEventListener("click", () => {
   debugLog("gomb megnyomva, kamera indítása...");
   el("startBtn").style.display = "none";
