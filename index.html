@@ -54,13 +54,6 @@
   #camMsg{position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
     text-align:center; padding:24px; color:var(--text-dim); font-size:14px; background:var(--bg);}
 
-  /* A html5-qrcode (tartalék motor) saját maga szúr be video/canvas elemet,
-     gyakran fix pixelméretű inline style-lal — ez felülírja azt. */
-  #html5qr{position:absolute; inset:0; width:100%; height:100%; overflow:hidden;}
-  #html5qr video, #html5qr canvas{
-    width:100% !important; height:100% !important; object-fit:cover !important;
-    position:absolute !important; top:0 !important; left:0 !important;}
-
   /* ---------- Aktuális találat kártya ---------- */
   #hit{
     position:absolute; left:12px; right:12px; bottom:12px;
@@ -165,7 +158,7 @@
 </div>
 
 <script>
-alert("DEBUG v11: szkript elindult, fájl betöltve");
+alert("DEBUG v12: szkript elindult, fájl betöltve");
 try {
 /* =========================================================================
    DEMO TERMÉKTÖRZS
@@ -196,7 +189,7 @@ let candidateCode = null;
 let candidateCount = 0;
 let usingNative = false;
 let barcodeDetector = null;
-let html5Scanner = null;
+let zxingControls = null;
 
 const el = (id) => document.getElementById(id);
 const video = el("video");
@@ -244,7 +237,15 @@ async function lookupProduct(barcode) {
 let activeStream = null;
 
 async function startCamera() {
-  debugLog("getUserMedia hívása...");
+  // A natív és a tartalék út SZÁNDÉKOSAN külön kezeli a kamerát —
+  // korábban mindkettő megpróbálta lefoglalni, ami iOS-en ütközést okozott.
+  if (!("BarcodeDetector" in window)) {
+    debugLog("BarcodeDetector nem elérhető ebben a böngészőben, ZXing tartalék indítása...");
+    startFallbackScanner();
+    return;
+  }
+
+  debugLog("getUserMedia hívása (natív út)...");
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
       video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } },
@@ -261,24 +262,20 @@ async function startCamera() {
     return;
   }
 
-  if ("BarcodeDetector" in window) {
-    try {
-      const supported = await BarcodeDetector.getSupportedFormats();
-      const formats = supported.filter(f =>
-        ["ean_13","ean_8","upc_a","upc_e","code_128","code_39","itf","qr_code"].includes(f));
-      if (!formats.length) throw new Error("Nincs használható formátum: " + supported.join(","));
-      barcodeDetector = new BarcodeDetector({ formats });
-      usingNative = true;
-      debugLog(`natív mód · formátumok: ${formats.join(", ")}`);
-      requestAnimationFrame(nativeScanLoop);
-      return;
-    } catch (e) {
-      debugLog("natív BarcodeDetector hiba, tartalékra váltás: " + e.message);
-    }
-  } else {
-    debugLog("BarcodeDetector nem elérhető ebben a böngészőben, tartalékra váltás");
+  try {
+    const supported = await BarcodeDetector.getSupportedFormats();
+    const formats = supported.filter(f =>
+      ["ean_13","ean_8","upc_a","upc_e","code_128","code_39","itf","qr_code"].includes(f));
+    if (!formats.length) throw new Error("Nincs használható formátum: " + supported.join(","));
+    barcodeDetector = new BarcodeDetector({ formats });
+    usingNative = true;
+    debugLog(`natív mód · formátumok: ${formats.join(", ")}`);
+    requestAnimationFrame(nativeScanLoop);
+  } catch (e) {
+    debugLog("natív BarcodeDetector hiba, ZXing tartalék indítása: " + e.message);
+    if (activeStream) { activeStream.getTracks().forEach(t => t.stop()); activeStream = null; }
+    startFallbackScanner();
   }
-  startFallbackScanner();
 }
 
 let frameCount = 0, detectCount = 0;
@@ -355,6 +352,7 @@ function drawOverlay(barcodes) {
    ========================================================================= */
 
 // Előtöltjük a tartalék könyvtárat MÁR az oldal betöltésekor, a háttérben —
+// Előtöltjük a ZXing könyvtárat MÁR az oldal betöltésekor, a háttérben —
 // így gombnyomáskor nincs hálózati késleltetés, ami elszakítaná iOS-en
 // a felhasználói érintésből eredő engedélyt a videó lejátszásához.
 function loadScript(src) {
@@ -367,24 +365,16 @@ function loadScript(src) {
 
 let fallbackLibPromise = null;
 if (!("BarcodeDetector" in window)) {
-  fallbackLibPromise = loadScript("https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js")
+  fallbackLibPromise = loadScript("https://unpkg.com/@zxing/browser@0.1.5")
     .catch(e => { debugLog("előtöltési hiba (nem végzetes): " + e); });
 }
 
 async function startFallbackScanner() {
   camMsg.textContent = "Tartalék szkenner betöltése…";
 
-  // Kritikus: a korábban megnyitott kamera-streamet le KELL állítani,
-  // különben a html5-qrcode nem tudja újra lefoglalni a kamerát
-  // (iOS Safari-n ez csendes elakadást okoz, hibaüzenet nélkül).
-  if (activeStream) {
-    activeStream.getTracks().forEach(t => t.stop());
-    activeStream = null;
-  }
-
   try {
     if (!fallbackLibPromise) {
-      fallbackLibPromise = loadScript("https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js");
+      fallbackLibPromise = loadScript("https://unpkg.com/@zxing/browser@0.1.5");
     }
     await fallbackLibPromise;
   } catch (e) {
@@ -393,33 +383,24 @@ async function startFallbackScanner() {
     return;
   }
 
-  // Az eredeti <video> elemet elrejtjük, a könyvtár sajátot épít.
-  video.style.display = "none";
-  const holder = document.createElement("div");
-  holder.id = "html5qr";
-  holder.style.cssText = "position:absolute; inset:0;";
-  el("camWrap").insertBefore(holder, overlay);
-
-  html5Scanner = new Html5Qrcode("html5qr");
+  // Fontos: itt SZÁNDÉKOSAN nem mi hívjuk meg a getUserMedia-t —
+  // a ZXing decodeFromConstraints saját maga kéri le és köti a
+  // kamera-streamet közvetlenül a mi <video> elemünkhöz. Így csak
+  // EGY szereplő nyúl a kamerához, nincs ütközés.
   try {
-    await html5Scanner.start(
-      { facingMode: "environment" },
-      { fps: 12, qrbox: { width: 260, height: 160 } },
-      (decodedText) => handleDetections([decodedText]),
-      () => {} // hibás/nincs találat kockánként — csendben elnyeljük
+    const codeReader = new ZXingBrowser.BrowserMultiFormatReader();
+    zxingControls = await codeReader.decodeFromConstraints(
+      { video: { facingMode: { ideal: "environment" } } },
+      video,
+      (result, err) => {
+        if (result) handleDetections([result.getText()]);
+      }
     );
     camMsg.textContent = "";
-    const injectedVideo = holder.querySelector("video");
-    const w = injectedVideo ? injectedVideo.videoWidth : 0;
-    const h = injectedVideo ? injectedVideo.videoHeight : 0;
-    const children = Array.from(holder.children).map(c =>
-      `${c.tagName.toLowerCase()}(${c.offsetWidth}x${c.offsetHeight},op:${getComputedStyle(c).opacity},vis:${getComputedStyle(c).visibility})`
-    ).join(" | ") || "ÜRES";
-    debugLog(`tartalék · konténer:${holder.clientWidth}x${holder.clientHeight} · `
-      + `videó:${w}x${h} · elemek: ${children}`);
+    debugLog(`tartalék mód (ZXing) · kamera fut · videó:${video.videoWidth}x${video.videoHeight}`);
   } catch (e) {
     camMsg.textContent = "A tartalék szkenner nem tudta elindítani a kamerát.";
-    debugLog("html5-qrcode start hiba: " + (e.message || e));
+    debugLog("ZXing hiba: " + (e.message || e));
   }
 }
 
@@ -604,7 +585,7 @@ function escapeHtml(str) {
 /* =========================================================================
    INDÍTÁS
    ========================================================================= */
-debugLog("verzió: v11 · fájl betöltve, várakozás gombnyomásra...");
+debugLog("verzió: v12 · fájl betöltve, várakozás gombnyomásra...");
 el("startBtn").addEventListener("click", () => {
   debugLog("gomb megnyomva, kamera indítása...");
   el("startBtn").style.display = "none";
