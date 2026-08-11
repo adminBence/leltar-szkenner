@@ -172,7 +172,7 @@
 </div>
 
 <script>
-alert("DEBUG v15: szkript elindult, fájl betöltve");
+alert("DEBUG v16: szkript elindult, fájl betöltve");
 try {
 /* =========================================================================
    DEMO TERMÉKTÖRZS
@@ -341,9 +341,16 @@ function captureGuideCrop(upscale = 2.2) {
   const sh = guideRect.height / scale;
   if (sw <= 0 || sh <= 0) return null;
 
-  cropCanvas.width = Math.round(sw * upscale);
-  cropCanvas.height = Math.round(sh * upscale);
-  cropCtx.drawImage(video, sx, sy, sw, sh, 0, 0, cropCanvas.width, cropCanvas.height);
+  // Biztonsági levágás: a drawImage érvénytelen (negatív vagy a videó
+  // méretén túlnyúló) forrás-téglalapra hibát dobna némely böngészőben.
+  const sxC = Math.max(0, Math.min(sx, vw - 1));
+  const syC = Math.max(0, Math.min(sy, vh - 1));
+  const swC = Math.max(1, Math.min(sw, vw - sxC));
+  const shC = Math.max(1, Math.min(sh, vh - syC));
+
+  cropCanvas.width = Math.round(swC * upscale);
+  cropCanvas.height = Math.round(shC * upscale);
+  cropCtx.drawImage(video, sxC, syC, swC, shC, 0, 0, cropCanvas.width, cropCanvas.height);
   return cropCanvas;
 }
 
@@ -362,24 +369,24 @@ function highlightGuide() {
    NATÍV BARCODEDETECTOR CIKLUS — a kivágott, felnagyított területen dolgozik
    ========================================================================= */
 async function nativeScanLoop() {
-  if (video.readyState >= 2 && video.videoWidth) {
-    frameCount++;
-    const crop = captureGuideCrop();
-    if (crop) {
-      try {
+  try {
+    if (video.readyState >= 2 && video.videoWidth) {
+      frameCount++;
+      const crop = captureGuideCrop();
+      if (crop) {
         const barcodes = await barcodeDetector.detect(crop);
         if (barcodes.length) { detectCount++; highlightGuide(); }
         handleDetections(barcodes.map(b => b.rawValue));
-      } catch (e) {
-        debugLog("detect() hiba: " + e.message);
       }
+      if (frameCount % 20 === 0) {
+        debugLog(`natív mód · videó: ${video.videoWidth}x${video.videoHeight} · `
+          + `${frameCount} kocka feldolgozva · ${detectCount} találat`);
+      }
+    } else {
+      debugLog(`videó nem kész (readyState=${video.readyState}, width=${video.videoWidth})`);
     }
-    if (frameCount % 20 === 0) {
-      debugLog(`natív mód · videó: ${video.videoWidth}x${video.videoHeight} · `
-        + `${frameCount} kocka feldolgozva · ${detectCount} találat`);
-    }
-  } else {
-    debugLog(`videó nem kész (readyState=${video.readyState}, width=${video.videoWidth})`);
+  } catch (e) {
+    debugLog("nativeScanLoop hiba: " + (e && e.message ? e.message : e));
   }
   requestAnimationFrame(nativeScanLoop);
 }
@@ -468,21 +475,25 @@ async function startFallbackScanner() {
 
 let lastFallbackDecodeAt = 0;
 async function fallbackScanLoop() {
-  const now = Date.now();
-  // ~5-6 elemzés/mp — a ZXing dekódolás CPU-igényes, ennyi bőven elég
-  // a gördülékenységhez, és nem terheli túl a telefont.
-  if (now - lastFallbackDecodeAt > 180 && video.videoWidth) {
-    lastFallbackDecodeAt = now;
-    const crop = captureGuideCrop();
-    if (crop) {
-      try {
-        const result = await zxingReader.decodeFromCanvas(crop);
-        if (result) { highlightGuide(); handleDetections([result.getText()]); }
-      } catch (e) {
-        // "nem található kód a képen" — ez a normális eset a legtöbb
-        // kockánál, csendben elnyeljük.
+  try {
+    const now = Date.now();
+    // ~5-6 elemzés/mp — a ZXing dekódolás CPU-igényes, ennyi bőven elég
+    // a gördülékenységhez, és nem terheli túl a telefont.
+    if (now - lastFallbackDecodeAt > 180 && video.videoWidth) {
+      lastFallbackDecodeAt = now;
+      const crop = captureGuideCrop();
+      if (crop) {
+        try {
+          const result = await zxingReader.decodeFromCanvas(crop);
+          if (result) { highlightGuide(); handleDetections([result.getText()]); }
+        } catch (e) {
+          // "nem található kód a képen" — ez a normális eset a legtöbb
+          // kockánál, csendben elnyeljük.
+        }
       }
     }
+  } catch (e) {
+    debugLog("fallbackScanLoop hiba: " + (e && e.message ? e.message : e));
   }
   requestAnimationFrame(fallbackScanLoop);
 }
@@ -668,7 +679,7 @@ function escapeHtml(str) {
 /* =========================================================================
    INDÍTÁS
    ========================================================================= */
-debugLog("verzió: v15 · fájl betöltve, várakozás gombnyomásra...");
+debugLog("verzió: v16 · fájl betöltve, várakozás gombnyomásra...");
 el("startBtn").addEventListener("click", () => {
   debugLog("gomb megnyomva, kamera indítása...");
   el("startBtn").style.display = "none";
