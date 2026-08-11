@@ -104,14 +104,10 @@
   #listPanel.bump{animation: toggleBump .28s ease;}
   @keyframes toggleBump{35%{transform:scale(1.015);}}
 
-  #latestRow{flex:0 0 auto; position:relative; cursor:pointer;}
-  #latestRow .rowItem{padding-right:38px;} /* hely a nyílnak */
-  #latestChevron{position:absolute; right:14px; top:50%; transform:translateY(-50%);
-    font-size:13px; color:var(--text-dim); transition:transform .2s ease; pointer-events:none;}
-  #listPanel.expanded #latestChevron{transform:translateY(-50%) rotate(180deg);}
+  #latestRow{flex:0 0 auto; cursor:pointer;}
 
   #listToggle{flex:0 0 auto; width:100%; text-align:center; color:var(--text-dim);
-    display:none; padding:2px 16px 8px; font-size:11px;}
+    display:none; padding:2px 16px 8px; font-size:12px; font-weight:600;}
   #listToggle.show{display:block;}
 
   #list{overflow-y:auto; max-height:0; transition:max-height .22s ease; -webkit-overflow-scrolling:touch;}
@@ -373,7 +369,7 @@ async function startCamera() {
   }
 }
 
-const APP_VERSION = "v31";
+const APP_VERSION = "v32";
 let frameCount = 0, detectCount = 0;
 function debugLog(msg) {
   // A felületen csak a verziószám látszik (lásd lent) — a részletes
@@ -818,15 +814,15 @@ function renderList() {
   // lenyitható listában bármelyik másik, plusz egy nyíl jelzi, hogy
   // rákoppintva ki-/becsukható a korábbiak listája.
   const latest = items[0];
-  el("latestRow").innerHTML = rowItemHtml(latest) + `<span id="latestChevron">︿</span>`;
+  el("latestRow").innerHTML = rowItemHtml(latest);
   bindRowEvents(el("latestRow"));
 
   // Csak akkor mutatjuk a lenyitó fület, ha van mit lenyitni.
   const toggle = el("listToggle");
   toggle.classList.toggle("show", items.length > 1);
   el("toggleLabel").textContent = listExpanded
-    ? "Összecsukás"
-    : `+${items.length - 1} korábbi tétel`;
+    ? "Összecsukás ︿"
+    : `+${items.length - 1} korábbi tétel ﹀`;
 
   // Lenyitható lista: a korábbiak (a legutolsó már fent, a rögzített
   // sorban látszik, itt nem ismételjük meg).
