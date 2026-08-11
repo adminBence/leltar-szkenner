@@ -174,7 +174,7 @@
 </div>
 
 <script>
-alert("DEBUG v17: szkript elindult, fájl betöltve");
+alert("DEBUG v18: szkript elindult, fájl betöltve");
 try {
 /* =========================================================================
    DEMO TERMÉKTÖRZS
@@ -474,6 +474,7 @@ async function startFallbackScanner() {
 }
 
 let lastFallbackDecodeAt = 0;
+let fallbackAttempts = 0, fallbackFound = 0;
 async function fallbackScanLoop() {
   try {
     const now = Date.now();
@@ -483,12 +484,26 @@ async function fallbackScanLoop() {
       lastFallbackDecodeAt = now;
       const crop = captureGuideCrop();
       if (crop) {
+        fallbackAttempts++;
         try {
           const result = await zxingReader.decodeFromCanvas(crop);
-          if (result) { highlightGuide(); handleDetections([result.getText()]); }
+          if (result) {
+            fallbackFound++;
+            highlightGuide();
+            handleDetections([result.getText()]);
+          }
         } catch (e) {
-          // "nem található kód a képen" — ez a normális eset a legtöbb
-          // kockánál, csendben elnyeljük.
+          // A "nincs vonalkód a képen" a normális eset a legtöbb kockánál —
+          // ezt csendben elnyeljük. MINDEN MÁS hibát viszont kiírunk, mert
+          // az valós programozási/kompatibilitási problémára utalhat.
+          const name = e && e.name ? e.name : "";
+          const isNotFound = /NotFound|ChecksumException|FormatException/i.test(name);
+          if (!isNotFound) {
+            debugLog("ZXing decode hiba: " + name + " · " + (e && e.message ? e.message : e));
+          }
+        }
+        if (fallbackAttempts % 15 === 0) {
+          debugLog(`tartalék (ZXing) · ${fallbackAttempts} próbálkozás · ${fallbackFound} találat`);
         }
       }
     }
@@ -679,7 +694,7 @@ function escapeHtml(str) {
 /* =========================================================================
    INDÍTÁS
    ========================================================================= */
-debugLog("verzió: v17 · fájl betöltve, várakozás gombnyomásra...");
+debugLog("verzió: v18 · fájl betöltve, várakozás gombnyomásra...");
 el("startBtn").addEventListener("click", () => {
   debugLog("gomb megnyomva, kamera indítása...");
   el("startBtn").style.display = "none";
