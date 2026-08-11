@@ -37,8 +37,11 @@
   .dot.online{background:var(--accent);}
   .dot.offline{background:var(--danger);}
 
+  /* ---------- Fő terület (kamera + húzható lista együtt) ---------- */
+  #mainArea{position:relative; flex:1 1 auto; min-height:0; overflow:hidden;}
+
   /* ---------- Kamera terület ---------- */
-  #camWrap{position:relative; flex:1 1 auto; min-height:0; background:#000; overflow:hidden;}
+  #camWrap{position:absolute; inset:0; background:#000; overflow:hidden;}
   video{width:100%; height:100%; object-fit:cover; display:block;}
   canvas#overlay{position:absolute; inset:0; width:100%; height:100%; pointer-events:none;}
 
@@ -91,29 +94,28 @@
   #nextBtn{flex:0 0 auto; height:44px; padding:0 14px; border-radius:10px; border:none;
     background:var(--accent); color:#06231a; font-size:15px; font-weight:700;}
 
-  /* ---------- Lista ---------- */
-  #listWrap{flex:0 0 auto; background:var(--panel); border-top:1px solid var(--line);
-    display:flex; flex-direction:column; transition:max-height .22s ease;}
-  #listWrap.empty{display:none;}
-  #listWrap.collapsed{max-height:82px;}
-  #listWrap.expanded{max-height:50vh;}
-  #listHandle{flex:0 0 auto; padding:6px 14px 2px; cursor:pointer; user-select:none;}
-  .handleRow{display:flex; align-items:center; justify-content:center; gap:6px;
-    color:var(--text-dim); font-size:11px; padding:2px 0;}
-  .handleChevron{font-size:10px; transition:transform .2s ease;}
-  #listWrap.expanded .handleChevron{transform:rotate(180deg);}
-  /* Köteg-hatás: halvány "lapok" a fő sor mögött, ha több tétel is van */
-  .stackPeek{height:0; position:relative;}
-  #listWrap.collapsed.hasMore .stackPeek{height:6px;}
-  #listWrap.collapsed.hasMore .stackPeek::before,
-  #listWrap.collapsed.hasMore .stackPeek::after{content:""; position:absolute; left:14px; right:14px;
-    height:6px; border-radius:6px 6px 0 0; background:var(--panel-2);}
-  #listWrap.collapsed.hasMore .stackPeek::before{bottom:0; left:22px; right:22px; opacity:.7;}
-  #listWrap.collapsed.hasMore .stackPeek::after{bottom:3px; left:30px; right:30px; opacity:.4;}
-  #listWrap.bump{animation: listBump .28s ease;}
-  @keyframes listBump{0%{transform:translateY(0);} 35%{transform:translateY(-6px);} 100%{transform:translateY(0);}}
-  #list{overflow-y:auto; flex:1 1 auto; min-height:0;}
-  .rowItem{display:flex; align-items:center; gap:10px; padding:10px 14px; border-bottom:1px solid var(--line);}
+  /* ---------- Húzható lista-panel (sheet), a kamera fölé csúszik ---------- */
+  #sheet{position:absolute; inset:0; z-index:8; display:flex; flex-direction:column;
+    justify-content:flex-end; pointer-events:none;}
+  #sheet.empty{display:none;}
+  #sheetPanel{pointer-events:auto; height:100%; display:flex; flex-direction:column;
+    background:var(--panel); border-radius:16px 16px 0 0; border-top:1px solid var(--line);
+    box-shadow:0 -6px 24px rgba(0,0,0,0.4);
+    transform:translateY(calc(100% - 112px));
+    transition:transform .25s cubic-bezier(.2,.8,.2,1);}
+  #sheetPanel.dragging{transition:none;}
+  #sheetPanel.bump{animation: sheetBump .28s ease;}
+  @keyframes sheetBump{0%{transform:translateY(calc(100% - 112px));}
+    35%{transform:translateY(calc(100% - 122px));} 100%{transform:translateY(calc(100% - 112px));}}
+  #sheetHandle{flex:0 0 auto; padding:10px 0 4px; display:flex; justify-content:center;
+    cursor:grab; touch-action:none;}
+  .handleGrip{width:40px; height:4px; border-radius:2px; background:var(--line);}
+  #list{overflow-y:auto; flex:1 1 auto; min-height:0; -webkit-overflow-scrolling:touch;}
+  .rowItem{display:flex; align-items:center; gap:10px; padding:12px 16px; border-bottom:1px solid var(--line);}
+  .rowItem.latest{padding:14px 16px 16px;}
+  .rowItem.latest .info b{font-size:17px; font-weight:600;}
+  .rowItem.latest .qty{font-size:16px; padding:4px 10px; border-radius:999px;
+    background:var(--accent-dim); color:var(--accent); font-weight:700;}
   .rowItem .info{flex:1; min-width:0;}
   .rowItem .info b{display:block; font-size:14px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
   .rowItem .info span{font-size:11px; color:var(--text-dim);}
@@ -148,6 +150,7 @@
     </div>
   </header>
 
+  <div id="mainArea">
   <div id="camWrap">
     <video id="video" autoplay playsinline muted></video>
     <canvas id="overlay"></canvas>
@@ -182,12 +185,14 @@
     </div>
   </div>
 
-  <div id="listWrap" class="empty collapsed">
-    <div id="listHandle">
-      <div class="stackPeek"></div>
-      <div class="handleRow"><span class="handleChevron">▲</span><span id="handleLabel">Utolsó tétel</span></div>
+  <div id="sheet" class="empty">
+    <div id="sheetPanel">
+      <div id="sheetHandle">
+        <div class="handleGrip"></div>
+      </div>
+      <div id="list"></div>
     </div>
-    <div id="list"></div>
+  </div>
   </div>
 
   <footer>
@@ -330,7 +335,7 @@ async function startCamera() {
   }
 }
 
-const APP_VERSION = "v27";
+const APP_VERSION = "v28";
 let frameCount = 0, detectCount = 0;
 function debugLog(msg) {
   // A felületen csak a verziószám látszik (lásd lent) — a részletes
@@ -687,14 +692,15 @@ function updatePendingCount() {
 }
 
 /* =========================================================================
-   LISTA MEGJELENÍTÉS
-   - Összecsukva csak az utoljára beolvasott tétel látszik, pici
-     "köteg" utalással, ha van még alatta több is.
-   - Kibontva (a fogantyúra koppintva) a teljes lista görgethető.
-   - Új tétel beolvasásakor, ha összecsukott állapotban vagyunk, a
-     doboz egy rövid "bump" animációval jelzi az újdonságot.
+   LISTA MEGJELENÍTÉS (húzható panel)
+   - A lista mindig a legutolsó beolvasott tétellel kezdődik (kiemelt,
+     nagyobb stílussal, mint a beolvasás utáni kártya).
+   - Összecsukott állapotban a panel csak ennyit mutat, a kamera-kép
+     látszik fölötte.
+   - Felfelé húzva a fogantyút, a panel rácsúszik a kamera-képre és a
+     teljes lista görgethetővé válik. Lefelé húzva visszacsukódik.
    ========================================================================= */
-let listExpanded = false;
+let sheetExpanded = false;
 let lastRenderedCount = 0;
 
 function renderList() {
@@ -702,26 +708,18 @@ function renderList() {
   el("itemCount").textContent = items.length;
   updatePendingCount();
 
-  const listWrap = el("listWrap");
+  const sheet = el("sheet");
   const list = el("list");
   if (!items.length) {
-    listWrap.classList.add("empty");
+    sheet.classList.add("empty");
     list.innerHTML = "";
     lastRenderedCount = 0;
     return;
   }
-  listWrap.classList.remove("empty");
-  listWrap.classList.toggle("expanded", listExpanded);
-  listWrap.classList.toggle("collapsed", !listExpanded);
-  listWrap.classList.toggle("hasMore", items.length > 1);
-  el("handleLabel").textContent = listExpanded
-    ? `${items.length} tétel — koppints az összecsukáshoz`
-    : (items.length > 1 ? `Utolsó tétel · +${items.length - 1} másik` : "Utolsó tétel");
+  sheet.classList.remove("empty");
 
-  const visibleItems = listExpanded ? items : items.slice(0, 1);
-
-  list.innerHTML = visibleItems.map(s => `
-    <div class="rowItem">
+  list.innerHTML = items.map((s, i) => `
+    <div class="rowItem${i === 0 ? " latest" : ""}">
       <div class="info">
         <b>${escapeHtml(s.name)}</b>
         <span>${s.barcode} · ${s.sector}</span>
@@ -739,18 +737,90 @@ function renderList() {
   });
 
   // Bump animáció, ha új tétel érkezett, és összecsukott állapotban vagyunk.
-  if (!listExpanded && items.length > lastRenderedCount) {
-    listWrap.classList.remove("bump");
-    void listWrap.offsetWidth;
-    listWrap.classList.add("bump");
+  const sheetPanel = el("sheetPanel");
+  if (!sheetExpanded && items.length > lastRenderedCount) {
+    sheetPanel.classList.remove("bump");
+    void sheetPanel.offsetWidth;
+    sheetPanel.classList.add("bump");
   }
   lastRenderedCount = items.length;
 }
 
-el("listHandle").addEventListener("click", () => {
-  listExpanded = !listExpanded;
-  renderList();
-  if (listExpanded) el("list").scrollTop = 0;
+/* ---------- Húzás kezelése (érintés és egér is) ---------- */
+const sheetPanelEl = () => el("sheetPanel");
+const COLLAPSED_OFFSET_PX = 112; // ennyi px látszik összecsukva (lásd CSS)
+let dragStartY = null, dragStartTranslate = 0;
+
+function setSheetState(expanded, animate = true) {
+  sheetExpanded = expanded;
+  const panel = sheetPanelEl();
+  panel.classList.toggle("dragging", false);
+  panel.style.transition = animate ? "" : "none";
+  panel.style.transform = expanded ? "translateY(0)" : "";
+  if (!animate) void panel.offsetWidth;
+}
+
+function currentTranslateY(panel) {
+  const t = getComputedStyle(panel).transform;
+  if (t === "none") return 0;
+  const m = new DOMMatrixReadOnly(t);
+  return m.m42;
+}
+
+function dragStart(clientY) {
+  const panel = sheetPanelEl();
+  dragStartY = clientY;
+  dragStartTranslate = currentTranslateY(panel);
+  panel.classList.add("dragging");
+}
+function dragMove(clientY) {
+  if (dragStartY === null) return;
+  const panel = sheetPanelEl();
+  const maxY = panel.offsetHeight - COLLAPSED_OFFSET_PX;
+  let newY = dragStartTranslate + (clientY - dragStartY);
+  newY = Math.max(0, Math.min(maxY, newY));
+  panel.style.transform = `translateY(${newY}px)`;
+}
+function dragEnd(clientY) {
+  if (dragStartY === null) return;
+  const delta = clientY - dragStartY;
+  dragStartY = null;
+  el("sheetPanel").classList.remove("dragging");
+  if (Math.abs(delta) < 6) setSheetState(!sheetExpanded);       // koppintás = váltás
+  else if (delta < -40) setSheetState(true);                    // felfelé húzás = nyit
+  else if (delta > 40) setSheetState(false);                    // lefelé húzás = csuk
+  else setSheetState(sheetExpanded);                            // kis mozgás = visszapattan
+}
+
+const handle = document.getElementById("sheetHandle");
+handle.addEventListener("touchstart", e => dragStart(e.touches[0].clientY), { passive: true });
+handle.addEventListener("touchmove", e => dragMove(e.touches[0].clientY), { passive: true });
+handle.addEventListener("touchend", e => dragEnd(e.changedTouches[0].clientY));
+handle.addEventListener("mousedown", e => {
+  dragStart(e.clientY);
+  const onMove = ev => dragMove(ev.clientY);
+  const onUp = ev => {
+    dragEnd(ev.clientY);
+    window.removeEventListener("mousemove", onMove);
+    window.removeEventListener("mouseup", onUp);
+  };
+  window.addEventListener("mousemove", onMove);
+  window.addEventListener("mouseup", onUp);
+});
+
+// Ha kibontott állapotban a lista tetejére görgetünk, és onnan tovább
+// próbálnánk felfelé húzni (rugalmas túlhúzás), az a becsukást is
+// elindíthatja — de csak a lista tetején állva induló húzás esetén.
+document.getElementById("list").addEventListener("touchstart", e => {
+  if (sheetExpanded && el("list").scrollTop === 0) {
+    dragStart(e.touches[0].clientY);
+  }
+}, { passive: true });
+document.getElementById("list").addEventListener("touchmove", e => {
+  if (dragStartY !== null) dragMove(e.touches[0].clientY);
+}, { passive: true });
+document.getElementById("list").addEventListener("touchend", e => {
+  if (dragStartY !== null) dragEnd(e.changedTouches[0].clientY);
 });
 
 function escapeHtml(str) {
