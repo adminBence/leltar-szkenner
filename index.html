@@ -174,7 +174,7 @@
 </div>
 
 <script>
-alert("DEBUG v18: szkript elindult, fájl betöltve");
+alert("DEBUG v19: szkript elindult, fájl betöltve");
 try {
 /* =========================================================================
    DEMO TERMÉKTÖRZS
@@ -497,9 +497,10 @@ async function fallbackScanLoop() {
           // ezt csendben elnyeljük. MINDEN MÁS hibát viszont kiírunk, mert
           // az valós programozási/kompatibilitási problémára utalhat.
           const name = e && e.name ? e.name : "";
-          const isNotFound = /NotFound|ChecksumException|FormatException/i.test(name);
+          const msg = e && e.message ? e.message : String(e);
+          const isNotFound = /NotFound|ChecksumException|FormatException|not.*able to detect|no.*code.*found/i.test(name + " " + msg);
           if (!isNotFound) {
-            debugLog("ZXing decode hiba: " + name + " · " + (e && e.message ? e.message : e));
+            debugLog("ZXing decode hiba: " + name + " · " + msg);
           }
         }
         if (fallbackAttempts % 15 === 0) {
@@ -515,8 +516,9 @@ async function fallbackScanLoop() {
 
 /* =========================================================================
    FELISMERÉS FELDOLGOZÁSA
-   - Ugyanazt a kódot 3 egymást követő ciklusban kell látni, mielőtt
-     elfogadjuk (ez véd a "elmosódott, hibás" egyszeri leolvasás ellen).
+   - Mindkét motor (natív és ZXing) belsőleg ellenőrzi a vonalkód
+     ellenőrző-számjegyét (checksum) dekódoláskor — egyetlen sikeres
+     olvasás is megbízható, nem kell több egymást követő találat.
    - Ha egy MÁSIK kódot ismer fel, miközben az előző kártya még nyitva
      van, az előzőt az aktuális mennyiséggel automatikusan rögzíti,
      és rögtön az újra vált — ez adja a gördülékeny, megállás nélküli
@@ -527,15 +529,8 @@ function handleDetections(codes) {
 
   // A guide-hoz legközelebbi / első kódot vesszük célnak.
   const code = codes[0];
-
-  if (code === candidateCode) {
-    candidateCount++;
-  } else {
-    candidateCode = code;
-    candidateCount = 1;
-  }
-
-  if (candidateCount < 3) return;
+  candidateCode = code;
+  candidateCount = 1;
 
   const now = Date.now();
   if (code === lastAcceptedCode && now - lastAcceptedAt < 1200) return; // duplikáció-védelem
@@ -694,7 +689,7 @@ function escapeHtml(str) {
 /* =========================================================================
    INDÍTÁS
    ========================================================================= */
-debugLog("verzió: v18 · fájl betöltve, várakozás gombnyomásra...");
+debugLog("verzió: v19 · fájl betöltve, várakozás gombnyomásra...");
 el("startBtn").addEventListener("click", () => {
   debugLog("gomb megnyomva, kamera indítása...");
   el("startBtn").style.display = "none";
