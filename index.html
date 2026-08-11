@@ -63,6 +63,7 @@
   #camWrap.flash::after{content:""; position:absolute; inset:0; background:var(--accent);
     opacity:0; animation: flashPulse .35s ease-out; pointer-events:none;}
   @keyframes flashPulse{0%{opacity:.35;} 100%{opacity:0;}}
+  @keyframes focusRipple{0%{transform:scale(0.6); opacity:1;} 100%{transform:scale(1.15); opacity:0;}}
 
   #camMsg{position:absolute; inset:0; display:none; align-items:center; justify-content:center;
     text-align:center; padding:24px; color:var(--text-dim); font-size:14px; background:var(--bg);}
@@ -139,6 +140,9 @@
     <button id="startBtn" style="position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
       padding:16px 28px; font-size:16px; font-weight:700; border:none; border-radius:12px;
       background:var(--accent); color:#06231a; z-index:5;">Kamera indítása</button>
+    <button id="torchBtn" style="position:absolute; top:8px; right:8px; width:40px; height:40px;
+      border-radius:50%; border:1px solid rgba(255,255,255,0.3); background:rgba(0,0,0,0.5);
+      color:#fff; font-size:18px; z-index:6; display:none;">🔦</button>
     <div id="debugBar" style="position:absolute; top:8px; left:8px; right:8px; font-size:11px;
       color:#9fe1cb; background:rgba(0,0,0,0.55); padding:5px 8px; border-radius:6px;
       font-family:monospace; pointer-events:none;"></div>
@@ -174,7 +178,7 @@
 </div>
 
 <script>
-alert("DEBUG v19: szkript elindult, fájl betöltve");
+alert("DEBUG v20: szkript elindult, fájl betöltve");
 try {
 /* =========================================================================
    DEMO TERMÉKTÖRZS
@@ -274,7 +278,7 @@ async function startCamera() {
   debugLog("getUserMedia hívása (natív út)...");
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 },
+      video: { facingMode: "environment", width: { ideal: 1920 }, height: { ideal: 1080 },
         advanced: [{ focusMode: "continuous" }] },
       audio: false,
     });
@@ -297,6 +301,7 @@ async function startCamera() {
     barcodeDetector = new BarcodeDetector({ formats });
     usingNative = true;
     setCamMsg("");
+    refreshTorchButton();
     debugLog(`natív mód · formátumok: ${formats.join(", ")}`);
     requestAnimationFrame(nativeScanLoop);
   } catch (e) {
@@ -352,6 +357,9 @@ function captureGuideCrop(upscale = 2.2) {
 
   cropCanvas.width = Math.round(swC * upscale);
   cropCanvas.height = Math.round(shC * upscale);
+  // Kikapcsolt simítás: felnagyításkor a vonalkód éles szélei jobban
+  // dekódolhatók, mint egy elmosott (simított) verzió.
+  cropCtx.imageSmoothingEnabled = false;
   cropCtx.drawImage(video, sxC, syC, swC, shC, 0, 0, cropCanvas.width, cropCanvas.height);
 
   // Láthatóvá tesszük a kivágott képet, hogy pontosan lássuk mit elemez a rendszer.
@@ -449,7 +457,7 @@ async function startFallbackScanner() {
     const stream = await navigator.mediaDevices.getUserMedia({
       video: {
         facingMode: { ideal: "environment" },
-        width: { ideal: 1280 }, height: { ideal: 720 },
+        width: { ideal: 1920 }, height: { ideal: 1080 },
         advanced: [{ focusMode: "continuous" }],
       },
       audio: false,
@@ -469,6 +477,7 @@ async function startFallbackScanner() {
 
   zxingReader = new ZXingBrowser.BrowserMultiFormatReader(hints);
   setCamMsg("");
+  refreshTorchButton();
   debugLog(`tartalék mód (ZXing) · kamera fut · videó:${video.videoWidth}x${video.videoHeight}`);
   requestAnimationFrame(fallbackScanLoop);
 }
@@ -689,7 +698,7 @@ function escapeHtml(str) {
 /* =========================================================================
    INDÍTÁS
    ========================================================================= */
-debugLog("verzió: v19 · fájl betöltve, várakozás gombnyomásra...");
+debugLog("verzió: v20 · fájl betöltve, várakozás gombnyomásra...");
 el("startBtn").addEventListener("click", () => {
   debugLog("gomb megnyomva, kamera indítása...");
   el("startBtn").style.display = "none";
@@ -700,6 +709,80 @@ renderList();
 window.addEventListener("online", () => el("netDot").className = "dot online");
 window.addEventListener("offline", () => el("netDot").className = "dot offline");
 el("netDot").className = navigator.onLine ? "dot online" : "dot offline";
+
+/* =========================================================================
+   VAKU (torch) és ÉRINTÉSRE-FÓKUSZ
+   Fontos: iOS Safari-n ezek jellemzően NEM támogatottak webes API-n
+   keresztül (Apple oldali korlátozás) — ott a gombok/érintés egyszerűen
+   nem csinálnak semmit, hibaüzenet nélkül. Android Chrome-on sok
+   eszközön működnek.
+   ========================================================================= */
+let torchOn = false;
+
+function getActiveVideoTrack() {
+  return activeStream ? activeStream.getVideoTracks()[0] : null;
+}
+
+function refreshTorchButton() {
+  const track = getActiveVideoTrack();
+  const btn = el("torchBtn");
+  if (!btn) return;
+  try {
+    const caps = track && track.getCapabilities ? track.getCapabilities() : null;
+    btn.style.display = (caps && caps.torch) ? "flex" : "none";
+  } catch (e) {
+    btn.style.display = "none";
+  }
+}
+
+el("torchBtn").addEventListener("click", async () => {
+  const track = getActiveVideoTrack();
+  if (!track) return;
+  try {
+    torchOn = !torchOn;
+    await track.applyConstraints({ advanced: [{ torch: torchOn }] });
+    el("torchBtn").style.background = torchOn ? "var(--accent)" : "rgba(0,0,0,0.5)";
+  } catch (e) {
+    debugLog("vaku hiba: " + (e.message || e));
+  }
+});
+
+// Érintésre-fókusz: a kamera-kép megérintett pontjára próbál fókuszálni,
+// ahol a böngésző/eszköz ezt támogatja.
+el("camWrap").addEventListener("click", async (ev) => {
+  if (ev.target.closest("#startBtn, #torchBtn, #hit")) return;
+  const track = getActiveVideoTrack();
+  if (!track || !track.getCapabilities) return;
+
+  const rect = el("camWrap").getBoundingClientRect();
+  const x = (ev.clientX - rect.left) / rect.width;
+  const y = (ev.clientY - rect.top) / rect.height;
+
+  // Rövid vizuális visszajelzés az érintésnél, függetlenül attól,
+  // hogy a fókuszálás ténylegesen támogatott-e az eszközön.
+  showFocusRipple(ev.clientX - rect.left, ev.clientY - rect.top);
+
+  try {
+    const caps = track.getCapabilities();
+    if (caps.pointsOfInterest) {
+      await track.applyConstraints({ advanced: [{ pointsOfInterest: [{ x, y }] }] });
+    }
+    if (caps.focusMode && caps.focusMode.includes("single-shot")) {
+      await track.applyConstraints({ advanced: [{ focusMode: "single-shot" }] });
+    }
+  } catch (e) {
+    // Nem támogatott eszközön/böngészőn csendben nem csinál semmit.
+  }
+});
+
+function showFocusRipple(x, y) {
+  const ripple = document.createElement("div");
+  ripple.style.cssText = `position:absolute; left:${x}px; top:${y}px; width:56px; height:56px;
+    margin:-28px 0 0 -28px; border:2px solid var(--accent); border-radius:50%;
+    pointer-events:none; z-index:7; animation: focusRipple .5s ease-out forwards;`;
+  el("camWrap").appendChild(ripple);
+  setTimeout(() => ripple.remove(), 500);
+}
 
 } catch (e) {
   alert("KRITIKUS HIBA a szkriptben: " + (e && e.stack ? e.stack : e));
