@@ -104,14 +104,15 @@
   #listPanel.bump{animation: toggleBump .28s ease;}
   @keyframes toggleBump{35%{transform:scale(1.015);}}
 
-  #latestRow{flex:0 0 auto;}
+  #latestRow{flex:0 0 auto; position:relative; cursor:pointer;}
+  #latestRow .rowItem{padding-right:38px;} /* hely a nyílnak */
+  #latestChevron{position:absolute; right:14px; top:50%; transform:translateY(-50%);
+    font-size:13px; color:var(--text-dim); transition:transform .2s ease; pointer-events:none;}
+  #listPanel.expanded #latestChevron{transform:translateY(-50%) rotate(180deg);}
 
-  #listToggle{flex:0 0 auto; width:100%; border:none; background:none; color:var(--text-dim);
-    display:none; align-items:center; justify-content:center; gap:6px;
-    padding:4px 16px 8px; font-size:11px; cursor:pointer;}
-  #listToggle.show{display:flex;}
-  #listChevron{font-size:10px; transition:transform .2s ease;}
-  #listPanel.expanded #listChevron{transform:rotate(180deg);}
+  #listToggle{flex:0 0 auto; width:100%; text-align:center; color:var(--text-dim);
+    display:none; padding:2px 16px 8px; font-size:11px;}
+  #listToggle.show{display:block;}
 
   #list{overflow-y:auto; max-height:0; transition:max-height .22s ease; -webkit-overflow-scrolling:touch;}
   #listPanel.expanded #list{max-height:38vh; border-top:1px solid var(--line);}
@@ -125,6 +126,20 @@
     background:var(--panel-2); color:var(--text); font-size:15px; line-height:1; padding:0;}
   .rowItem .qtyEdit .qtyVal{min-width:26px; text-align:center; font-size:14px; font-weight:600;}
   .rowItem .delBtn{background:none; border:none; color:var(--text-dim); font-size:16px; padding:4px 2px 4px 8px;}
+
+  /* ---------- Törlés megerősítő ablak ---------- */
+  #confirmOverlay{display:none; position:fixed; inset:0; z-index:50;
+    background:rgba(0,0,0,0.55); align-items:center; justify-content:center; padding:24px;}
+  #confirmOverlay.show{display:flex;}
+  #confirmBox{background:var(--panel-2); border:1px solid var(--line); border-radius:14px;
+    padding:20px; max-width:320px; width:100%; text-align:center;}
+  #confirmText{font-size:15px; font-weight:600; margin-bottom:4px;}
+  #confirmName{font-size:13px; color:var(--text-dim); margin-bottom:16px;}
+  #confirmButtons{display:flex; gap:10px;}
+  #confirmButtons button{flex:1; padding:11px; border-radius:10px; border:none;
+    font-size:14px; font-weight:700;}
+  #confirmCancel{background:var(--accent); color:#06231a;}
+  #confirmDelete{background:var(--danger); color:#fff;}
 
   /* ---------- Lábléc ---------- */
   footer{flex:0 0 auto; display:flex; gap:10px; padding:10px 14px;
@@ -201,11 +216,21 @@
 
   <div id="listPanel" class="empty">
     <div id="latestRow"></div>
-    <button id="listToggle">
+    <div id="listToggle">
       <span id="toggleLabel">Korábbi tételek</span>
-      <span id="listChevron">︿</span>
-    </button>
+    </div>
     <div id="list"></div>
+  </div>
+
+  <div id="confirmOverlay">
+    <div id="confirmBox">
+      <div id="confirmText">Biztosan törlöd ezt a tételt?</div>
+      <div id="confirmName"></div>
+      <div id="confirmButtons">
+        <button id="confirmCancel">Mégse</button>
+        <button id="confirmDelete">Törlés</button>
+      </div>
+    </div>
   </div>
 
   <footer>
@@ -348,7 +373,7 @@ async function startCamera() {
   }
 }
 
-const APP_VERSION = "v30";
+const APP_VERSION = "v31";
 let frameCount = 0, detectCount = 0;
 function debugLog(msg) {
   // A felületen csak a verziószám látszik (lásd lent) — a részletes
@@ -744,11 +769,33 @@ function bindRowEvents(container) {
     const it = findScannedItem(btn.dataset.barcode, btn.dataset.sector);
     if (it) { it.qty += 1; it.synced = false; renderList(); }
   }));
-  container.querySelectorAll(".delBtn").forEach(btn => btn.addEventListener("click", () => {
-    scanned = scanned.filter(s => !(s.barcode === btn.dataset.barcode && s.sector === btn.dataset.sector));
-    renderList();
+  container.querySelectorAll(".delBtn").forEach(btn => btn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    askDeleteConfirmation(btn.dataset.barcode, btn.dataset.sector);
   }));
 }
+
+/* ---------- Törlés megerősítése ---------- */
+let pendingDelete = null;
+function askDeleteConfirmation(barcode, sector) {
+  const it = findScannedItem(barcode, sector);
+  if (!it) return;
+  pendingDelete = { barcode, sector };
+  el("confirmName").textContent = `${it.name} (${it.qty} db)`;
+  el("confirmOverlay").classList.add("show");
+}
+el("confirmCancel").addEventListener("click", () => {
+  pendingDelete = null;
+  el("confirmOverlay").classList.remove("show");
+});
+el("confirmDelete").addEventListener("click", () => {
+  if (pendingDelete) {
+    scanned = scanned.filter(s => !(s.barcode === pendingDelete.barcode && s.sector === pendingDelete.sector));
+  }
+  pendingDelete = null;
+  el("confirmOverlay").classList.remove("show");
+  renderList();
+});
 
 function renderList() {
   const items = scanned.filter(s => !currentSector || s.sector === currentSector);
@@ -768,9 +815,10 @@ function renderList() {
   panel.classList.toggle("expanded", listExpanded);
 
   // A legutolsó tétel — ugyanolyan, teljesen szerkeszthető sor, mint a
-  // lenyitható listában bármelyik másik.
+  // lenyitható listában bármelyik másik, plusz egy nyíl jelzi, hogy
+  // rákoppintva ki-/becsukható a korábbiak listája.
   const latest = items[0];
-  el("latestRow").innerHTML = rowItemHtml(latest);
+  el("latestRow").innerHTML = rowItemHtml(latest) + `<span id="latestChevron">︿</span>`;
   bindRowEvents(el("latestRow"));
 
   // Csak akkor mutatjuk a lenyitó fület, ha van mit lenyitni.
@@ -795,6 +843,14 @@ function renderList() {
 }
 
 el("listToggle").addEventListener("click", () => {
+  listExpanded = !listExpanded;
+  renderList();
+});
+
+// A legutolsó, mindig látható tételre bárhova koppintva is nyit/csuk —
+// kivéve, ha épp a mennyiség-gombokat vagy a törlést érintjük.
+el("latestRow").addEventListener("click", (e) => {
+  if (e.target.closest(".qtyEdit, .delBtn")) return;
   listExpanded = !listExpanded;
   renderList();
 });
