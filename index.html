@@ -82,13 +82,13 @@
     color:var(--accent); font-weight:600; white-space:nowrap;}
   .hitBadge.warn{background:#4a3a17; color:var(--warn);}
 
-  .qtyRow{display:flex; align-items:center; gap:10px; margin-top:12px;}
-  .qtyBtn{width:44px; height:44px; border-radius:10px; border:1px solid var(--line);
+  .qtyRow{display:flex; align-items:center; gap:8px; margin-top:12px;}
+  .qtyBtn{width:40px; height:44px; flex:0 0 40px; border-radius:10px; border:1px solid var(--line);
     background:var(--panel-2); color:var(--text); font-size:20px; font-weight:600;}
   .qtyBtn:active{background:var(--line);}
-  #qtyInput{flex:1; text-align:center; font-size:22px; font-weight:600; height:44px;
+  #qtyInput{flex:1 1 0; min-width:0; text-align:center; font-size:22px; font-weight:600; height:44px;
     background:var(--panel-2); border:1px solid var(--line); border-radius:10px; color:var(--text);}
-  #nextBtn{flex:0 0 auto; height:44px; padding:0 18px; border-radius:10px; border:none;
+  #nextBtn{flex:0 0 auto; height:44px; padding:0 14px; border-radius:10px; border:none;
     background:var(--accent); color:#06231a; font-size:15px; font-weight:700;}
 
   /* ---------- Lista ---------- */
@@ -137,15 +137,15 @@
     <div id="camMsg"></div>
     <button id="startBtn" style="position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
       padding:16px 28px; font-size:16px; font-weight:700; border:none; border-radius:12px;
-      background:var(--accent); color:#06231a; z-index:5;">Kamera indítása</button>
+      background:var(--accent); color:#06231a; z-index:5; display:none;">Kamera indítása</button>
+    <div id="selectSectorHint" style="position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
+      color:var(--text-dim); font-size:14px; text-align:center; padding:0 24px;">
+      Válassz szektort a kamera indításához ⬆️</div>
     <button id="torchBtn" style="position:absolute; top:8px; right:8px; width:40px; height:40px;
       border-radius:50%; border:1px solid rgba(255,255,255,0.3); background:rgba(0,0,0,0.5);
       color:#fff; font-size:18px; z-index:6; display:none;">🔦</button>
-    <div id="debugBar" style="position:absolute; top:8px; left:8px; right:8px; font-size:11px;
-      color:#9fe1cb; background:rgba(0,0,0,0.55); padding:5px 8px; border-radius:6px;
-      font-family:monospace; pointer-events:none;"></div>
-    <canvas id="cropPreview" style="position:absolute; top:44px; left:8px; width:140px;
-      border:2px solid var(--accent); border-radius:4px; z-index:6; background:#000;"></canvas>
+    <div id="debugBar" style="position:absolute; top:6px; left:8px; font-size:9px;
+      color:rgba(255,255,255,0.35); font-family:monospace; pointer-events:none; z-index:2;"></div>
 
     <div id="hit">
       <div class="hitTop">
@@ -176,7 +176,6 @@
 </div>
 
 <script>
-alert("DEBUG v23: szkript elindult, fájl betöltve");
 try {
 /* =========================================================================
    DEMO TERMÉKTÖRZS
@@ -309,10 +308,13 @@ async function startCamera() {
   }
 }
 
+const APP_VERSION = "v24";
 let frameCount = 0, detectCount = 0;
 function debugLog(msg) {
-  const bar = document.getElementById("debugBar");
-  if (bar) bar.textContent = msg;
+  // A felületen csak a verziószám látszik (lásd lent) — a részletes
+  // állapotüzenetek a böngésző konzoljába mennek, ott elérhetők
+  // hibakereséshez, de nem zsúfolják a kamera-képet.
+  console.log("[leltár]", msg);
 }
 
 /* =========================================================================
@@ -361,14 +363,6 @@ function captureGuideCrop(upscale = 2.2) {
   cropCtx.imageSmoothingEnabled = true;
   cropCtx.imageSmoothingQuality = "high";
   cropCtx.drawImage(video, sxC, syC, swC, shC, 0, 0, cropCanvas.width, cropCanvas.height);
-
-  // Láthatóvá tesszük a kivágott képet, hogy pontosan lássuk mit elemez a rendszer.
-  const preview = document.getElementById("cropPreview");
-  if (preview) {
-    preview.width = cropCanvas.width;
-    preview.height = cropCanvas.height;
-    preview.getContext("2d").drawImage(cropCanvas, 0, 0);
-  }
 
   return cropCanvas;
 }
@@ -496,6 +490,8 @@ async function fallbackScanLoop() {
             fallbackFound++;
             highlightGuide();
             handleDetections([results[0].text]);
+          } else {
+            handleDetections([]);
           }
         } catch (e) {
           debugLog("ZXing-WASM decode hiba: " + (e && e.message ? e.message : e));
@@ -520,17 +516,26 @@ async function fallbackScanLoop() {
      van, az előzőt az aktuális mennyiséggel automatikusan rögzíti,
      és rögtön az újra vált — ez adja a gördülékeny, megállás nélküli
      scannelést.
+   - Ugyanaz a vonalkód csak akkor számít "újra beolvasottnak" (és
+     kapja +1-et a mennyisége), ha közben egy pillanatra eltűnt a
+     képből — ez engedi, hogy pl. két egyforma terméket egymás után
+     beolvass anélkül, hogy várni kelljen, de véd az ellen, hogy
+     ugyanaz a mozdulatlan termék véletlenül duplán számoljon.
    ========================================================================= */
 function handleDetections(codes) {
-  if (!codes.length) { candidateCode = null; candidateCount = 0; return; }
+  if (!codes.length) {
+    candidateCode = null;
+    candidateCount = 0;
+    lastAcceptedCode = null; // a kód eltűnt a képből — legközelebb újra elfogadható
+    return;
+  }
 
   // A guide-hoz legközelebbi / első kódot vesszük célnak.
   const code = codes[0];
   candidateCode = code;
   candidateCount = 1;
 
-  const now = Date.now();
-  if (code === lastAcceptedCode && now - lastAcceptedAt < 1200) return; // duplikáció-védelem
+  if (code === lastAcceptedCode) return; // ugyanaz a kód, még mindig folyamatosan látszik
   if (pendingHit && code === pendingHit.barcode) return; // már ez van kártyán
 
   acceptCode(code);
@@ -538,7 +543,6 @@ function handleDetections(codes) {
 
 async function acceptCode(barcode) {
   lastAcceptedCode = barcode;
-  lastAcceptedAt = Date.now();
 
   // Ha volt függőben lévő tétel, azt előbb véglegesítjük az aktuális mennyiséggel.
   if (pendingHit) commitPending();
@@ -618,6 +622,13 @@ el("nextBtn").addEventListener("click", commitPending);
 el("sectorSelect").addEventListener("change", (e) => {
   currentSector = e.target.value;
   renderList();
+  const hasSector = !!currentSector;
+  el("selectSectorHint").style.display = hasSector ? "none" : "block";
+  // Csak akkor mutatjuk a gombot, ha a kamera még nem indult el —
+  // ha már fut, szektorváltáskor nem kell újra rákérdezni.
+  if (hasSector && !activeStream) {
+    el("startBtn").style.display = "block";
+  }
 });
 
 el("closeSectorBtn").addEventListener("click", () => {
@@ -686,7 +697,8 @@ function escapeHtml(str) {
 /* =========================================================================
    INDÍTÁS
    ========================================================================= */
-debugLog("verzió: v23 · fájl betöltve, várakozás gombnyomásra...");
+document.getElementById("debugBar").textContent = APP_VERSION;
+debugLog("fájl betöltve, várakozás gombnyomásra...");
 el("startBtn").addEventListener("click", () => {
   debugLog("gomb megnyomva, kamera indítása...");
   el("startBtn").style.display = "none";
