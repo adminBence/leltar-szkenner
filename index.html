@@ -45,11 +45,24 @@
   .guide{
     position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
     width:78%; max-width:420px; aspect-ratio:16/9;
-    border:2px solid rgba(255,255,255,0.28); border-radius:16px; pointer-events:none;}
+    border:2px solid rgba(255,255,255,0.28); border-radius:16px; pointer-events:none;
+    transition:border-color .15s ease, box-shadow .15s ease;}
+  .guide.active{border-color:var(--accent); box-shadow:0 0 0 4px rgba(62,207,142,0.25);}
   .guide::before,.guide::after{content:""; position:absolute; width:22px; height:22px;
     border-color:var(--accent); border-style:solid;}
   .guide::before{top:-2px; left:-2px; border-width:3px 0 0 3px; border-top-left-radius:16px;}
   .guide::after{bottom:-2px; right:-2px; border-width:0 3px 3px 0; border-bottom-right-radius:16px;}
+
+  .scanLine{
+    position:absolute; left:4%; right:4%; top:8%; height:2px; border-radius:2px;
+    background:var(--accent); box-shadow:0 0 10px 2px rgba(62,207,142,0.75);
+    animation: scanSweep 1.8s ease-in-out infinite;}
+  @keyframes scanSweep{
+    0%{top:8%; opacity:.9;} 50%{top:90%; opacity:.9;} 100%{top:8%; opacity:.9;}}
+
+  #camWrap.flash::after{content:""; position:absolute; inset:0; background:var(--accent);
+    opacity:0; animation: flashPulse .35s ease-out; pointer-events:none;}
+  @keyframes flashPulse{0%{opacity:.35;} 100%{opacity:0;}}
 
   #camMsg{position:absolute; inset:0; display:none; align-items:center; justify-content:center;
     text-align:center; padding:24px; color:var(--text-dim); font-size:14px; background:var(--bg);}
@@ -121,7 +134,7 @@
   <div id="camWrap">
     <video id="video" autoplay playsinline muted></video>
     <canvas id="overlay"></canvas>
-    <div class="guide" id="guide"></div>
+    <div class="guide" id="guide"><div class="scanLine" id="scanLine"></div></div>
     <div id="camMsg"></div>
     <button id="startBtn" style="position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
       padding:16px 28px; font-size:16px; font-weight:700; border:none; border-radius:12px;
@@ -159,7 +172,7 @@
 </div>
 
 <script>
-alert("DEBUG v13: szkript elindult, fájl betöltve");
+alert("DEBUG v15: szkript elindult, fájl betöltve");
 try {
 /* =========================================================================
    DEMO TERMÉKTÖRZS
@@ -221,6 +234,12 @@ function beep(freq = 880, dur = 0.06) {
   o.stop(audioCtx.currentTime + dur);
 }
 function haptic(ms = 30) { if (navigator.vibrate) navigator.vibrate(ms); }
+function flashScreen() {
+  const wrap = document.getElementById("camWrap");
+  wrap.classList.remove("flash");
+  void wrap.offsetWidth; // kényszerített reflow, hogy az animáció újrainduljon gyors egymás utáni scanneknél is
+  wrap.classList.add("flash");
+}
 
 /* =========================================================================
    TERMÉK KERESÉS
@@ -253,7 +272,8 @@ async function startCamera() {
   debugLog("getUserMedia hívása (natív út)...");
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } },
+      video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 },
+        advanced: [{ focusMode: "continuous" }] },
       audio: false,
     });
     debugLog("getUserMedia sikeres, videó lejátszása...");
@@ -291,25 +311,68 @@ function debugLog(msg) {
 }
 
 /* =========================================================================
-   NATÍV BARCODEDETECTOR CIKLUS — élő keretezéssel, akár több kóddal egyszerre
+   KÖZÖS: a keret (guide) által kijelölt terület kivágása és felnagyítása
+   Ez a legfontosabb javítás a felismerés megkönnyítésére — ahelyett, hogy
+   a teljes videóképet elemeznénk (amiben egy távoli/kicsi vonalkód csak
+   pár pixelt foglal el), csak a keretben lévő, felhasználó által
+   pozicionált részt vizsgáljuk, felnagyítva. Ez mindkét motornál
+   (natív és ZXing) jelentősen javítja a találati arányt.
    ========================================================================= */
-function resizeOverlay() {
-  overlay.width = video.clientWidth;
-  overlay.height = video.clientHeight;
-}
-window.addEventListener("resize", resizeOverlay);
+const cropCanvas = document.createElement("canvas");
+const cropCtx = cropCanvas.getContext("2d", { willReadFrequently: true });
 
+function captureGuideCrop(upscale = 2.2) {
+  const vw = video.videoWidth, vh = video.videoHeight;
+  if (!vw || !vh) return null;
+
+  const videoRect = video.getBoundingClientRect();
+  const guideRect = guide.getBoundingClientRect();
+
+  // object-fit:cover miatt a videó egy része "levágva" látszik — ezt
+  // ki kell számolni, hogy a keret pontos videó-pixel koordinátáit kapjuk.
+  const scale = Math.max(videoRect.width / vw, videoRect.height / vh);
+  const dispW = vw * scale, dispH = vh * scale;
+  const offsetX = (dispW - videoRect.width) / 2;
+  const offsetY = (dispH - videoRect.height) / 2;
+
+  const sx = (guideRect.left - videoRect.left + offsetX) / scale;
+  const sy = (guideRect.top - videoRect.top + offsetY) / scale;
+  const sw = guideRect.width / scale;
+  const sh = guideRect.height / scale;
+  if (sw <= 0 || sh <= 0) return null;
+
+  cropCanvas.width = Math.round(sw * upscale);
+  cropCanvas.height = Math.round(sh * upscale);
+  cropCtx.drawImage(video, sx, sy, sw, sh, 0, 0, cropCanvas.width, cropCanvas.height);
+  return cropCanvas;
+}
+
+// Vizuális visszajelzés a keret felvillanásával, amikor a kivágott
+// területen bármit felismer a motor (pontos körvonal helyett — mert
+// felnagyított/kivágott képen dolgozunk, a pontos pozíció nem 1:1
+// mapolható vissza egyszerűen a képernyőre).
+let guideActiveTimeout = null;
+function highlightGuide() {
+  guide.classList.add("active");
+  clearTimeout(guideActiveTimeout);
+  guideActiveTimeout = setTimeout(() => guide.classList.remove("active"), 250);
+}
+
+/* =========================================================================
+   NATÍV BARCODEDETECTOR CIKLUS — a kivágott, felnagyított területen dolgozik
+   ========================================================================= */
 async function nativeScanLoop() {
-  resizeOverlay();
   if (video.readyState >= 2 && video.videoWidth) {
     frameCount++;
-    try {
-      const barcodes = await barcodeDetector.detect(video);
-      if (barcodes.length) detectCount++;
-      drawOverlay(barcodes);
-      handleDetections(barcodes.map(b => b.rawValue));
-    } catch (e) {
-      debugLog("detect() hiba: " + e.message);
+    const crop = captureGuideCrop();
+    if (crop) {
+      try {
+        const barcodes = await barcodeDetector.detect(crop);
+        if (barcodes.length) { detectCount++; highlightGuide(); }
+        handleDetections(barcodes.map(b => b.rawValue));
+      } catch (e) {
+        debugLog("detect() hiba: " + e.message);
+      }
     }
     if (frameCount % 20 === 0) {
       debugLog(`natív mód · videó: ${video.videoWidth}x${video.videoHeight} · `
@@ -321,43 +384,13 @@ async function nativeScanLoop() {
   requestAnimationFrame(nativeScanLoop);
 }
 
-function drawOverlay(barcodes) {
-  ctx.clearRect(0, 0, overlay.width, overlay.height);
-  if (!barcodes.length) return;
-
-  const sx = overlay.width / video.videoWidth;
-  const sy = overlay.height / video.videoHeight;
-
-  barcodes.forEach(b => {
-    const pts = b.cornerPoints;
-    if (!pts || pts.length < 4) return;
-    const isCandidate = b.rawValue === candidateCode;
-
-    ctx.beginPath();
-    pts.forEach((p, i) => {
-      const x = p.x * sx, y = p.y * sy;
-      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-    });
-    ctx.closePath();
-    ctx.lineWidth = isCandidate ? 3 : 2;
-    ctx.strokeStyle = isCandidate ? "#3ecf8e" : "rgba(255,255,255,0.55)";
-    ctx.stroke();
-
-    // Halvány felirat a kód fölött, hogy lásd melyiket olvassa
-    const top = pts.reduce((a, p) => (p.y < a.y ? p : a));
-    ctx.font = "12px sans-serif";
-    ctx.fillStyle = isCandidate ? "#3ecf8e" : "rgba(255,255,255,0.8)";
-    ctx.fillText(b.rawValue, top.x * sx, Math.max(14, top.y * sy - 6));
-  });
-}
-
 /* =========================================================================
    FALLBACK: ZXing (Safari / iOS, ahol nincs natív BarcodeDetector)
-   A ZXing maga kezeli a kamera-hozzáférést, közvetlenül a saját
-   <video> elemünkre kötve — nincs kettős kamera-igénylés.
+   Itt is a kivágott, felnagyított területet elemezzük, saját ütemezett
+   ciklusban — nem a könyvtár beépített, teljes képkockás folyamatos
+   motorját használjuk, hogy egységes legyen a logika a natív úttal.
    ========================================================================= */
 
-// Előtöltjük a tartalék könyvtárat MÁR az oldal betöltésekor, a háttérben —
 // Előtöltjük a ZXing könyvtárat MÁR az oldal betöltésekor, a háttérben —
 // így gombnyomáskor nincs hálózati késleltetés, ami elszakítaná iOS-en
 // a felhasználói érintésből eredő engedélyt a videó lejátszásához.
@@ -375,6 +408,8 @@ if (!("BarcodeDetector" in window)) {
     .catch(e => { debugLog("előtöltési hiba (nem végzetes): " + e); });
 }
 
+let zxingReader = null;
+
 async function startFallbackScanner() {
   setCamMsg("Tartalék szkenner betöltése…");
 
@@ -389,25 +424,67 @@ async function startFallbackScanner() {
     return;
   }
 
-  // Fontos: itt SZÁNDÉKOSAN nem mi hívjuk meg a getUserMedia-t —
-  // a ZXing decodeFromConstraints saját maga kéri le és köti a
-  // kamera-streamet közvetlenül a mi <video> elemünkhöz. Így csak
-  // EGY szereplő nyúl a kamerához, nincs ütközés.
+  // Itt MI kérjük le a kamerát (folyamatos autófókusszal, ha a telefon
+  // támogatja), a ZXing csak a kész képkockákat elemzi — nincs kettős
+  // kamera-igénylés, mert csak egy szereplő nyúl hozzá.
   try {
-    const codeReader = new ZXingBrowser.BrowserMultiFormatReader();
-    zxingControls = await codeReader.decodeFromConstraints(
-      { video: { facingMode: { ideal: "environment" } } },
-      video,
-      (result, err) => {
-        if (result) handleDetections([result.getText()]);
-      }
-    );
-    setCamMsg("");
-    debugLog(`tartalék mód (ZXing) · kamera fut · videó:${video.videoWidth}x${video.videoHeight}`);
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: { ideal: "environment" },
+        width: { ideal: 1280 }, height: { ideal: 720 },
+        advanced: [{ focusMode: "continuous" }],
+      },
+      audio: false,
+    });
+    activeStream = stream;
+    video.srcObject = stream;
+    await video.play();
   } catch (e) {
-    setCamMsg("A tartalék szkenner nem tudta elindítani a kamerát.");
-    debugLog("ZXing hiba: " + (e.message || e));
+    setCamMsg("A kamera nem érhető el. Engedélyezd a hozzáférést a böngésző beállításaiban.");
+    debugLog("ZXing getUserMedia hiba: " + (e.message || e));
+    return;
   }
+
+  // Formátum-szűrés és "próbálkozzon jobban" mód — ha a könyvtár engedi,
+  // ez gyorsítja és pontosabbá teszi a felismerést. Ha valamiért nem
+  // elérhetők ezek az osztályok, egyszerűen alapértelmezett móddal fut.
+  let hints;
+  try {
+    hints = new Map();
+    hints.set(ZXingBrowser.DecodeHintType.POSSIBLE_FORMATS, [
+      ZXingBrowser.BarcodeFormat.EAN_13, ZXingBrowser.BarcodeFormat.EAN_8,
+      ZXingBrowser.BarcodeFormat.UPC_A, ZXingBrowser.BarcodeFormat.UPC_E,
+      ZXingBrowser.BarcodeFormat.CODE_128, ZXingBrowser.BarcodeFormat.CODE_39,
+      ZXingBrowser.BarcodeFormat.ITF, ZXingBrowser.BarcodeFormat.QR_CODE,
+    ]);
+    hints.set(ZXingBrowser.DecodeHintType.TRY_HARDER, true);
+  } catch (e) { hints = undefined; }
+
+  zxingReader = new ZXingBrowser.BrowserMultiFormatReader(hints);
+  setCamMsg("");
+  debugLog(`tartalék mód (ZXing) · kamera fut · videó:${video.videoWidth}x${video.videoHeight}`);
+  requestAnimationFrame(fallbackScanLoop);
+}
+
+let lastFallbackDecodeAt = 0;
+async function fallbackScanLoop() {
+  const now = Date.now();
+  // ~5-6 elemzés/mp — a ZXing dekódolás CPU-igényes, ennyi bőven elég
+  // a gördülékenységhez, és nem terheli túl a telefont.
+  if (now - lastFallbackDecodeAt > 180 && video.videoWidth) {
+    lastFallbackDecodeAt = now;
+    const crop = captureGuideCrop();
+    if (crop) {
+      try {
+        const result = await zxingReader.decodeFromCanvas(crop);
+        if (result) { highlightGuide(); handleDetections([result.getText()]); }
+      } catch (e) {
+        // "nem található kód a képen" — ez a normális eset a legtöbb
+        // kockánál, csendben elnyeljük.
+      }
+    }
+  }
+  requestAnimationFrame(fallbackScanLoop);
 }
 
 /* =========================================================================
@@ -448,7 +525,7 @@ async function acceptCode(barcode) {
   // Ha volt függőben lévő tétel, azt előbb véglegesítjük az aktuális mennyiséggel.
   if (pendingHit) commitPending();
 
-  beep(880); haptic(25);
+  beep(880); haptic(25); flashScreen();
 
   const existing = scanned.find(s => s.barcode === barcode && s.sector === currentSector);
   const result = await lookupProduct(barcode);
@@ -591,7 +668,7 @@ function escapeHtml(str) {
 /* =========================================================================
    INDÍTÁS
    ========================================================================= */
-debugLog("verzió: v13 · fájl betöltve, várakozás gombnyomásra...");
+debugLog("verzió: v15 · fájl betöltve, várakozás gombnyomásra...");
 el("startBtn").addEventListener("click", () => {
   debugLog("gomb megnyomva, kamera indítása...");
   el("startBtn").style.display = "none";
