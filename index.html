@@ -308,7 +308,7 @@ async function startCamera() {
   }
 }
 
-const APP_VERSION = "v25";
+const APP_VERSION = "v26";
 let frameCount = 0, detectCount = 0;
 function debugLog(msg) {
   // A felületen csak a verziószám látszik (lásd lent) — a részletes
@@ -522,13 +522,20 @@ async function fallbackScanLoop() {
      beolvass anélkül, hogy várni kelljen, de véd az ellen, hogy
      ugyanaz a mozdulatlan termék véletlenül duplán számoljon.
    ========================================================================= */
+let lastSeenAt = 0;
 function handleDetections(codes) {
   if (!codes.length) {
     candidateCode = null;
     candidateCount = 0;
-    lastAcceptedCode = null; // a kód eltűnt a képből — legközelebb újra elfogadható
+    // Csak akkor számít ténylegesen "eltűntnek" a kód, ha egy ideje
+    // (kb. fél másodperce) folyamatosan nem látja — így egy-egy
+    // véletlenül kihagyott képkocka (gyakori a gyors, natív ciklusnál)
+    // nem okoz azonnali, pörgős újra-beolvasást/villogást.
+    if (Date.now() - lastSeenAt > 500) lastAcceptedCode = null;
     return;
   }
+
+  lastSeenAt = Date.now();
 
   // A guide-hoz legközelebbi / első kódot vesszük célnak.
   const code = codes[0];
