@@ -141,6 +141,10 @@
         <label><input type="radio" name="leltarTipus" value="termektipus"> Vakleltár terméktípus szerint</label>
       </div>
       <div id="productTypeList" style="display:none;"></div>
+      <div class="row" style="margin-bottom:10px;">
+        <input type="text" id="adminNameInput" placeholder="A neved">
+        <input type="password" id="adminPasswordInput" placeholder="Admin jelszó">
+      </div>
       <button class="btn primary" id="startLeltarBtn">Leltár indítása</button>
       <div id="startLeltarMsg" style="margin-top:10px; font-size:13px; color:var(--text-dim);"></div>
     </div>
@@ -292,18 +296,13 @@ document.querySelectorAll('input[name="leltarTipus"]').forEach(r => {
   });
 });
 
-let adminName = "";
-function getAdminName() {
-  if (!adminName) {
-    adminName = window.prompt(
-      "Add meg az e-mail címedet (ennek szerepelnie kell a leltar_inditok táblában):", ""
-    ) || "ismeretlen";
-  }
-  return adminName;
-}
-
 el("startLeltarBtn").addEventListener("click", async () => {
   const tipus = document.querySelector('input[name="leltarTipus"]:checked').value;
+  const name = el("adminNameInput").value.trim();
+  const password = el("adminPasswordInput").value;
+  if (!name) { el("startLeltarMsg").textContent = "Add meg a neved."; return; }
+  if (!password) { el("startLeltarMsg").textContent = "Add meg az admin jelszót."; return; }
+
   const btn = el("startLeltarBtn");
   btn.disabled = true;
   btn.textContent = "Indítás…";
@@ -311,7 +310,8 @@ el("startLeltarBtn").addEventListener("click", async () => {
   try {
     const result = await apiPost({
       action: "create_leltar",
-      inditotta: getAdminName(),
+      inditotta: name,
+      password: password,
       tipus: tipus,
       termektipusok: Array.from(selectedProductTypes),
     });
