@@ -1,0 +1,1421 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Leltár szkenner</title>
+<style>
+  :root{
+    --bg:#0d1210;
+    --panel:#161d1a;
+    --panel-2:#1f2925;
+    --line:#2a3530;
+    --text:#eef2f0;
+    --text-dim:#8fa199;
+    --accent:#3ecf8e;
+    --accent-dim:#1f6b4c;
+    --warn:#e0a63e;
+    --danger:#e0553e;
+    --radius:14px;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{margin:0; height:100%; background:var(--bg); color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
+    overscroll-behavior:none;}
+  #app{display:flex; flex-direction:column; height:100vh; height:100dvh;}
+
+  /* ---------- Fejléc ---------- */
+  header{flex:0 0 auto; display:flex; align-items:center; gap:10px;
+    padding:10px 14px; background:var(--panel); border-bottom:1px solid var(--line);}
+  #menuBtn{flex:0 0 auto; width:38px; height:38px; border-radius:10px; border:1px solid var(--line);
+    background:var(--panel-2); color:var(--text); font-size:17px;}
+  header select{
+    flex:1; background:var(--panel-2); color:var(--text); border:1px solid var(--line);
+    border-radius:10px; padding:9px 10px; font-size:15px; font-weight:500;}
+  .stat{display:flex; flex-direction:column; align-items:flex-end; line-height:1.2;}
+  .stat b{font-size:16px; font-weight:600;}
+  .stat span{font-size:11px; color:var(--text-dim);}
+  .dot{width:8px; height:8px; border-radius:50%; background:var(--text-dim); flex:0 0 auto;}
+  .dot.online{background:var(--accent);}
+  .dot.offline{background:var(--danger);}
+
+  /* ---------- Hamburgermenü ---------- */
+  #menuOverlay{display:none; position:fixed; inset:0; z-index:60; background:rgba(0,0,0,0.55);}
+  #menuOverlay.show{display:block;}
+  #menuBox{position:absolute; top:0; left:0; bottom:0; width:78%; max-width:300px;
+    background:var(--panel); border-right:1px solid var(--line); padding:16px;
+    display:flex; flex-direction:column; gap:8px;}
+  .menuItem{text-align:left; padding:14px 12px; border-radius:10px; border:none;
+    background:var(--panel-2); color:var(--text); font-size:15px; font-weight:600;}
+  #menuClose{margin-top:auto; padding:12px; border-radius:10px; border:1px solid var(--line);
+    background:none; color:var(--text-dim); font-size:14px;}
+
+  /* ---------- Almenü képernyők (Szektorok / Leltár / Ellenőrzés) ---------- */
+  .subScreen{display:none; position:fixed; inset:0; z-index:55; background:var(--bg);
+    flex-direction:column;}
+  .subScreen.show{display:flex;}
+  .subScreenHeader{flex:0 0 auto; display:flex; align-items:center; gap:12px;
+    padding:12px 14px; background:var(--panel); border-bottom:1px solid var(--line);}
+  .backBtn{border:none; background:none; color:var(--accent); font-size:14px; font-weight:600; padding:6px 0;}
+  .subScreenHeader b{font-size:15px;}
+  .subScreenBody{flex:1 1 auto; overflow-y:auto; padding:16px;}
+  .placeholderNote{color:var(--text-dim); font-size:14px; line-height:1.6;}
+
+  #sectorAddRow{display:flex; gap:8px; margin-bottom:16px;}
+  #newSectorInput{flex:1; background:var(--panel-2); border:1px solid var(--line); border-radius:10px;
+    padding:10px 12px; color:var(--text); font-size:14px;}
+  #addSectorBtn{flex:0 0 auto; padding:0 16px; border-radius:10px; border:none;
+    background:var(--accent); color:#06231a; font-weight:700;}
+  .sectorRow{display:flex; align-items:center; justify-content:space-between;
+    padding:12px 14px; background:var(--panel); border:1px solid var(--line); border-radius:10px; margin-bottom:8px;}
+  .sectorRow .delSectorBtn{background:none; border:none; color:var(--danger); font-size:16px;}
+
+  /* ---------- Leltár képernyő ---------- */
+  .leltarSectionTitle{font-size:13px; font-weight:700; color:var(--text-dim);
+    text-transform:uppercase; letter-spacing:.04em; margin:20px 0 10px;}
+  .leltarSectionTitle:first-child{margin-top:0;}
+  .typeChoice{display:flex; flex-direction:column; gap:8px; margin-bottom:14px;}
+  .typeChoice label{display:flex; align-items:center; gap:10px; padding:12px 14px;
+    background:var(--panel); border:1px solid var(--line); border-radius:10px; font-size:14px;}
+  .typeChoice input[type=radio]{accent-color:var(--accent);}
+  #productTypeList{display:flex; flex-direction:column; gap:6px; max-height:220px;
+    overflow-y:auto; margin-bottom:14px; padding:4px 0;}
+  #productTypeList label{display:flex; align-items:center; gap:10px; padding:9px 12px;
+    background:var(--panel); border:1px solid var(--line); border-radius:8px; font-size:13px;}
+  #productTypeList input[type=checkbox]{accent-color:var(--accent);}
+  .bigBtn{width:100%; padding:14px; border-radius:12px; border:none; font-size:15px;
+    font-weight:700; background:var(--accent); color:#06231a;}
+  .bigBtn:disabled{opacity:.4;}
+  .joinRow{display:flex; gap:8px; margin-bottom:8px;}
+  .joinRow input{flex:1; background:var(--panel-2); border:1px solid var(--line); border-radius:10px;
+    padding:10px 12px; color:var(--text); font-size:16px; letter-spacing:.1em; text-transform:uppercase;}
+  .joinRow button{flex:0 0 auto; padding:0 16px; border-radius:10px; border:1px solid var(--line);
+    background:var(--panel-2); color:var(--text); font-weight:700;}
+  .secondaryBtn{width:100%; padding:12px; border-radius:10px; border:1px solid var(--line);
+    background:var(--panel-2); color:var(--text); font-size:14px; font-weight:600; margin-top:8px;}
+
+  #activeLeltarBox{text-align:center; padding:8px 0;}
+  #activeLeltarBox .codeLabel{font-size:12px; color:var(--text-dim); margin-bottom:6px;}
+  #activeLeltarBox .codeValue{font-size:32px; font-weight:800; letter-spacing:.12em; margin-bottom:16px;}
+  #qrCanvas{margin:0 auto 16px; display:block; background:#fff; padding:10px; border-radius:10px;}
+  #activeLeltarMeta{font-size:13px; color:var(--text-dim); margin-bottom:20px;}
+  #closeLeltarBtn{width:100%; padding:14px; border-radius:12px; border:none;
+    background:var(--danger); color:#fff; font-size:15px; font-weight:700;}
+
+  .diffRow{display:flex; align-items:center; gap:10px; padding:12px 14px;
+    background:var(--panel); border:1px solid var(--line); border-radius:10px; margin-bottom:8px;}
+  .diffRow .info{flex:1; min-width:0;}
+  .diffRow .info b{display:block; font-size:14px;}
+  .diffRow .info span{font-size:11px; color:var(--text-dim); display:block; margin-top:2px;}
+  .diffRow .diffVal{font-size:16px; font-weight:800; min-width:52px; text-align:right;}
+  .diffVal.pos{color:var(--accent);}
+  .diffVal.neg{color:var(--danger);}
+  .diffVal.zero{color:var(--text-dim);}
+  .otherWarehouses{font-size:11px; color:var(--text-dim); margin-top:4px;}
+
+  /* ---------- QR beolvasó overlay (csatlakozáshoz) ---------- */
+  #joinScanCamWrap{position:relative; flex:1; background:#000; overflow:hidden;}
+  #joinVideo{width:100%; height:100%; object-fit:cover;}
+  #joinScanMsg{position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+    color:var(--text-dim); font-size:14px; text-align:center; padding:24px; background:rgba(0,0,0,0.4);}
+
+  /* ---------- Ellenőrzés képernyő ---------- */
+  #checkCamWrap{position:relative; flex:0 0 42vh; background:#000; overflow:hidden;}
+  #checkVideo{width:100%; height:100%; object-fit:cover; display:block;}
+  #checkGuide{position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
+    width:78%; max-width:360px; aspect-ratio:16/9;
+    border:2px solid rgba(255,255,255,0.28); border-radius:16px; pointer-events:none;}
+  #checkMsg{position:absolute; left:0; right:0; bottom:10px; text-align:center;
+    color:var(--text-dim); font-size:12px; pointer-events:none;}
+  .checkResultCard{background:var(--panel); border:1px solid var(--line); border-radius:12px;
+    padding:16px; margin-bottom:12px;}
+  .checkResultCard .modelName{font-size:16px; font-weight:700; margin-bottom:2px;}
+  .checkResultCard .modelCode{font-size:12px; color:var(--text-dim); margin-bottom:14px;}
+  .checkSizeRow{display:flex; align-items:center; justify-content:space-between;
+    padding:8px 0; border-bottom:1px solid var(--line); font-size:14px;}
+  .checkSizeRow:last-child{border-bottom:none;}
+  .checkSizeRow .qty{font-weight:700;}
+  .checkSizeRow .qty.zero{color:var(--danger);}
+
+  /* ---------- Kamera terület ---------- */
+  #camWrap{position:relative; flex:1 1 auto; min-height:0; background:#000; overflow:hidden;}
+  video{width:100%; height:100%; object-fit:cover; display:block;}
+
+  #torchBtn{position:absolute; top:8px; right:8px; width:40px; height:40px; z-index:6;
+    border-radius:50%; border:1px solid rgba(255,255,255,0.3); background:rgba(0,0,0,0.5);
+    color:#fff; font-size:18px; display:none; align-items:center; justify-content:center;
+    line-height:1; padding:0;}
+  #torchBtn.show{display:flex;}
+  canvas#overlay{position:absolute; inset:0; width:100%; height:100%; pointer-events:none;}
+
+  .guide{
+    position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
+    width:78%; max-width:420px; aspect-ratio:16/9;
+    border:2px solid rgba(255,255,255,0.28); border-radius:16px; pointer-events:none;
+    transition:border-color .15s ease, box-shadow .15s ease;}
+  .guide.active{border-color:var(--accent); box-shadow:0 0 0 4px rgba(62,207,142,0.25);}
+  .guide::before,.guide::after{content:""; position:absolute; width:22px; height:22px;
+    border-color:var(--accent); border-style:solid;}
+  .guide::before{top:-2px; left:-2px; border-width:3px 0 0 3px; border-top-left-radius:16px;}
+  .guide::after{bottom:-2px; right:-2px; border-width:0 3px 3px 0; border-bottom-right-radius:16px;}
+
+  .scanLine{
+    position:absolute; left:4%; right:4%; top:50%; height:2px; border-radius:2px;
+    background:var(--accent); box-shadow:0 0 10px 2px rgba(62,207,142,0.75);
+    transform:translateY(-50%);}
+
+  #camWrap.flash::after{content:""; position:absolute; inset:0; background:var(--accent);
+    opacity:0; animation: flashPulse .35s ease-out; pointer-events:none;}
+  @keyframes flashPulse{0%{opacity:.35;} 100%{opacity:0;}}
+  @keyframes focusRipple{0%{transform:scale(0.6); opacity:1;} 100%{transform:scale(1.15); opacity:0;}}
+
+  #camMsg{position:absolute; inset:0; display:none; align-items:center; justify-content:center;
+    text-align:center; padding:24px; color:var(--text-dim); font-size:14px; background:var(--bg);}
+  #camMsg.show{display:flex;}
+
+  /* ---------- Aktuális találat kártya ---------- */
+  #hit{
+    position:absolute; left:12px; right:12px; bottom:12px;
+    background:var(--panel); border:1px solid var(--line); border-radius:var(--radius);
+    padding:14px; display:none; box-shadow:0 8px 24px rgba(0,0,0,0.4);
+    transform:translateY(12px); opacity:0; transition:transform .18s ease, opacity .18s ease;}
+  #hit.show{display:block; transform:translateY(0); opacity:1;}
+  #hit.unknown{border-color:var(--warn);}
+  .hitTop{display:flex; justify-content:space-between; align-items:flex-start; gap:10px;}
+  .hitName{font-size:17px; font-weight:600; line-height:1.25;}
+  .hitBarcode{font-size:12px; color:var(--text-dim); margin-top:2px; font-variant-numeric:tabular-nums;}
+  .hitBadge{font-size:11px; padding:3px 8px; border-radius:999px; background:var(--accent-dim);
+    color:var(--accent); font-weight:600; white-space:nowrap;}
+  .hitBadge.warn{background:#4a3a17; color:var(--warn);}
+
+  .qtyRow{display:flex; align-items:center; gap:8px; margin-top:12px;}
+  .qtyBtn{width:40px; height:44px; flex:0 0 40px; border-radius:10px; border:1px solid var(--line);
+    background:var(--panel-2); color:var(--text); font-size:20px; font-weight:600;}
+  .qtyBtn:active{background:var(--line);}
+  #qtyInput{flex:1 1 0; min-width:0; text-align:center; font-size:22px; font-weight:600; height:44px;
+    background:var(--panel-2); border:1px solid var(--line); border-radius:10px; color:var(--text);}
+  #nextBtn{flex:0 0 auto; height:44px; padding:0 14px; border-radius:10px; border:none;
+    background:var(--accent); color:#06231a; font-size:15px; font-weight:700;}
+
+  /* ---------- Lista-panel: legutolsó tétel + lenyitható előzmények ---------- */
+  #listPanel{flex:0 0 auto; background:var(--panel); border-top:1px solid var(--line);
+    display:flex; flex-direction:column;}
+  #listPanel.empty{display:none;}
+  #listPanel.bump{animation: toggleBump .28s ease;}
+  @keyframes toggleBump{35%{transform:scale(1.015);}}
+
+  #latestRow{flex:0 0 auto; cursor:pointer;}
+
+  #listToggle{flex:0 0 auto; width:100%; text-align:center; color:var(--text-dim);
+    display:none; padding:2px 16px 8px; font-size:12px; font-weight:600;}
+  #listToggle.show{display:block;}
+
+  #list{overflow-y:auto; max-height:0; transition:max-height .22s ease; -webkit-overflow-scrolling:touch;}
+  #listPanel.expanded #list{max-height:38vh; border-top:1px solid var(--line);}
+
+  .rowItem{display:flex; align-items:center; gap:10px; padding:10px 16px; border-bottom:1px solid var(--line);}
+  .rowItem .info{flex:1; min-width:0;}
+  .rowItem .info b{display:block; font-size:14px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .rowItem .info span{font-size:11px; color:var(--text-dim);}
+  .rowItem .qtyEdit{display:flex; align-items:center; gap:4px; flex:0 0 auto;}
+  .rowItem .qtyEdit button{width:26px; height:26px; border-radius:8px; border:1px solid var(--line);
+    background:var(--panel-2); color:var(--text); font-size:15px; line-height:1; padding:0;}
+  .rowItem .qtyEdit .qtyVal{min-width:26px; text-align:center; font-size:14px; font-weight:600;}
+  .rowItem .delBtn{background:none; border:none; color:var(--text-dim); font-size:16px; padding:4px 2px 4px 8px;}
+
+  /* ---------- Törlés megerősítő ablak ---------- */
+  #confirmOverlay{display:none; position:fixed; inset:0; z-index:50;
+    background:rgba(0,0,0,0.55); align-items:center; justify-content:center; padding:24px;}
+  #confirmOverlay.show{display:flex;}
+  #confirmBox{background:var(--panel-2); border:1px solid var(--line); border-radius:14px;
+    padding:20px; max-width:320px; width:100%; text-align:center;}
+  #confirmText{font-size:15px; font-weight:600; margin-bottom:4px;}
+  #confirmName{font-size:13px; color:var(--text-dim); margin-bottom:16px;}
+  #confirmButtons{display:flex; gap:10px;}
+  #confirmButtons button{flex:1; padding:11px; border-radius:10px; border:none;
+    font-size:14px; font-weight:700;}
+  #confirmCancel{background:var(--accent); color:#06231a;}
+  #confirmDelete{background:var(--danger); color:#fff;}
+
+  /* ---------- Lábléc ---------- */
+  footer{flex:0 0 auto; display:flex; gap:10px; padding:10px 14px;
+    background:var(--panel); border-top:1px solid var(--line);}
+  footer button{flex:1; padding:12px; border-radius:10px; border:1px solid var(--line);
+    background:var(--panel-2); color:var(--text); font-size:14px; font-weight:600;}
+  footer button.primary{background:var(--accent); color:#06231a; border:none;}
+  footer button:disabled{opacity:.4;}
+
+  .sr-only{position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0);}
+
+  /* ---------- Fekvő tájolás blokkolása ---------- */
+  #rotateLock{display:none; position:fixed; inset:0; z-index:999; background:var(--bg);
+    color:var(--text); flex-direction:column; align-items:center; justify-content:center;
+    text-align:center; padding:32px;}
+  #rotateLock .icon{font-size:40px; margin-bottom:12px;}
+  @media (orientation: landscape) and (max-height: 500px) {
+    #rotateLock{display:flex;}
+  }
+</style>
+</head>
+<body>
+<div id="rotateLock">
+  <div class="icon">📱</div>
+  <div>Ez az alkalmazás csak álló tájolásban használható.<br>Fordítsd vissza a telefont.</div>
+</div>
+<div id="app">
+
+  <header>
+    <button id="menuBtn" aria-label="Menü">☰</button>
+    <select id="sectorSelect" aria-label="Szektor kiválasztása">
+      <option value="">Szektor kiválasztása…</option>
+    </select>
+    <div class="dot" id="netDot" title="Kapcsolat állapota"></div>
+    <div class="stat">
+      <b id="itemCount">0</b>
+      <span>tétel</span>
+    </div>
+  </header>
+
+  <!-- Hamburgermenü -->
+  <div id="menuOverlay">
+    <div id="menuBox">
+      <button class="menuItem" data-screen="leltar">🔗 Csatlakozás leltárhoz</button>
+      <button class="menuItem" data-screen="ellenorzes">🔍 Ellenőrzés</button>
+      <button id="menuClose">Bezárás</button>
+    </div>
+  </div>
+
+  <!-- Leltár (placeholder — a végleges verzió a backend-döntések után készül) -->
+  <div id="leltarScreen" class="subScreen">
+    <div class="subScreenHeader">
+      <button class="backBtn" data-back>← Vissza</button>
+      <b>Leltár</b>
+    </div>
+    <div class="subScreenBody" id="leltarBody"></div>
+  </div>
+
+  <!-- QR-kód beolvasása csatlakozáshoz (önálló, kis kamera-nézet) -->
+  <div id="joinScanScreen" class="subScreen" style="z-index:70;">
+    <div class="subScreenHeader">
+      <button class="backBtn" id="joinScanClose">← Vissza</button>
+      <b>QR-kód beolvasása</b>
+    </div>
+    <div id="joinScanCamWrap">
+      <video id="joinVideo" autoplay playsinline muted></video>
+      <div id="joinScanMsg"></div>
+    </div>
+  </div>
+
+  <!-- Ellenőrzés: kamerás vonalkód-lekérdezés, modellenként/méretenként -->
+  <div id="ellenorzesScreen" class="subScreen">
+    <div class="subScreenHeader">
+      <button class="backBtn" data-back>← Vissza</button>
+      <b>Ellenőrzés</b>
+    </div>
+    <div id="checkCamWrap">
+      <video id="checkVideo" autoplay playsinline muted></video>
+      <div class="guide" id="checkGuide"></div>
+      <div id="checkMsg">Irányítsd a kamerát egy vonalkódra</div>
+    </div>
+    <div class="subScreenBody" id="checkResultBody"></div>
+  </div>
+
+  <div id="camWrap">
+    <video id="video" autoplay playsinline muted></video>
+    <canvas id="overlay"></canvas>
+    <div class="guide" id="guide" style="display:none;"><div class="scanLine" id="scanLine"></div></div>
+    <div id="camMsg"></div>
+    <button id="startBtn" style="position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
+      padding:16px 28px; font-size:16px; font-weight:700; border:none; border-radius:12px;
+      background:var(--accent); color:#06231a; z-index:5; display:none;">Kamera indítása</button>
+    <div id="selectSectorHint" style="position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
+      color:var(--text-dim); font-size:14px; text-align:center; padding:0 24px;">
+      Válassz szektort a kamera indításához ⬆️</div>
+    <button id="torchBtn" aria-label="Vaku">🔦</button>
+    <div id="debugBar" style="position:absolute; top:6px; left:8px; font-size:9px;
+      color:rgba(255,255,255,0.35); font-family:monospace; pointer-events:none; z-index:2;"></div>
+
+    <div id="hit">
+      <div class="hitTop">
+        <div>
+          <div class="hitName" id="hitName">—</div>
+          <div class="hitBarcode" id="hitBarcode">—</div>
+        </div>
+        <div class="hitBadge" id="hitBadge">ismert</div>
+      </div>
+      <div class="qtyRow">
+        <button class="qtyBtn" id="qtyMinus" aria-label="Mennyiség csökkentése">–</button>
+        <input id="qtyInput" inputmode="numeric" pattern="[0-9]*" value="1" aria-label="Mennyiség">
+        <button class="qtyBtn" id="qtyPlus" aria-label="Mennyiség növelése">+</button>
+        <button id="nextBtn">Rögzít</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="listPanel" class="empty">
+    <div id="latestRow"></div>
+    <div id="listToggle">
+      <span id="toggleLabel">Korábbi tételek</span>
+    </div>
+    <div id="list"></div>
+  </div>
+
+  <div id="confirmOverlay">
+    <div id="confirmBox">
+      <div id="confirmText">Biztosan törlöd ezt a tételt?</div>
+      <div id="confirmName"></div>
+      <div id="confirmButtons">
+        <button id="confirmCancel">Mégse</button>
+        <button id="confirmDelete">Törlés</button>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    <button id="closeSectorBtn">Szektor lezárása</button>
+    <button id="syncBtn" class="primary">Szinkronizálás (<span id="pendingCount">0</span>)</button>
+  </footer>
+
+</div>
+
+<script>
+try {
+/* =========================================================================
+   DEMO TERMÉKTÖRZS
+   Éles verzióban ez egy Apps Script Web App hívás lenne, ami a BigQuery
+   cikktörzs táblát nézi le vonalkód alapján. Lásd a lookupProduct()
+   függvényt legalul — ott van kikommentezve a valós fetch hívás.
+   ========================================================================= */
+const DEMO_PRODUCTS = {
+  "5901234123457": "Coca-Cola 0,5L",
+  "5449000000996": "Fanta Narancs 0,5L",
+  "4006381333931": "Nivea testápoló 250ml",
+  "8710398503968": "Pampers pelenka 4-es",
+  "3017620422003": "Nutella 400g",
+  "5000159407236": "Mars csokoládé",
+  "7622210951557": "Milka tábla 100g",
+  "5410228131488": "Jägermeister 0,7L",
+};
+
+/* =========================================================================
+   BACKEND (Apps Script) HÍVÁSOK
+   Ezt a blokkot szándékosan a fájl elején tartjuk, hogy bárhonnan
+   (akár a szkript elején lefutó kódból is) biztonságosan hívható legyen —
+   korábban a fájl végén volt, ami "let" időzítési hibát okozott.
+   ========================================================================= */
+let APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwlZfz8f_nn8X_AIFciyi42OL81xkTWAXcPfczqYo_xjb7KtYIVKrkGWVpe8iYjMWAKzQ/exec";
+// Ugyanaz a kulcs, mint a Code.gs API_KEY konstansában — ez védi a
+// backendet, mivel a webapp "Anyone" (bejelentkezés nélküli) módban fut.
+const APPS_SCRIPT_KEY = "oaYB9SYL15UkpopXllHgYZRjD6sGk6iD";
+
+async function apiGet(params) {
+  if (!APPS_SCRIPT_URL) throw new Error("Nincs beállítva az Apps Script URL (lásd a kód elején).");
+  const qs = Object.entries({ ...params, key: APPS_SCRIPT_KEY })
+    .map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join("&");
+  const res = await fetch(`${APPS_SCRIPT_URL}?${qs}`);
+  return res.json();
+}
+async function apiPost(body) {
+  if (!APPS_SCRIPT_URL) throw new Error("Nincs beállítva az Apps Script URL (lásd a kód elején).");
+  // text/plain content-type, hogy elkerüljük a CORS preflight-ot Apps Scriptnél.
+  const res = await fetch(APPS_SCRIPT_URL, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: JSON.stringify({ ...body, key: APPS_SCRIPT_KEY }),
+  });
+  return res.json();
+}
+
+/* =========================================================================
+   ÁLLAPOT
+   ========================================================================= */
+let currentSector = "";
+let scanned = [];              // { barcode, name, qty, ts }
+let pendingHit = null;         // amit épp visszaigazolásra vár a kártya
+let lastAcceptedCode = null;
+let lastAcceptedAt = 0;
+let candidateCode = null;
+let candidateCount = 0;
+let usingNative = false;
+let barcodeDetector = null;
+let zxingControls = null;
+
+const el = (id) => document.getElementById(id);
+function setCamMsg(text) {
+  camMsg.textContent = text;
+  camMsg.classList.toggle("show", !!text);
+}
+const video = el("video");
+const overlay = el("overlay");
+const ctx = overlay.getContext("2d");
+const camMsg = el("camMsg");
+const hitCard = el("hit");
+const guide = el("guide");
+
+/* =========================================================================
+   HANG / REZGÉS VISSZAJELZÉS
+   ========================================================================= */
+const audioCtx = window.AudioContext ? new AudioContext() : null;
+function beep(freq = 880, dur = 0.06) {
+  if (!audioCtx) return;
+  const o = audioCtx.createOscillator();
+  const g = audioCtx.createGain();
+  o.frequency.value = freq;
+  o.type = "sine";
+  g.gain.value = 0.15;
+  o.connect(g).connect(audioCtx.destination);
+  o.start();
+  g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + dur);
+  o.stop(audioCtx.currentTime + dur);
+}
+function haptic(ms = 30) { if (navigator.vibrate) navigator.vibrate(ms); }
+function flashScreen() {
+  const wrap = document.getElementById("camWrap");
+  wrap.classList.remove("flash");
+  void wrap.offsetWidth; // kényszerített reflow, hogy az animáció újrainduljon gyors egymás utáni scanneknél is
+  wrap.classList.add("flash");
+}
+
+/* =========================================================================
+   TERMÉK KERESÉS
+   ========================================================================= */
+async function lookupProduct(barcode) {
+  if (APPS_SCRIPT_URL) {
+    try {
+      const data = await apiGet({ action: "lookup", barcode: barcode });
+      if (data && !data.error) return { found: !!data.name, name: data.name || null };
+    } catch (e) {
+      debugLog("lookupProduct hiba, demo listára esik vissza: " + e.message);
+    }
+  }
+  // --- DEMO MÓD (nincs beállítva backend, vagy hiba történt) ---
+  if (DEMO_PRODUCTS[barcode]) return { found: true, name: DEMO_PRODUCTS[barcode] };
+  return { found: false, name: null };
+}
+
+/* =========================================================================
+   KAMERA INDÍTÁS
+   ========================================================================= */
+let activeStream = null;
+
+async function startCamera() {
+  // A natív és a tartalék út SZÁNDÉKOSAN külön kezeli a kamerát —
+  // korábban mindkettő megpróbálta lefoglalni, ami iOS-en ütközést okozott.
+  if (!("BarcodeDetector" in window)) {
+    debugLog("BarcodeDetector nem elérhető ebben a böngészőben, ZXing tartalék indítása...");
+    startFallbackScanner();
+    return;
+  }
+
+  debugLog("getUserMedia hívása (natív út)...");
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: "environment", width: { ideal: 4096 }, height: { ideal: 2160 },
+        advanced: [{ focusMode: "continuous" }] },
+      audio: false,
+    });
+    debugLog("getUserMedia sikeres, videó lejátszása...");
+    activeStream = stream;
+    video.srcObject = stream;
+    await video.play();
+    debugLog("videó lejátszás elindult");
+  } catch (err) {
+    debugLog("getUserMedia HIBA: " + (err && err.message ? err.message : err) + " (" + (err && err.name) + ")");
+    setCamMsg("A kamera nem érhető el. Engedélyezd a hozzáférést a böngésző beállításaiban.");
+    return;
+  }
+
+  try {
+    const supported = await BarcodeDetector.getSupportedFormats();
+    const formats = supported.filter(f =>
+      ["ean_13","ean_8","upc_a","upc_e","code_128","code_39","itf","qr_code"].includes(f));
+    if (!formats.length) throw new Error("Nincs használható formátum: " + supported.join(","));
+    barcodeDetector = new BarcodeDetector({ formats });
+    usingNative = true;
+    setCamMsg("");
+    refreshTorchButton();
+    debugLog(`natív mód · formátumok: ${formats.join(", ")}`);
+    requestAnimationFrame(nativeScanLoop);
+  } catch (e) {
+    debugLog("natív BarcodeDetector hiba, ZXing tartalék indítása: " + e.message);
+    if (activeStream) { activeStream.getTracks().forEach(t => t.stop()); activeStream = null; }
+    startFallbackScanner();
+  }
+}
+
+const APP_VERSION = "v38";
+let frameCount = 0, detectCount = 0;
+function debugLog(msg) {
+  // A felületen csak a verziószám látszik (lásd lent) — a részletes
+  // állapotüzenetek a böngésző konzoljába mennek, ott elérhetők
+  // hibakereséshez, de nem zsúfolják a kamera-képet.
+  console.log("[leltár]", msg);
+}
+
+/* =========================================================================
+   KÖZÖS: a keret (guide) által kijelölt terület kivágása és felnagyítása
+   Ez a legfontosabb javítás a felismerés megkönnyítésére — ahelyett, hogy
+   a teljes videóképet elemeznénk (amiben egy távoli/kicsi vonalkód csak
+   pár pixelt foglal el), csak a keretben lévő, felhasználó által
+   pozicionált részt vizsgáljuk, felnagyítva. Ez mindkét motornál
+   (natív és ZXing) jelentősen javítja a találati arányt.
+   ========================================================================= */
+const cropCanvas = document.createElement("canvas");
+const cropCtx = cropCanvas.getContext("2d", { willReadFrequently: true });
+
+function captureGuideCrop(upscale = 2.2) {
+  const vw = video.videoWidth, vh = video.videoHeight;
+  if (!vw || !vh) return null;
+
+  const videoRect = video.getBoundingClientRect();
+  const guideRect = guide.getBoundingClientRect();
+
+  // object-fit:cover miatt a videó egy része "levágva" látszik — ezt
+  // ki kell számolni, hogy a keret pontos videó-pixel koordinátáit kapjuk.
+  const scale = Math.max(videoRect.width / vw, videoRect.height / vh);
+  const dispW = vw * scale, dispH = vh * scale;
+  const offsetX = (dispW - videoRect.width) / 2;
+  const offsetY = (dispH - videoRect.height) / 2;
+
+  const sx = (guideRect.left - videoRect.left + offsetX) / scale;
+  const sy = (guideRect.top - videoRect.top + offsetY) / scale;
+  const sw = guideRect.width / scale;
+  const sh = guideRect.height / scale;
+  if (sw <= 0 || sh <= 0) return null;
+
+  // Biztonsági levágás: a drawImage érvénytelen (negatív vagy a videó
+  // méretén túlnyúló) forrás-téglalapra hibát dobna némely böngészőben.
+  const sxC = Math.max(0, Math.min(sx, vw - 1));
+  const syC = Math.max(0, Math.min(sy, vh - 1));
+  const swC = Math.max(1, Math.min(sw, vw - sxC));
+  const shC = Math.max(1, Math.min(sh, vh - syC));
+
+  cropCanvas.width = Math.round(swC * upscale);
+  cropCanvas.height = Math.round(shC * upscale);
+  // A sima (nem kikapcsolt) simítás jobb eredményt ad a dekódolásnál,
+  // mint az élesen pixeles verzió — a dekóder algoritmusok a finom
+  // élátmenetekből pontosabban számolnak.
+  cropCtx.imageSmoothingEnabled = true;
+  cropCtx.imageSmoothingQuality = "high";
+  cropCtx.drawImage(video, sxC, syC, swC, shC, 0, 0, cropCanvas.width, cropCanvas.height);
+
+  return cropCanvas;
+}
+
+// Vizuális visszajelzés a keret felvillanásával, amikor a kivágott
+// területen bármit felismer a motor (pontos körvonal helyett — mert
+// felnagyított/kivágott képen dolgozunk, a pontos pozíció nem 1:1
+// mapolható vissza egyszerűen a képernyőre).
+let guideActiveTimeout = null;
+function highlightGuide() {
+  guide.classList.add("active");
+  clearTimeout(guideActiveTimeout);
+  guideActiveTimeout = setTimeout(() => guide.classList.remove("active"), 250);
+}
+
+/* =========================================================================
+   NATÍV BARCODEDETECTOR CIKLUS — a kivágott, felnagyított területen dolgozik
+   ========================================================================= */
+async function nativeScanLoop() {
+  try {
+    if (video.readyState >= 2 && video.videoWidth) {
+      frameCount++;
+      const crop = captureGuideCrop();
+      if (crop) {
+        const barcodes = await barcodeDetector.detect(crop);
+        if (barcodes.length) { detectCount++; highlightGuide(); }
+        handleDetections(barcodes.map(b => b.rawValue));
+      }
+      if (frameCount % 20 === 0) {
+        debugLog(`natív mód · videó: ${video.videoWidth}x${video.videoHeight} · `
+          + `${frameCount} kocka feldolgozva · ${detectCount} találat`);
+      }
+    } else {
+      debugLog(`videó nem kész (readyState=${video.readyState}, width=${video.videoWidth})`);
+    }
+  } catch (e) {
+    debugLog("nativeScanLoop hiba: " + (e && e.message ? e.message : e));
+  }
+  requestAnimationFrame(nativeScanLoop);
+}
+
+/* =========================================================================
+   FALLBACK: ZXing (Safari / iOS, ahol nincs natív BarcodeDetector)
+   Itt is a kivágott, felnagyított területet elemezzük, saját ütemezett
+   ciklusban — nem a könyvtár beépített, teljes képkockás folyamatos
+   motorját használjuk, hogy egységes legyen a logika a natív úttal.
+   ========================================================================= */
+
+// Előtöltjük a ZXing könyvtárat MÁR az oldal betöltésekor, a háttérben —
+// így gombnyomáskor nincs hálózati késleltetés, ami elszakítaná iOS-en
+// a felhasználói érintésből eredő engedélyt a videó lejátszásához.
+function loadScript(src) {
+  return new Promise((resolve, reject) => {
+    const s = document.createElement("script");
+    s.src = src; s.onload = resolve; s.onerror = reject;
+    document.head.appendChild(s);
+  });
+}
+
+let fallbackLibPromise = null;
+if (!("BarcodeDetector" in window)) {
+  fallbackLibPromise = loadScript("https://cdn.jsdelivr.net/npm/zxing-wasm@latest/dist/iife/reader/index.js")
+    .catch(e => { debugLog("előtöltési hiba (nem végzetes): " + e); });
+}
+
+async function startFallbackScanner() {
+  setCamMsg("Tartalék szkenner betöltése…");
+
+  try {
+    if (!fallbackLibPromise) {
+      fallbackLibPromise = loadScript("https://cdn.jsdelivr.net/npm/zxing-wasm@latest/dist/iife/reader/index.js");
+    }
+    await fallbackLibPromise;
+  } catch (e) {
+    setCamMsg("A szkenner könyvtár nem tölthető be.");
+    debugLog("CDN betöltési hiba: " + e.message);
+    return;
+  }
+
+  // Itt MI kérjük le a kamerát (folyamatos autófókusszal, ha a telefon
+  // támogatja) — a WASM dekóder csak a kész képkockákat elemzi.
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: { ideal: "environment" },
+        width: { ideal: 4096 }, height: { ideal: 2160 },
+        advanced: [{ focusMode: "continuous" }],
+      },
+      audio: false,
+    });
+    activeStream = stream;
+    video.srcObject = stream;
+    await video.play();
+  } catch (e) {
+    setCamMsg("A kamera nem érhető el. Engedélyezd a hozzáférést a böngésző beállításaiban.");
+    debugLog("getUserMedia hiba: " + (e.message || e));
+    return;
+  }
+
+  setCamMsg("");
+  refreshTorchButton();
+  debugLog(`tartalék mód (ZXing-WASM) · kamera fut · videó:${video.videoWidth}x${video.videoHeight}`);
+  requestAnimationFrame(fallbackScanLoop);
+}
+
+let lastFallbackDecodeAt = 0;
+let fallbackAttempts = 0, fallbackFound = 0;
+async function fallbackScanLoop() {
+  try {
+    const now = Date.now();
+    // A WASM dekódolás sokkal gyorsabb, mint a tiszta JS verzió volt,
+    // ezért sűrűbben próbálkozhatunk anélkül, hogy akadozna a felület.
+    if (now - lastFallbackDecodeAt > 90 && video.videoWidth) {
+      lastFallbackDecodeAt = now;
+      const crop = captureGuideCrop();
+      if (crop) {
+        fallbackAttempts++;
+        try {
+          const imageData = cropCtx.getImageData(0, 0, crop.width, crop.height);
+          const results = await ZXingWASM.readBarcodesFromImageData(imageData, {
+            tryHarder: true,
+            maxSymbols: 1,
+          });
+          if (results && results.length) {
+            fallbackFound++;
+            highlightGuide();
+            handleDetections([results[0].text]);
+          } else {
+            handleDetections([]);
+          }
+        } catch (e) {
+          debugLog("ZXing-WASM decode hiba: " + (e && e.message ? e.message : e));
+        }
+        if (fallbackAttempts % 20 === 0) {
+          debugLog(`tartalék (ZXing-WASM) · ${fallbackAttempts} próbálkozás · ${fallbackFound} találat`);
+        }
+      }
+    }
+  } catch (e) {
+    debugLog("fallbackScanLoop hiba: " + (e && e.message ? e.message : e));
+  }
+  requestAnimationFrame(fallbackScanLoop);
+}
+
+/* =========================================================================
+   FELISMERÉS FELDOLGOZÁSA
+   - Mindkét motor (natív és ZXing) belsőleg ellenőrzi a vonalkód
+     ellenőrző-számjegyét (checksum) dekódoláskor — egyetlen sikeres
+     olvasás is megbízható, nem kell több egymást követő találat.
+   - Ha egy MÁSIK kódot ismer fel, miközben az előző kártya még nyitva
+     van, az előzőt az aktuális mennyiséggel automatikusan rögzíti,
+     és rögtön az újra vált — ez adja a gördülékeny, megállás nélküli
+     scannelést.
+   - Ugyanaz a vonalkód csak akkor számít "újra beolvasottnak" (és
+     kapja +1-et a mennyisége), ha közben egy pillanatra eltűnt a
+     képből — ez engedi, hogy pl. két egyforma terméket egymás után
+     beolvass anélkül, hogy várni kelljen, de véd az ellen, hogy
+     ugyanaz a mozdulatlan termék véletlenül duplán számoljon.
+   ========================================================================= */
+let lastSeenAt = 0;
+function handleDetections(codes) {
+  if (!codes.length) {
+    candidateCode = null;
+    candidateCount = 0;
+    // Csak akkor számít ténylegesen "eltűntnek" a kód, ha egy ideje
+    // (kb. fél másodperce) folyamatosan nem látja — így egy-egy
+    // véletlenül kihagyott képkocka (gyakori a gyors, natív ciklusnál)
+    // nem okoz azonnali, pörgős újra-beolvasást/villogást.
+    if (Date.now() - lastSeenAt > 500) lastAcceptedCode = null;
+    return;
+  }
+
+  lastSeenAt = Date.now();
+
+  // A guide-hoz legközelebbi / első kódot vesszük célnak.
+  const code = codes[0];
+  candidateCode = code;
+  candidateCount = 1;
+
+  if (code === lastAcceptedCode) return; // ugyanaz a kód, még mindig folyamatosan látszik
+  if (pendingHit && code === pendingHit.barcode) return; // már ez van kártyán
+
+  acceptCode(code);
+}
+
+async function acceptCode(barcode) {
+  lastAcceptedCode = barcode;
+
+  // Ha volt függőben lévő tétel, azt előbb véglegesítjük az aktuális mennyiséggel.
+  if (pendingHit) commitPending();
+
+  beep(880); haptic(25); flashScreen();
+
+  const existing = scanned.find(s => s.barcode === barcode && s.sector === currentSector);
+  const result = await lookupProduct(barcode);
+
+  pendingHit = {
+    barcode,
+    name: result.found ? result.name : "Ismeretlen vonalkód",
+    found: result.found,
+    qty: existing ? existing.qty + 1 : 1,
+    existing: !!existing,
+  };
+  renderHitCard();
+}
+
+function renderHitCard() {
+  if (!pendingHit) { hitCard.classList.remove("show"); return; }
+  el("hitName").textContent = pendingHit.name;
+  el("hitBarcode").textContent = pendingHit.barcode;
+  el("qtyInput").value = pendingHit.qty;
+  const badge = el("hitBadge");
+  if (pendingHit.found) {
+    badge.textContent = pendingHit.existing ? "már szkennelve" : "ismert termék";
+    badge.className = "hitBadge";
+    hitCard.classList.remove("unknown");
+  } else {
+    badge.textContent = "nincs a törzsben";
+    badge.className = "hitBadge warn";
+    hitCard.classList.add("unknown");
+  }
+  hitCard.classList.add("show");
+  el("qtyInput").focus();
+  el("qtyInput").select();
+}
+
+function commitPending() {
+  if (!pendingHit) return;
+  const qty = Math.max(1, parseInt(el("qtyInput").value || "1", 10));
+  const existing = scanned.find(s => s.barcode === pendingHit.barcode && s.sector === currentSector);
+  if (existing) {
+    existing.qty = qty;
+    existing.ts = Date.now();
+  } else {
+    scanned.unshift({
+      barcode: pendingHit.barcode,
+      name: pendingHit.name,
+      qty,
+      sector: currentSector,
+      ts: Date.now(),
+    });
+  }
+  pendingHit = null;
+  hitCard.classList.remove("show");
+  renderList();
+}
+
+/* =========================================================================
+   UI ESEMÉNYEK
+   ========================================================================= */
+el("qtyMinus").addEventListener("click", () => {
+  const input = el("qtyInput");
+  input.value = Math.max(1, (parseInt(input.value || "1", 10) - 1));
+});
+el("qtyPlus").addEventListener("click", () => {
+  const input = el("qtyInput");
+  input.value = parseInt(input.value || "1", 10) + 1;
+});
+el("qtyInput").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") { e.preventDefault(); commitPending(); }
+});
+el("nextBtn").addEventListener("click", commitPending);
+
+el("sectorSelect").addEventListener("change", (e) => {
+  currentSector = e.target.value;
+  renderList();
+  const hasSector = !!currentSector;
+  el("selectSectorHint").style.display = hasSector ? "none" : "block";
+  // Csak akkor mutatjuk a gombot és a keretet, ha a kamera még nem indult
+  // el — ha már fut, szektorváltáskor nem kell újra rákérdezni.
+  if (hasSector && !activeStream) {
+    el("startBtn").style.display = "block";
+    el("guide").style.display = "block";
+  }
+});
+
+/* =========================================================================
+   HAMBURGERMENÜ ÉS ALMENÜK
+   ========================================================================= */
+el("menuBtn").addEventListener("click", () => el("menuOverlay").classList.add("show"));
+el("menuClose").addEventListener("click", () => el("menuOverlay").classList.remove("show"));
+el("menuOverlay").addEventListener("click", (e) => {
+  if (e.target.id === "menuOverlay") el("menuOverlay").classList.remove("show");
+});
+
+document.querySelectorAll(".menuItem").forEach(btn => {
+  btn.addEventListener("click", () => {
+    el("menuOverlay").classList.remove("show");
+    const target = el(btn.dataset.screen + "Screen");
+    if (target) {
+      target.classList.add("show");
+    } else {
+      debugLog("menü hiba: nincs ilyen képernyő: " + btn.dataset.screen + "Screen");
+    }
+  });
+});
+document.querySelectorAll("[data-back]").forEach(btn => {
+  btn.addEventListener("click", () => btn.closest(".subScreen").classList.remove("show"));
+});
+
+/* =========================================================================
+   SZEKTOROK — a szkenner felület csak OLVASSA a közös listát (az admin
+   felület kezeli a hozzáadást/törlést).
+   ========================================================================= */
+async function loadSectors() {
+  const select = el("sectorSelect");
+  select.innerHTML = `<option value="">Betöltés…</option>`;
+  try {
+    const data = await apiGet({ action: "sectors" });
+    const list = data.sectors || [];
+    select.innerHTML = `<option value="">Szektor kiválasztása…</option>`
+      + list.map(s => `<option>${escapeHtml(s)}</option>`).join("");
+  } catch (e) {
+    select.innerHTML = `<option value="">Hiba a szektorok betöltésekor</option>`;
+    debugLog("szektorok betöltési hiba: " + e.message);
+  }
+}
+
+el("closeSectorBtn").addEventListener("click", () => {
+  if (pendingHit) commitPending();
+  if (!currentSector) return;
+  alert(`"${currentSector}" szektor lezárva. Tételek: ${scanned.filter(s => s.sector === currentSector).length}`);
+});
+
+el("syncBtn").addEventListener("click", async () => {
+  if (pendingHit) commitPending();
+  const btn = el("syncBtn");
+  btn.disabled = true;
+  btn.textContent = "Szinkronizálás…";
+
+  const pendingItems = scanned.filter(s => !s.synced);
+
+  if (APPS_SCRIPT_URL && activeLeltar && pendingItems.length) {
+    try {
+      await apiPost({
+        action: "submit_scans",
+        leltar_id: activeLeltar.leltar_id,
+        items: pendingItems.map(s => ({
+          sector: s.sector, barcode: s.barcode, qty: s.qty, user: userEmail || "ismeretlen",
+        })),
+      });
+      pendingItems.forEach(s => s.synced = true);
+    } catch (e) {
+      alert("Szinkronizálási hiba: " + e.message);
+    }
+  } else {
+    // Demo mód (nincs beállítva backend URL, vagy nincs aktív leltár) —
+    // csak lokálisan jelöljük szinkronizáltnak, hogy a felület tesztelhető legyen.
+    await new Promise(r => setTimeout(r, 400));
+    scanned.forEach(s => s.synced = true);
+  }
+
+  btn.disabled = false;
+  updatePendingCount();
+  btn.innerHTML = `Szinkronizálás (<span id="pendingCount">0</span>)`;
+});
+
+function updatePendingCount() {
+  const pending = scanned.filter(s => !s.synced).length;
+  el("pendingCount") && (el("pendingCount").textContent = pending);
+}
+
+/* =========================================================================
+   LISTA MEGJELENÍTÉS
+   - Egy koppintható sáv mindig mutatja a legutolsó beolvasott tételt.
+   - Rákoppintva lenyílik alatta a teljes, görgethető előzménylista,
+     ahol a mennyiség utólag is állítható +/- gombokkal.
+   - Új beolvasásnál, ha épp csukva van a lista, a sáv egy röpke
+     "bump" mozdulattal jelez.
+   ========================================================================= */
+let listExpanded = false;
+let lastRenderedCount = 0;
+
+function rowItemHtml(s) {
+  return `
+    <div class="rowItem">
+      <div class="info">
+        <b>${escapeHtml(s.name)}</b>
+        <span>${s.barcode} · ${s.sector}</span>
+      </div>
+      <div class="qtyEdit">
+        <button class="qMinus" data-barcode="${s.barcode}" data-sector="${s.sector}" aria-label="Mennyiség csökkentése">–</button>
+        <span class="qtyVal">${s.qty}</span>
+        <button class="qPlus" data-barcode="${s.barcode}" data-sector="${s.sector}" aria-label="Mennyiség növelése">+</button>
+      </div>
+      <button class="delBtn" data-barcode="${s.barcode}" data-sector="${s.sector}" aria-label="Tétel törlése">✕</button>
+    </div>`;
+}
+
+function findScannedItem(barcode, sector) {
+  return scanned.find(s => s.barcode === barcode && s.sector === sector);
+}
+
+function bindRowEvents(container) {
+  container.querySelectorAll(".qMinus").forEach(btn => btn.addEventListener("click", () => {
+    const it = findScannedItem(btn.dataset.barcode, btn.dataset.sector);
+    if (it) { it.qty = Math.max(1, it.qty - 1); it.synced = false; renderList(); }
+  }));
+  container.querySelectorAll(".qPlus").forEach(btn => btn.addEventListener("click", () => {
+    const it = findScannedItem(btn.dataset.barcode, btn.dataset.sector);
+    if (it) { it.qty += 1; it.synced = false; renderList(); }
+  }));
+  container.querySelectorAll(".delBtn").forEach(btn => btn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    askDeleteConfirmation(btn.dataset.barcode, btn.dataset.sector);
+  }));
+}
+
+/* ---------- Törlés megerősítése ---------- */
+let pendingDelete = null;
+function askDeleteConfirmation(barcode, sector) {
+  const it = findScannedItem(barcode, sector);
+  if (!it) return;
+  pendingDelete = { barcode, sector };
+  el("confirmName").textContent = `${it.name} (${it.qty} db)`;
+  el("confirmOverlay").classList.add("show");
+}
+el("confirmCancel").addEventListener("click", () => {
+  pendingDelete = null;
+  el("confirmOverlay").classList.remove("show");
+});
+el("confirmDelete").addEventListener("click", () => {
+  if (pendingDelete) {
+    scanned = scanned.filter(s => !(s.barcode === pendingDelete.barcode && s.sector === pendingDelete.sector));
+  }
+  pendingDelete = null;
+  el("confirmOverlay").classList.remove("show");
+  renderList();
+});
+
+function renderList() {
+  const items = scanned.filter(s => !currentSector || s.sector === currentSector);
+  el("itemCount").textContent = items.length;
+  updatePendingCount();
+
+  const panel = el("listPanel");
+  if (!items.length) {
+    panel.classList.add("empty");
+    el("latestRow").innerHTML = "";
+    el("list").innerHTML = "";
+    el("listToggle").classList.remove("show");
+    lastRenderedCount = 0;
+    return;
+  }
+  panel.classList.remove("empty");
+  panel.classList.toggle("expanded", listExpanded);
+
+  // A legutolsó tétel — ugyanolyan, teljesen szerkeszthető sor, mint a
+  // lenyitható listában bármelyik másik, plusz egy nyíl jelzi, hogy
+  // rákoppintva ki-/becsukható a korábbiak listája.
+  const latest = items[0];
+  el("latestRow").innerHTML = rowItemHtml(latest);
+  bindRowEvents(el("latestRow"));
+
+  // Csak akkor mutatjuk a lenyitó fület, ha van mit lenyitni.
+  const toggle = el("listToggle");
+  toggle.classList.toggle("show", items.length > 1);
+  el("toggleLabel").textContent = listExpanded
+    ? "Összecsukás"
+    : `+${items.length - 1} korábbi tétel`;
+
+  // Lenyitható lista: a korábbiak (a legutolsó már fent, a rögzített
+  // sorban látszik, itt nem ismételjük meg).
+  el("list").innerHTML = items.slice(1).map(rowItemHtml).join("");
+  bindRowEvents(el("list"));
+
+  // Bump animáció, ha új tétel érkezett.
+  if (items.length > lastRenderedCount) {
+    panel.classList.remove("bump");
+    void panel.offsetWidth;
+    panel.classList.add("bump");
+  }
+  lastRenderedCount = items.length;
+}
+
+el("listToggle").addEventListener("click", () => {
+  listExpanded = !listExpanded;
+  renderList();
+});
+
+// A legutolsó, mindig látható tételre bárhova koppintva is nyit/csuk —
+// kivéve, ha épp a mennyiség-gombokat vagy a törlést érintjük.
+el("latestRow").addEventListener("click", (e) => {
+  if (e.target.closest(".qtyEdit, .delBtn")) return;
+  listExpanded = !listExpanded;
+  renderList();
+});
+
+function escapeHtml(str) {
+  const d = document.createElement("div");
+  d.textContent = str;
+  return d.innerHTML;
+}
+
+/* =========================================================================
+   INDÍTÁS
+   ========================================================================= */
+document.getElementById("debugBar").textContent = APP_VERSION;
+debugLog("fájl betöltve, várakozás gombnyomásra...");
+el("startBtn").addEventListener("click", () => {
+  debugLog("gomb megnyomva, kamera indítása...");
+  el("startBtn").style.display = "none";
+  startCamera().catch(err => debugLog("startCamera hiba: " + (err && err.message ? err.message : err)));
+});
+renderList();
+loadSectors();
+
+window.addEventListener("online", () => el("netDot").className = "dot online");
+window.addEventListener("offline", () => el("netDot").className = "dot offline");
+el("netDot").className = navigator.onLine ? "dot online" : "dot offline";
+
+/* =========================================================================
+   VAKU (torch) és ÉRINTÉSRE-FÓKUSZ
+   Fontos: iOS Safari-n ezek jellemzően NEM támogatottak webes API-n
+   keresztül (Apple oldali korlátozás) — ott a gombok/érintés egyszerűen
+   nem csinálnak semmit, hibaüzenet nélkül. Android Chrome-on sok
+   eszközön működnek.
+   ========================================================================= */
+let torchOn = false;
+
+function getActiveVideoTrack() {
+  return activeStream ? activeStream.getVideoTracks()[0] : null;
+}
+
+function refreshTorchButton() {
+  const track = getActiveVideoTrack();
+  const btn = el("torchBtn");
+  if (!btn) return;
+  try {
+    const caps = track && track.getCapabilities ? track.getCapabilities() : null;
+    btn.style.display = (caps && caps.torch) ? "flex" : "none";
+  } catch (e) {
+    btn.style.display = "none";
+  }
+}
+
+el("torchBtn").addEventListener("click", async () => {
+  const track = getActiveVideoTrack();
+  if (!track) return;
+  try {
+    torchOn = !torchOn;
+    await track.applyConstraints({ advanced: [{ torch: torchOn }] });
+    el("torchBtn").style.background = torchOn ? "var(--accent)" : "rgba(0,0,0,0.5)";
+  } catch (e) {
+    debugLog("vaku hiba: " + (e.message || e));
+  }
+});
+
+// Érintésre-fókusz: a kamera-kép megérintett pontjára próbál fókuszálni,
+// ahol a böngésző/eszköz ezt támogatja.
+el("camWrap").addEventListener("click", async (ev) => {
+  if (ev.target.closest("#startBtn, #torchBtn, #hit")) return;
+  const track = getActiveVideoTrack();
+  if (!track || !track.getCapabilities) return;
+
+  const rect = el("camWrap").getBoundingClientRect();
+  const x = (ev.clientX - rect.left) / rect.width;
+  const y = (ev.clientY - rect.top) / rect.height;
+
+  // Rövid vizuális visszajelzés az érintésnél, függetlenül attól,
+  // hogy a fókuszálás ténylegesen támogatott-e az eszközön.
+  showFocusRipple(ev.clientX - rect.left, ev.clientY - rect.top);
+
+  try {
+    const caps = track.getCapabilities();
+    if (caps.pointsOfInterest) {
+      await track.applyConstraints({ advanced: [{ pointsOfInterest: [{ x, y }] }] });
+    }
+    if (caps.focusMode && caps.focusMode.includes("single-shot")) {
+      await track.applyConstraints({ advanced: [{ focusMode: "single-shot" }] });
+    }
+  } catch (e) {
+    // Nem támogatott eszközön/böngészőn csendben nem csinál semmit.
+  }
+});
+
+function showFocusRipple(x, y) {
+  const ripple = document.createElement("div");
+  ripple.style.cssText = `position:absolute; left:${x}px; top:${y}px; width:56px; height:56px;
+    margin:-28px 0 0 -28px; border:2px solid var(--accent); border-radius:50%;
+    pointer-events:none; z-index:7; animation: focusRipple .5s ease-out forwards;`;
+  el("camWrap").appendChild(ripple);
+  setTimeout(() => ripple.remove(), 500);
+}
+
+
+/* ---------- Állapot ---------- */
+let activeLeltar = null;        // { leltar_id, code, tipus, raktar }
+let userEmail = "";             // ha van bejelentkezés-infó, ide kerülhet
+
+document.querySelector('.menuItem[data-screen="leltar"]').addEventListener("click", renderLeltarScreen);
+
+function renderLeltarScreen() {
+  const body = el("leltarBody");
+
+  if (!APPS_SCRIPT_URL) {
+    body.innerHTML = `<p class="placeholderNote">
+      Még nincs beállítva az Apps Script backend URL-je a kódban
+      (<code>APPS_SCRIPT_URL</code>).
+    </p>`;
+    return;
+  }
+
+  if (activeLeltar) { renderActiveLeltarStatus(body); return; }
+  renderJoinForm(body);
+}
+
+/* ---------- Nincs csatlakozva: kód beírása vagy QR beolvasása ---------- */
+function renderJoinForm(body) {
+  body.innerHTML = `
+    <div class="leltarSectionTitle">Csatlakozás futó leltárhoz</div>
+    <p class="placeholderNote">Az admin felületen indított leltárhoz tudsz csatlakozni —
+    kérd el tőle a csatlakozási kódot, vagy olvasd be a kivetített QR-kódot.</p>
+    <div class="joinRow">
+      <input id="joinCodeInput" placeholder="pl. AB12CD" maxlength="6">
+      <button id="joinCodeBtn">Csatlakozás</button>
+    </div>
+    <button class="secondaryBtn" id="joinQrBtn">📷 QR-kód beolvasása</button>
+  `;
+  el("joinCodeBtn").addEventListener("click", () => {
+    const code = el("joinCodeInput").value.trim();
+    if (code) joinLeltarWithCode(code);
+  });
+  el("joinQrBtn").addEventListener("click", openJoinScanner);
+}
+
+async function joinLeltarWithCode(code) {
+  try {
+    const result = await apiGet({ action: "join", code: code });
+    if (!result.found) { alert("Nincs ilyen csatlakozási kód."); return; }
+    if (!result.active) { alert(result.message || "Ez a leltár már nem aktív."); return; }
+    activeLeltar = { leltar_id: result.leltar_id, code: code.toUpperCase(), tipus: result.tipus, raktar: result.raktar };
+    renderLeltarScreen();
+  } catch (e) {
+    alert("Hiba a csatlakozáskor: " + e.message);
+  }
+}
+
+/* ---------- Csatlakozva: állapot-kijelzés (a lezárás az admin dolga) ---------- */
+function renderActiveLeltarStatus(body) {
+  body.innerHTML = `
+    <div id="activeLeltarBox">
+      <div class="codeLabel">Csatlakozva ehhez a leltárhoz</div>
+      <div class="codeValue" style="font-size:22px;">${escapeHtml(activeLeltar.code)}</div>
+      <div id="activeLeltarMeta">Válassz szektort a fejlécben, és kezdheted a beolvasást.
+      A leltár lezárása és az eltérés-riport az admin felületen történik.</div>
+      <button class="secondaryBtn" id="leaveLeltarBtn">Leválasztás erről a leltárról</button>
+    </div>
+  `;
+  el("leaveLeltarBtn").addEventListener("click", () => {
+    activeLeltar = null;
+    renderLeltarScreen();
+  });
+}
+
+/* =========================================================================
+   QR-KÓD BEOLVASÁSA (csatlakozáshoz) — önálló, egyszerű kamera-nézet,
+   nem érinti a fő szkenner állapotát.
+   ========================================================================= */
+let joinStream = null;
+let joinScanning = false;
+
+async function openJoinScanner() {
+  el("joinScanScreen").classList.add("show");
+  joinScanning = true;
+  try {
+    joinStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: "environment" } }, audio: false,
+    });
+    const v = el("joinVideo");
+    v.srcObject = joinStream;
+    await v.play();
+    requestAnimationFrame(joinScanLoop);
+  } catch (e) {
+    el("joinScanMsg").textContent = "Kamera hiba: " + e.message;
+  }
+}
+
+function closeJoinScanner() {
+  joinScanning = false;
+  el("joinScanScreen").classList.remove("show");
+  if (joinStream) { joinStream.getTracks().forEach(t => t.stop()); joinStream = null; }
+}
+el("joinScanClose").addEventListener("click", closeJoinScanner);
+
+async function joinScanLoop() {
+  if (!joinScanning) return;
+  const v = el("joinVideo");
+  try {
+    if (v.videoWidth) {
+      if ("BarcodeDetector" in window) {
+        const det = new BarcodeDetector({ formats: ["qr_code"] });
+        const codes = await det.detect(v);
+        if (codes.length) { handleJoinScanResult(codes[0].rawValue); return; }
+      } else if (window.ZXingWASM) {
+        const canvas = document.createElement("canvas");
+        canvas.width = v.videoWidth; canvas.height = v.videoHeight;
+        canvas.getContext("2d").drawImage(v, 0, 0);
+        const imgData = canvas.getContext("2d").getImageData(0, 0, canvas.width, canvas.height);
+        const results = await ZXingWASM.readBarcodesFromImageData(imgData, { formats: ["QRCode"], maxSymbols: 1 });
+        if (results && results.length) { handleJoinScanResult(results[0].text); return; }
+      }
+    }
+  } catch (e) { /* átmeneti hiba, folytatjuk */ }
+  requestAnimationFrame(joinScanLoop);
+}
+
+function handleJoinScanResult(code) {
+  closeJoinScanner();
+  el("joinCodeInput") && (el("joinCodeInput").value = code);
+  joinLeltarWithCode(code);
+}
+
+/* =========================================================================
+   ELLENŐRZÉS — kamerás vonalkód-lekérdezés: modellenként/méretenként
+   megmutatja a raktári készletet. Önálló kamera-kezelés, nem érinti a
+   fő szkenner állapotát.
+   ========================================================================= */
+let checkStream = null;
+let checkScanning = false;
+let checkLastCode = null;
+let checkLastAt = 0;
+
+document.querySelector('.menuItem[data-screen="ellenorzes"]').addEventListener("click", openCheckScanner);
+document.querySelectorAll('#ellenorzesScreen [data-back]').forEach(btn => {
+  btn.addEventListener("click", closeCheckScanner);
+});
+
+async function openCheckScanner() {
+  checkScanning = true;
+  el("checkResultBody").innerHTML = "";
+  el("checkMsg").textContent = "Irányítsd a kamerát egy vonalkódra";
+  try {
+    checkStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: "environment" } }, audio: false,
+    });
+    const v = el("checkVideo");
+    v.srcObject = checkStream;
+    await v.play();
+    requestAnimationFrame(checkScanLoop);
+  } catch (e) {
+    el("checkMsg").textContent = "Kamera hiba: " + e.message;
+  }
+}
+
+function closeCheckScanner() {
+  checkScanning = false;
+  if (checkStream) { checkStream.getTracks().forEach(t => t.stop()); checkStream = null; }
+}
+
+async function checkScanLoop() {
+  if (!checkScanning) return;
+  const v = el("checkVideo");
+  try {
+    if (v.videoWidth) {
+      let code = null;
+      if ("BarcodeDetector" in window) {
+        const det = new BarcodeDetector({
+          formats: ["ean_13", "ean_8", "upc_a", "upc_e", "code_128", "code_39", "itf", "qr_code"],
+        });
+        const codes = await det.detect(v);
+        if (codes.length) code = codes[0].rawValue;
+      } else if (window.ZXingWASM) {
+        const canvas = document.createElement("canvas");
+        canvas.width = v.videoWidth; canvas.height = v.videoHeight;
+        canvas.getContext("2d").drawImage(v, 0, 0);
+        const imgData = canvas.getContext("2d").getImageData(0, 0, canvas.width, canvas.height);
+        const results = await ZXingWASM.readBarcodesFromImageData(imgData, { tryHarder: true, maxSymbols: 1 });
+        if (results && results.length) code = results[0].text;
+      }
+      if (code) {
+        const now = Date.now();
+        // Duplikáció-védelem: ugyanazt a kódot ne kérdezzük le újra és
+        // újra másodpercenként többször, amíg a kamera rajta van.
+        if (code !== checkLastCode || now - checkLastAt > 4000) {
+          checkLastCode = code;
+          checkLastAt = now;
+          handleCheckScanResult(code);
+        }
+      }
+    }
+  } catch (e) { /* átmeneti hiba, folytatjuk */ }
+  requestAnimationFrame(checkScanLoop);
+}
+
+async function handleCheckScanResult(barcode) {
+  el("checkMsg").textContent = "Keresés: " + barcode + "…";
+  try {
+    const data = await apiGet({ action: "check_stock", barcode: barcode });
+    if (!data.found) {
+      el("checkResultBody").innerHTML = `<p class="placeholderNote">
+        A(z) ${escapeHtml(barcode)} vonalkód nem található a terméktörzsben.</p>`;
+      el("checkMsg").textContent = "Irányítsd a kamerát egy vonalkódra";
+      return;
+    }
+    const sizesHtml = data.sizes.length
+      ? data.sizes.map(s => `
+          <div class="checkSizeRow">
+            <span>${escapeHtml(s.meret)}</span>
+            <span class="qty${s.mennyiseg === 0 ? " zero" : ""}">${s.mennyiseg} db</span>
+          </div>`).join("")
+      : `<p class="placeholderNote">Nincs készlet-adat ehhez a modellhez.</p>`;
+    el("checkResultBody").innerHTML = `
+      <div class="checkResultCard">
+        <div class="modelName">${escapeHtml(data.nev)}</div>
+        <div class="modelCode">${escapeHtml(data.modell)}</div>
+        ${sizesHtml}
+      </div>`;
+    el("checkMsg").textContent = "Irányítsd a kamerát a következő vonalkódra";
+    beep(880); haptic(20);
+  } catch (e) {
+    el("checkResultBody").innerHTML = `<p class="placeholderNote">Hiba: ${escapeHtml(e.message)}</p>`;
+  }
+}
+
+} catch (e) {
+  alert("KRITIKUS HIBA a szkriptben: " + (e && e.stack ? e.stack : e));
+}
+</script>
+</body>
+</html>
