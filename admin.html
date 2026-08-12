@@ -122,7 +122,7 @@
       </div>
     </div>
     <div class="card">
-      <div class="cardTitle">Jelenlegi szektorok</div>
+      <div class="cardTitle">Rögzített szektorok</div>
       <div id="sectorList"><p class="emptyNote">Betöltés…</p></div>
     </div>
   </div>
@@ -143,7 +143,6 @@
       <div id="productTypeList" style="display:none;"></div>
       <div class="row" style="margin-bottom:10px;">
         <input type="text" id="adminNameInput" placeholder="A neved">
-        <input type="password" id="adminPasswordInput" placeholder="Admin jelszó">
       </div>
       <button class="btn primary" id="startLeltarBtn">Leltár indítása</button>
       <div id="startLeltarMsg" style="margin-top:10px; font-size:13px; color:var(--text-dim);"></div>
@@ -216,29 +215,41 @@ document.querySelectorAll(".navBtn").forEach(btn => {
 /* =========================================================================
    SZEKTOROK
    ========================================================================= */
+function renderSectorList(list) {
+  const wrap = el("sectorList");
+  if (!list.length) {
+    wrap.innerHTML = `<p class="emptyNote">Még nincs felvéve egyetlen szektor sem.</p>`;
+    return;
+  }
+  wrap.innerHTML = list.map(s => `
+    <div class="sectorRow">
+      <span>${escapeHtml(s)}</span>
+      <button data-sector="${escapeHtml(s)}" aria-label="Törlés">✕</button>
+    </div>
+  `).join("");
+  wrap.querySelectorAll("button[data-sector]").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      if (!confirm(`Biztosan törlöd a(z) "${btn.dataset.sector}" szektort?`)) return;
+      btn.disabled = true;
+      try {
+        const result = await apiPost({ action: "delete_sector", nev: btn.dataset.sector });
+        if (result.error) { alert("Hiba a törléskor: " + result.error); btn.disabled = false; return; }
+        renderSectorList(result.sectors || []);
+      } catch (e) {
+        alert("Hiba a törléskor: " + e.message);
+        btn.disabled = false;
+      }
+    });
+  });
+}
+
 async function loadSectorList() {
   const wrap = el("sectorList");
   wrap.innerHTML = `<p class="emptyNote">Betöltés…</p>`;
   try {
     const data = await apiGet({ action: "sectors" });
-    const list = data.sectors || [];
-    if (!list.length) {
-      wrap.innerHTML = `<p class="emptyNote">Még nincs felvéve egyetlen szektor sem.</p>`;
-      return;
-    }
-    wrap.innerHTML = list.map(s => `
-      <div class="sectorRow">
-        <span>${escapeHtml(s)}</span>
-        <button data-sector="${escapeHtml(s)}" aria-label="Törlés">✕</button>
-      </div>
-    `).join("");
-    wrap.querySelectorAll("button[data-sector]").forEach(btn => {
-      btn.addEventListener("click", async () => {
-        if (!confirm(`Biztosan törlöd a(z) "${btn.dataset.sector}" szektort?`)) return;
-        await apiPost({ action: "delete_sector", nev: btn.dataset.sector });
-        loadSectorList();
-      });
-    });
+    if (data.error) { wrap.innerHTML = `<p class="emptyNote">Hiba: ${escapeHtml(data.error)}</p>`; return; }
+    renderSectorList(data.sectors || []);
   } catch (e) {
     wrap.innerHTML = `<p class="emptyNote">Hiba a betöltéskor: ${escapeHtml(e.message)}</p>`;
   }
@@ -248,15 +259,22 @@ el("addSectorBtn").addEventListener("click", async () => {
   const input = el("newSectorInput");
   const name = input.value.trim();
   if (!name) return;
-  el("addSectorBtn").disabled = true;
+  const btn = el("addSectorBtn");
+  btn.disabled = true;
+  btn.textContent = "Hozzáadás…";
   try {
-    await apiPost({ action: "add_sector", nev: name });
-    input.value = "";
-    loadSectorList();
+    const result = await apiPost({ action: "add_sector", nev: name });
+    if (result.error) {
+      alert("Hiba a hozzáadáskor: " + result.error);
+    } else {
+      input.value = "";
+      renderSectorList(result.sectors || []);
+    }
   } catch (e) {
     alert("Hiba: " + e.message);
   }
-  el("addSectorBtn").disabled = false;
+  btn.disabled = false;
+  btn.textContent = "Hozzáadás";
 });
 el("newSectorInput").addEventListener("keydown", (e) => {
   if (e.key === "Enter") el("addSectorBtn").click();
@@ -299,9 +317,7 @@ document.querySelectorAll('input[name="leltarTipus"]').forEach(r => {
 el("startLeltarBtn").addEventListener("click", async () => {
   const tipus = document.querySelector('input[name="leltarTipus"]:checked').value;
   const name = el("adminNameInput").value.trim();
-  const password = el("adminPasswordInput").value;
   if (!name) { el("startLeltarMsg").textContent = "Add meg a neved."; return; }
-  if (!password) { el("startLeltarMsg").textContent = "Add meg az admin jelszót."; return; }
 
   const btn = el("startLeltarBtn");
   btn.disabled = true;
@@ -311,7 +327,6 @@ el("startLeltarBtn").addEventListener("click", async () => {
     const result = await apiPost({
       action: "create_leltar",
       inditotta: name,
-      password: password,
       tipus: tipus,
       termektipusok: Array.from(selectedProductTypes),
     });
