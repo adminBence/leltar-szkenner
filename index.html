@@ -513,7 +513,7 @@ async function startCamera() {
   }
 }
 
-const APP_VERSION = "v36";
+const APP_VERSION = "v37";
 let frameCount = 0, detectCount = 0;
 function debugLog(msg) {
   // A felületen csak a verziószám látszik (lásd lent) — a részletes
@@ -1194,11 +1194,15 @@ function showFocusRipple(x, y) {
    Töltsd ki a saját telepített Web App URL-eddel, miután a Code.gs-t
    telepítetted. Amíg üres, a Leltár képernyő figyelmeztet erre.
    ========================================================================= */
-let APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwlZfz8f_nn8X_AIFciyi42OL81xkTWAXcPfczqYo_xjb7KtYIVKrkGWVpe8iYjMWAKzQ/exec"; // pl. "https://script.google.com/macros/s/AKfycb.../exec"
+let APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwlZfz8f_nn8X_AIFciyi42OL81xkTWAXcPfczqYo_xjb7KtYIVKrkGWVpe8iYjMWAKzQ/exec";
+// Ugyanaz a kulcs, mint a Code.gs API_KEY konstansában — ez védi a
+// backendet, mivel a webapp "Anyone" (bejelentkezés nélküli) módban fut.
+const APPS_SCRIPT_KEY = "oaYB9SYL15UkpopXllHgYZRjD6sGk6iD";
 
 async function apiGet(params) {
   if (!APPS_SCRIPT_URL) throw new Error("Nincs beállítva az Apps Script URL (lásd a kód elején).");
-  const qs = Object.entries(params).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join("&");
+  const qs = Object.entries({ ...params, key: APPS_SCRIPT_KEY })
+    .map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join("&");
   const res = await fetch(`${APPS_SCRIPT_URL}?${qs}`);
   return res.json();
 }
@@ -1208,7 +1212,7 @@ async function apiPost(body) {
   const res = await fetch(APPS_SCRIPT_URL, {
     method: "POST",
     headers: { "Content-Type": "text/plain;charset=utf-8" },
-    body: JSON.stringify(body),
+    body: JSON.stringify({ ...body, key: APPS_SCRIPT_KEY }),
   });
   return res.json();
 }
