@@ -70,6 +70,55 @@
     padding:12px 14px; background:var(--panel); border:1px solid var(--line); border-radius:10px; margin-bottom:8px;}
   .sectorRow .delSectorBtn{background:none; border:none; color:var(--danger); font-size:16px;}
 
+  /* ---------- Leltár képernyő ---------- */
+  .leltarSectionTitle{font-size:13px; font-weight:700; color:var(--text-dim);
+    text-transform:uppercase; letter-spacing:.04em; margin:20px 0 10px;}
+  .leltarSectionTitle:first-child{margin-top:0;}
+  .typeChoice{display:flex; flex-direction:column; gap:8px; margin-bottom:14px;}
+  .typeChoice label{display:flex; align-items:center; gap:10px; padding:12px 14px;
+    background:var(--panel); border:1px solid var(--line); border-radius:10px; font-size:14px;}
+  .typeChoice input[type=radio]{accent-color:var(--accent);}
+  #productTypeList{display:flex; flex-direction:column; gap:6px; max-height:220px;
+    overflow-y:auto; margin-bottom:14px; padding:4px 0;}
+  #productTypeList label{display:flex; align-items:center; gap:10px; padding:9px 12px;
+    background:var(--panel); border:1px solid var(--line); border-radius:8px; font-size:13px;}
+  #productTypeList input[type=checkbox]{accent-color:var(--accent);}
+  .bigBtn{width:100%; padding:14px; border-radius:12px; border:none; font-size:15px;
+    font-weight:700; background:var(--accent); color:#06231a;}
+  .bigBtn:disabled{opacity:.4;}
+  .joinRow{display:flex; gap:8px; margin-bottom:8px;}
+  .joinRow input{flex:1; background:var(--panel-2); border:1px solid var(--line); border-radius:10px;
+    padding:10px 12px; color:var(--text); font-size:16px; letter-spacing:.1em; text-transform:uppercase;}
+  .joinRow button{flex:0 0 auto; padding:0 16px; border-radius:10px; border:1px solid var(--line);
+    background:var(--panel-2); color:var(--text); font-weight:700;}
+  .secondaryBtn{width:100%; padding:12px; border-radius:10px; border:1px solid var(--line);
+    background:var(--panel-2); color:var(--text); font-size:14px; font-weight:600; margin-top:8px;}
+
+  #activeLeltarBox{text-align:center; padding:8px 0;}
+  #activeLeltarBox .codeLabel{font-size:12px; color:var(--text-dim); margin-bottom:6px;}
+  #activeLeltarBox .codeValue{font-size:32px; font-weight:800; letter-spacing:.12em; margin-bottom:16px;}
+  #qrCanvas{margin:0 auto 16px; display:block; background:#fff; padding:10px; border-radius:10px;}
+  #activeLeltarMeta{font-size:13px; color:var(--text-dim); margin-bottom:20px;}
+  #closeLeltarBtn{width:100%; padding:14px; border-radius:12px; border:none;
+    background:var(--danger); color:#fff; font-size:15px; font-weight:700;}
+
+  .diffRow{display:flex; align-items:center; gap:10px; padding:12px 14px;
+    background:var(--panel); border:1px solid var(--line); border-radius:10px; margin-bottom:8px;}
+  .diffRow .info{flex:1; min-width:0;}
+  .diffRow .info b{display:block; font-size:14px;}
+  .diffRow .info span{font-size:11px; color:var(--text-dim); display:block; margin-top:2px;}
+  .diffRow .diffVal{font-size:16px; font-weight:800; min-width:52px; text-align:right;}
+  .diffVal.pos{color:var(--accent);}
+  .diffVal.neg{color:var(--danger);}
+  .diffVal.zero{color:var(--text-dim);}
+  .otherWarehouses{font-size:11px; color:var(--text-dim); margin-top:4px;}
+
+  /* ---------- QR beolvasó overlay (csatlakozáshoz) ---------- */
+  #joinScanCamWrap{position:relative; flex:1; background:#000; overflow:hidden;}
+  #joinVideo{width:100%; height:100%; object-fit:cover;}
+  #joinScanMsg{position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+    color:var(--text-dim); font-size:14px; text-align:center; padding:24px; background:rgba(0,0,0,0.4);}
+
   /* ---------- Kamera terület ---------- */
   #camWrap{position:relative; flex:1 1 auto; min-height:0; background:#000; overflow:hidden;}
   video{width:100%; height:100%; object-fit:cover; display:block;}
@@ -240,12 +289,18 @@
       <button class="backBtn" data-back>← Vissza</button>
       <b>Leltár</b>
     </div>
-    <div class="subScreenBody">
-      <p class="placeholderNote">
-        Ez a képernyő tervezés alatt van — az induláshoz előbb el kell dönteni,
-        honnan jöjjön a rendszer szerinti készlet, és hogyan csatlakozzanak
-        egymáshoz a leltározó eszközök. Beszéljük át, aztán kiépítjük!
-      </p>
+    <div class="subScreenBody" id="leltarBody"></div>
+  </div>
+
+  <!-- QR-kód beolvasása csatlakozáshoz (önálló, kis kamera-nézet) -->
+  <div id="joinScanScreen" class="subScreen" style="z-index:70;">
+    <div class="subScreenHeader">
+      <button class="backBtn" id="joinScanClose">← Vissza</button>
+      <b>QR-kód beolvasása</b>
+    </div>
+    <div id="joinScanCamWrap">
+      <video id="joinVideo" autoplay playsinline muted></video>
+      <div id="joinScanMsg"></div>
     </div>
   </div>
 
@@ -395,14 +450,17 @@ function flashScreen() {
    TERMÉK KERESÉS
    ========================================================================= */
 async function lookupProduct(barcode) {
-  // --- DEMO MÓD ---
+  if (APPS_SCRIPT_URL) {
+    try {
+      const data = await apiGet({ action: "lookup", barcode: barcode });
+      if (data && !data.error) return { found: !!data.name, name: data.name || null };
+    } catch (e) {
+      debugLog("lookupProduct hiba, demo listára esik vissza: " + e.message);
+    }
+  }
+  // --- DEMO MÓD (nincs beállítva backend, vagy hiba történt) ---
   if (DEMO_PRODUCTS[barcode]) return { found: true, name: DEMO_PRODUCTS[barcode] };
   return { found: false, name: null };
-
-  // --- ÉLES MÓD (Apps Script Web App hívás) ---
-  // const res = await fetch(`${APPS_SCRIPT_URL}?action=lookup&barcode=${barcode}`);
-  // const data = await res.json();
-  // return { found: !!data.name, name: data.name || null };
 }
 
 /* =========================================================================
@@ -455,7 +513,7 @@ async function startCamera() {
   }
 }
 
-const APP_VERSION = "v33";
+const APP_VERSION = "v34";
 let frameCount = 0, detectCount = 0;
 function debugLog(msg) {
   // A felületen csak a verziószám látszik (lásd lent) — a részletes
@@ -871,10 +929,29 @@ el("syncBtn").addEventListener("click", async () => {
   const btn = el("syncBtn");
   btn.disabled = true;
   btn.textContent = "Szinkronizálás…";
-  // --- ÉLES MÓD ---
-  // await fetch(APPS_SCRIPT_URL, { method: "POST", body: JSON.stringify(scanned) });
-  await new Promise(r => setTimeout(r, 600)); // demo késleltetés
-  scanned.forEach(s => s.synced = true);
+
+  const pendingItems = scanned.filter(s => !s.synced);
+
+  if (APPS_SCRIPT_URL && activeLeltar && pendingItems.length) {
+    try {
+      await apiPost({
+        action: "submit_scans",
+        leltar_id: activeLeltar.leltar_id,
+        items: pendingItems.map(s => ({
+          sector: s.sector, barcode: s.barcode, qty: s.qty, user: userEmail || "ismeretlen",
+        })),
+      });
+      pendingItems.forEach(s => s.synced = true);
+    } catch (e) {
+      alert("Szinkronizálási hiba: " + e.message);
+    }
+  } else {
+    // Demo mód (nincs beállítva backend URL, vagy nincs aktív leltár) —
+    // csak lokálisan jelöljük szinkronizáltnak, hogy a felület tesztelhető legyen.
+    await new Promise(r => setTimeout(r, 400));
+    scanned.forEach(s => s.synced = true);
+  }
+
   btn.disabled = false;
   updatePendingCount();
   btn.innerHTML = `Szinkronizálás (<span id="pendingCount">0</span>)`;
@@ -1105,6 +1182,308 @@ function showFocusRipple(x, y) {
     pointer-events:none; z-index:7; animation: focusRipple .5s ease-out forwards;`;
   el("camWrap").appendChild(ripple);
   setTimeout(() => ripple.remove(), 500);
+}
+
+/* =========================================================================
+   LELTÁR — Apps Script backend hívások
+   Töltsd ki a saját telepített Web App URL-eddel, miután a Code.gs-t
+   telepítetted. Amíg üres, a Leltár képernyő figyelmeztet erre.
+   ========================================================================= */
+let APPS_SCRIPT_URL = ""; // pl. "https://script.google.com/macros/s/AKfycb.../exec"
+
+async function apiGet(params) {
+  if (!APPS_SCRIPT_URL) throw new Error("Nincs beállítva az Apps Script URL (lásd a kód elején).");
+  const qs = Object.entries(params).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join("&");
+  const res = await fetch(`${APPS_SCRIPT_URL}?${qs}`);
+  return res.json();
+}
+async function apiPost(body) {
+  if (!APPS_SCRIPT_URL) throw new Error("Nincs beállítva az Apps Script URL (lásd a kód elején).");
+  // text/plain content-type, hogy elkerüljük a CORS preflight-ot Apps Scriptnél.
+  const res = await fetch(APPS_SCRIPT_URL, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: JSON.stringify(body),
+  });
+  return res.json();
+}
+
+/* ---------- Állapot ---------- */
+let activeLeltar = null;        // { leltar_id, code, tipus, raktar }
+let leltarClosedDiff = null;    // lezárás utáni eltérés-riport
+let selectedProductTypes = new Set();
+let userEmail = "";             // ha van bejelentkezés-infó, ide kerülhet
+
+document.querySelector('.menuItem[data-screen="leltar"]').addEventListener("click", renderLeltarScreen);
+
+async function renderLeltarScreen() {
+  const body = el("leltarBody");
+
+  if (!APPS_SCRIPT_URL) {
+    body.innerHTML = `<p class="placeholderNote">
+      Még nincs beállítva az Apps Script backend URL-je a kódban
+      (<code>APPS_SCRIPT_URL</code>). Telepítsd a <code>Code.gs</code>-t,
+      majd írd be ide a Web App linket, hogy a Leltár funkciók éles
+      adatokkal működjenek.
+    </p>`;
+    return;
+  }
+
+  if (leltarClosedDiff) { renderDiffReport(body); return; }
+  if (activeLeltar) { renderActiveLeltar(body); return; }
+  renderLeltarStart(body);
+}
+
+/* ---------- 1) Nincs aktív leltár: indítás vagy csatlakozás ---------- */
+function renderLeltarStart(body) {
+  body.innerHTML = `
+    <div class="leltarSectionTitle">Új leltár indítása</div>
+    <div class="typeChoice">
+      <label><input type="radio" name="leltarTipus" value="teljes" checked> Teljes vakleltár</label>
+      <label><input type="radio" name="leltarTipus" value="termektipus"> Vakleltár terméktípus szerint</label>
+    </div>
+    <div id="productTypeList" style="display:none;">
+      <p class="placeholderNote">Terméktípusok betöltése…</p>
+    </div>
+    <button class="bigBtn" id="startLeltarBtn">Leltár indítása</button>
+
+    <div class="leltarSectionTitle">Csatlakozás meglévő leltárhoz</div>
+    <div class="joinRow">
+      <input id="joinCodeInput" placeholder="pl. AB12CD" maxlength="6">
+      <button id="joinCodeBtn">Csatlakozás</button>
+    </div>
+    <button class="secondaryBtn" id="joinQrBtn">📷 QR-kód beolvasása</button>
+  `;
+
+  document.querySelectorAll('input[name="leltarTipus"]').forEach(r => {
+    r.addEventListener("change", async (e) => {
+      const listWrap = el("productTypeList");
+      if (e.target.value === "termektipus") {
+        listWrap.style.display = "flex";
+        await loadProductTypeChecklist();
+      } else {
+        listWrap.style.display = "none";
+      }
+    });
+  });
+
+  el("startLeltarBtn").addEventListener("click", startNewLeltar);
+  el("joinCodeBtn").addEventListener("click", () => {
+    const code = el("joinCodeInput").value.trim();
+    if (code) joinLeltarWithCode(code);
+  });
+  el("joinQrBtn").addEventListener("click", openJoinScanner);
+}
+
+async function loadProductTypeChecklist() {
+  const listWrap = el("productTypeList");
+  try {
+    const data = await apiGet({ action: "producttypes" });
+    const types = data.types || [];
+    if (!types.length) {
+      listWrap.innerHTML = `<p class="placeholderNote">Nem található terméktípus.</p>`;
+      return;
+    }
+    listWrap.innerHTML = types.map(t => `
+      <label><input type="checkbox" class="typeCheck" value="${escapeHtml(t)}"> ${escapeHtml(t)}</label>
+    `).join("");
+    listWrap.querySelectorAll(".typeCheck").forEach(cb => {
+      cb.addEventListener("change", () => {
+        if (cb.checked) selectedProductTypes.add(cb.value);
+        else selectedProductTypes.delete(cb.value);
+      });
+    });
+  } catch (e) {
+    listWrap.innerHTML = `<p class="placeholderNote">Hiba a terméktípusok betöltésekor: ${escapeHtml(e.message)}</p>`;
+  }
+}
+
+async function startNewLeltar() {
+  const tipus = document.querySelector('input[name="leltarTipus"]:checked').value;
+  const btn = el("startLeltarBtn");
+  btn.disabled = true;
+  btn.textContent = "Indítás…";
+  try {
+    const result = await apiPost({
+      action: "create_leltar",
+      inditotta: userEmail || "ismeretlen",
+      tipus: tipus,
+      termektipusok: Array.from(selectedProductTypes),
+    });
+    if (result.error) { alert(result.error); btn.disabled = false; btn.textContent = "Leltár indítása"; return; }
+    activeLeltar = { leltar_id: result.leltar_id, code: result.code };
+    renderLeltarScreen();
+  } catch (e) {
+    alert("Hiba a leltár indításakor: " + e.message);
+    btn.disabled = false;
+    btn.textContent = "Leltár indítása";
+  }
+}
+
+async function joinLeltarWithCode(code) {
+  try {
+    const result = await apiGet({ action: "join", code: code });
+    if (!result.found) { alert("Nincs ilyen csatlakozási kód."); return; }
+    if (!result.active) { alert(result.message || "Ez a leltár már nem aktív."); return; }
+    activeLeltar = { leltar_id: result.leltar_id, code: code.toUpperCase(), tipus: result.tipus, raktar: result.raktar };
+    renderLeltarScreen();
+  } catch (e) {
+    alert("Hiba a csatlakozáskor: " + e.message);
+  }
+}
+
+/* ---------- 2) Aktív leltár: kód/QR + lezárás ---------- */
+function renderActiveLeltar(body) {
+  body.innerHTML = `
+    <div id="activeLeltarBox">
+      <div class="codeLabel">Csatlakozási kód</div>
+      <div class="codeValue">${escapeHtml(activeLeltar.code)}</div>
+      <canvas id="qrCanvas" width="200" height="200"></canvas>
+      <div id="activeLeltarMeta">Más eszközökön a "Csatlakozás meglévő leltárhoz" résznél add meg ezt a kódot, vagy olvassák be a QR-t.</div>
+      <button id="closeLeltarBtn">Leltár lezárása és eltérés-riport</button>
+    </div>
+  `;
+  renderQrCode(activeLeltar.code);
+  el("closeLeltarBtn").addEventListener("click", closeActiveLeltar);
+}
+
+async function closeActiveLeltar() {
+  if (!confirm("Biztosan lezárod a leltárat? Ezután már nem lehet több beolvasást hozzáadni.")) return;
+  const btn = el("closeLeltarBtn");
+  btn.disabled = true;
+  btn.textContent = "Lezárás…";
+  try {
+    const result = await apiPost({ action: "close_leltar", leltar_id: activeLeltar.leltar_id });
+    leltarClosedDiff = result.diff || [];
+    renderLeltarScreen();
+  } catch (e) {
+    alert("Hiba a lezáráskor: " + e.message);
+    btn.disabled = false;
+    btn.textContent = "Leltár lezárása és eltérés-riport";
+  }
+}
+
+/* ---------- 3) Lezárt leltár: eltérés-riport ---------- */
+function renderDiffReport(body) {
+  const rows = leltarClosedDiff;
+  const elteroCount = rows.filter(r => r.elteres !== 0).length;
+  body.innerHTML = `
+    <div class="leltarSectionTitle">Eltérés-riport — ${elteroCount} eltérő tétel a ${rows.length}-ből</div>
+    ${rows.map(r => {
+      const cls = r.elteres > 0 ? "pos" : (r.elteres < 0 ? "neg" : "zero");
+      const sign = r.elteres > 0 ? "+" : "";
+      const others = (r.masik_raktar || []).map(o => `${escapeHtml(o.raktar)}: ${o.mennyiseg} db`).join(" · ");
+      return `
+        <div class="diffRow">
+          <div class="info">
+            <b>${escapeHtml(r.nev || r.vonalkod)}</b>
+            <span>${escapeHtml(r.vonalkod)} · rendszer: ${r.rendszer} db · számolt: ${r.szamolt} db</span>
+            ${others ? `<span class="otherWarehouses">Más raktárak — ${others}</span>` : ""}
+          </div>
+          <div class="diffVal ${cls}">${sign}${r.elteres}</div>
+        </div>`;
+    }).join("")}
+    <button class="secondaryBtn" id="newLeltarBtn">Új leltár indítása</button>
+  `;
+  el("newLeltarBtn").addEventListener("click", () => {
+    activeLeltar = null;
+    leltarClosedDiff = null;
+    selectedProductTypes = new Set();
+    renderLeltarScreen();
+  });
+}
+
+/* ---------- QR-kód generálás (kliens oldali, könyvtár nélkül nem megy —
+   előtöltjük a kis "qrcode-generator" könyvtárat) ---------- */
+let qrLibPromise = null;
+function ensureQrLib() {
+  if (!qrLibPromise) {
+    qrLibPromise = loadScript("https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js");
+  }
+  return qrLibPromise;
+}
+ensureQrLib().catch(e => { /* csendben, csak akkor kell ha QR-t generálunk */ });
+
+async function renderQrCode(text) {
+  try {
+    await ensureQrLib();
+    const qr = qrcode(0, "M");
+    qr.addData(text);
+    qr.make();
+    const canvas = el("qrCanvas");
+    const ctx = canvas.getContext("2d");
+    const size = canvas.width;
+    const count = qr.getModuleCount();
+    const cell = size / count;
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, 0, size, size);
+    ctx.fillStyle = "#000";
+    for (let r = 0; r < count; r++) {
+      for (let c = 0; c < count; c++) {
+        if (qr.isDark(r, c)) ctx.fillRect(c * cell, r * cell, cell, cell);
+      }
+    }
+  } catch (e) {
+    debugLog("QR generálási hiba: " + e.message);
+  }
+}
+
+/* =========================================================================
+   QR-KÓD BEOLVASÁSA (csatlakozáshoz) — önálló, egyszerű kamera-nézet,
+   nem érinti a fő szkenner állapotát.
+   ========================================================================= */
+let joinStream = null;
+let joinScanning = false;
+
+async function openJoinScanner() {
+  el("joinScanScreen").classList.add("show");
+  joinScanning = true;
+  try {
+    joinStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: "environment" } }, audio: false,
+    });
+    const v = el("joinVideo");
+    v.srcObject = joinStream;
+    await v.play();
+    requestAnimationFrame(joinScanLoop);
+  } catch (e) {
+    el("joinScanMsg").textContent = "Kamera hiba: " + e.message;
+  }
+}
+
+function closeJoinScanner() {
+  joinScanning = false;
+  el("joinScanScreen").classList.remove("show");
+  if (joinStream) { joinStream.getTracks().forEach(t => t.stop()); joinStream = null; }
+}
+el("joinScanClose").addEventListener("click", closeJoinScanner);
+
+async function joinScanLoop() {
+  if (!joinScanning) return;
+  const v = el("joinVideo");
+  try {
+    if (v.videoWidth) {
+      if ("BarcodeDetector" in window) {
+        const det = new BarcodeDetector({ formats: ["qr_code"] });
+        const codes = await det.detect(v);
+        if (codes.length) { handleJoinScanResult(codes[0].rawValue); return; }
+      } else if (window.ZXingWASM) {
+        const canvas = document.createElement("canvas");
+        canvas.width = v.videoWidth; canvas.height = v.videoHeight;
+        canvas.getContext("2d").drawImage(v, 0, 0);
+        const imgData = canvas.getContext("2d").getImageData(0, 0, canvas.width, canvas.height);
+        const results = await ZXingWASM.readBarcodesFromImageData(imgData, { formats: ["QRCode"], maxSymbols: 1 });
+        if (results && results.length) { handleJoinScanResult(results[0].text); return; }
+      }
+    }
+  } catch (e) { /* átmeneti hiba, folytatjuk */ }
+  requestAnimationFrame(joinScanLoop);
+}
+
+function handleJoinScanResult(code) {
+  closeJoinScanner();
+  el("joinCodeInput") && (el("joinCodeInput").value = code);
+  joinLeltarWithCode(code);
 }
 
 } catch (e) {
