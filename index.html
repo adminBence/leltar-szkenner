@@ -169,6 +169,17 @@
   @keyframes flashPulse{0%{opacity:.35;} 100%{opacity:0;}}
   @keyframes focusRipple{0%{transform:scale(0.6); opacity:1;} 100%{transform:scale(1.15); opacity:0;}}
 
+  /* ---------- Kötelező névmegadás ---------- */
+  #nameGateOverlay{display:flex; position:fixed; inset:0; z-index:1000; background:var(--bg);
+    align-items:center; justify-content:center; padding:24px;}
+  #nameGateOverlay.hide{display:none;}
+  #nameGateBox{width:100%; max-width:340px; text-align:center;}
+  .nameGateTitle{font-size:19px; font-weight:700; margin-bottom:8px;}
+  .nameGateNote{color:var(--text-dim); font-size:13px; line-height:1.5; margin-bottom:20px;}
+  #nameGateInput{width:100%; background:var(--panel-2); border:1px solid var(--line); border-radius:10px;
+    padding:13px 14px; color:var(--text); font-size:16px; margin-bottom:14px; text-align:center;}
+  #nameGateBox .bigBtn{width:100%;}
+
   #camMsg{position:absolute; inset:0; display:none; align-items:center; justify-content:center;
     text-align:center; padding:24px; color:var(--text-dim); font-size:14px; background:var(--bg);}
   #camMsg.show{display:flex;}
@@ -187,6 +198,8 @@
   .hitBadge{font-size:11px; padding:3px 8px; border-radius:999px; background:var(--accent-dim);
     color:var(--accent); font-weight:600; white-space:nowrap;}
   .hitBadge.warn{background:#4a3a17; color:var(--warn);}
+  .checkedNote{font-size:11px; color:var(--accent); margin-top:4px;}
+  #hitCheckedNote:empty{display:none;}
 
   .qtyRow{display:flex; align-items:center; gap:8px; margin-top:12px;}
   .qtyBtn{width:40px; height:44px; flex:0 0 40px; border-radius:10px; border:1px solid var(--line);
@@ -262,12 +275,22 @@
   <div class="icon">📱</div>
   <div>Ez az alkalmazás csak álló tájolásban használható.<br>Fordítsd vissza a telefont.</div>
 </div>
+
+<div id="nameGateOverlay">
+  <div id="nameGateBox">
+    <div class="nameGateTitle">Mielőtt elkezdenéd</div>
+    <p class="nameGateNote">Add meg a neved — ez fog megjelenni a beolvasott tételeknél és az ellenőrzéseknél, hogy tudjuk, ki mit csinált.</p>
+    <input id="nameGateInput" placeholder="A neved" autocomplete="name">
+    <button id="nameGateBtn" class="bigBtn">Tovább</button>
+  </div>
+</div>
+
 <div id="app">
 
   <header>
     <button id="menuBtn" aria-label="Menü">☰</button>
-    <select id="sectorSelect" aria-label="Szektor kiválasztása">
-      <option value="">Szektor kiválasztása…</option>
+    <select id="sectorSelect" aria-label="Szektor kiválasztása" disabled>
+      <option value="">Csatlakozz egy leltárhoz…</option>
     </select>
     <div class="dot" id="netDot" title="Kapcsolat állapota"></div>
     <div class="stat">
@@ -328,7 +351,13 @@
     <button id="startBtn" style="position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
       padding:16px 28px; font-size:16px; font-weight:700; border:none; border-radius:12px;
       background:var(--accent); color:#06231a; z-index:5; display:none;">Kamera indítása</button>
-    <div id="selectSectorHint" style="position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
+    <div id="joinFirstHint" style="position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
+      text-align:center; padding:0 24px; width:100%;">
+      <div style="color:var(--text-dim); font-size:14px; margin-bottom:16px;">
+        Csatlakozz egy futó leltárhoz a kezdéshez</div>
+      <button id="joinFirstBtn" class="bigBtn" style="max-width:220px; margin:0 auto;">🔗 Csatlakozás leltárhoz</button>
+    </div>
+    <div id="selectSectorHint" style="display:none; position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
       color:var(--text-dim); font-size:14px; text-align:center; padding:0 24px;">
       Válassz szektort a kamera indításához ⬆️</div>
     <button id="torchBtn" aria-label="Vaku">🔦</button>
@@ -343,6 +372,7 @@
         </div>
         <div class="hitBadge" id="hitBadge">ismert</div>
       </div>
+      <div id="hitCheckedNote"></div>
       <div class="qtyRow">
         <button class="qtyBtn" id="qtyMinus" aria-label="Mennyiség csökkentése">–</button>
         <input id="qtyInput" inputmode="numeric" pattern="[0-9]*" value="1" aria-label="Mennyiség">
@@ -430,6 +460,8 @@ async function apiPost(body) {
    ÁLLAPOT
    ========================================================================= */
 let currentSector = "";
+let activeLeltar = null;       // { leltar_id, code, tipus, raktar }
+let userEmail = "";            // kötelezően megadott név (lásd nameGateOverlay)
 let scanned = [];              // { barcode, name, qty, ts }
 let pendingHit = null;         // amit épp visszaigazolásra vár a kártya
 let lastAcceptedCode = null;
@@ -543,7 +575,7 @@ async function startCamera() {
   }
 }
 
-const APP_VERSION = "v38";
+const APP_VERSION = "v39";
 let frameCount = 0, detectCount = 0;
 function debugLog(msg) {
   // A felületen csak a verziószám látszik (lásd lent) — a részletes
@@ -800,8 +832,24 @@ async function acceptCode(barcode) {
     found: result.found,
     qty: existing ? existing.qty + 1 : 1,
     existing: !!existing,
+    checked: result.checked || (existing && existing.checked) || null,
   };
   renderHitCard();
+}
+
+function formatCheckedDate_(idobelyeg) {
+  try {
+    const d = new Date(idobelyeg);
+    if (isNaN(d.getTime())) return String(idobelyeg);
+    return d.toLocaleDateString("hu-HU") + " " + d.toLocaleTimeString("hu-HU", { hour: "2-digit", minute: "2-digit" });
+  } catch (e) {
+    return String(idobelyeg);
+  }
+}
+
+function checkedNoteHtml(checked) {
+  if (!checked) return "";
+  return `<div class="checkedNote">✅ Ellenőrizve: ${escapeHtml(checked.felhasznalo)} · ${escapeHtml(formatCheckedDate_(checked.idobelyeg))}</div>`;
 }
 
 function renderHitCard() {
@@ -819,6 +867,7 @@ function renderHitCard() {
     badge.className = "hitBadge warn";
     hitCard.classList.add("unknown");
   }
+  el("hitCheckedNote").innerHTML = checkedNoteHtml(pendingHit.checked);
   hitCard.classList.add("show");
   el("qtyInput").focus();
   el("qtyInput").select();
@@ -831,6 +880,7 @@ function commitPending() {
   if (existing) {
     existing.qty = qty;
     existing.ts = Date.now();
+    if (pendingHit.checked) existing.checked = pendingHit.checked;
   } else {
     scanned.unshift({
       barcode: pendingHit.barcode,
@@ -838,6 +888,7 @@ function commitPending() {
       qty,
       sector: currentSector,
       ts: Date.now(),
+      checked: pendingHit.checked || null,
     });
   }
   pendingHit = null;
@@ -861,17 +912,30 @@ el("qtyInput").addEventListener("keydown", (e) => {
 });
 el("nextBtn").addEventListener("click", commitPending);
 
-el("sectorSelect").addEventListener("change", (e) => {
-  currentSector = e.target.value;
-  renderList();
-  const hasSector = !!currentSector;
-  el("selectSectorHint").style.display = hasSector ? "none" : "block";
-  // Csak akkor mutatjuk a gombot és a keretet, ha a kamera még nem indult
-  // el — ha már fut, szektorváltáskor nem kell újra rákérdezni.
+function updateGateUI() {
+  const joined = !!activeLeltar;
+  el("sectorSelect").disabled = !joined;
+  el("joinFirstHint").style.display = joined ? "none" : "block";
+  const hasSector = joined && !!currentSector;
+  el("selectSectorHint").style.display = (joined && !hasSector) ? "block" : "none";
   if (hasSector && !activeStream) {
     el("startBtn").style.display = "block";
     el("guide").style.display = "block";
+  } else if (!joined) {
+    el("startBtn").style.display = "none";
+    el("guide").style.display = "none";
   }
+}
+
+el("sectorSelect").addEventListener("change", (e) => {
+  currentSector = e.target.value;
+  renderList();
+  updateGateUI();
+});
+
+el("joinFirstBtn").addEventListener("click", () => {
+  renderLeltarScreen();
+  el("leltarScreen").classList.add("show");
 });
 
 /* =========================================================================
@@ -900,7 +964,7 @@ document.querySelectorAll("[data-back]").forEach(btn => {
 
 /* =========================================================================
    SZEKTOROK — a szkenner felület csak OLVASSA a közös listát (az admin
-   felület kezeli a hozzáadást/törlést).
+   felület kezeli a hozzáadást/törlést). Csak csatlakozás után töltjük be.
    ========================================================================= */
 async function loadSectors() {
   const select = el("sectorSelect");
@@ -977,6 +1041,7 @@ function rowItemHtml(s) {
       <div class="info">
         <b>${escapeHtml(s.name)}</b>
         <span>${s.barcode} · ${s.sector}</span>
+        ${checkedNoteHtml(s.checked)}
       </div>
       <div class="qtyEdit">
         <button class="qMinus" data-barcode="${s.barcode}" data-sector="${s.sector}" aria-label="Mennyiség csökkentése">–</button>
@@ -1103,7 +1168,18 @@ el("startBtn").addEventListener("click", () => {
   startCamera().catch(err => debugLog("startCamera hiba: " + (err && err.message ? err.message : err)));
 });
 renderList();
-loadSectors();
+updateGateUI();
+
+/* ---------- Kötelező névmegadás ---------- */
+el("nameGateBtn").addEventListener("click", () => {
+  const name = el("nameGateInput").value.trim();
+  if (!name) { el("nameGateInput").focus(); return; }
+  userEmail = name;
+  el("nameGateOverlay").classList.add("hide");
+});
+el("nameGateInput").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") el("nameGateBtn").click();
+});
 
 window.addEventListener("online", () => el("netDot").className = "dot online");
 window.addEventListener("offline", () => el("netDot").className = "dot offline");
@@ -1184,10 +1260,7 @@ function showFocusRipple(x, y) {
 }
 
 
-/* ---------- Állapot ---------- */
-let activeLeltar = null;        // { leltar_id, code, tipus, raktar }
-let userEmail = "";             // ha van bejelentkezés-infó, ide kerülhet
-
+/* ---------- Leltár állapot-kezelés ---------- */
 document.querySelector('.menuItem[data-screen="leltar"]').addEventListener("click", renderLeltarScreen);
 
 function renderLeltarScreen() {
@@ -1231,6 +1304,9 @@ async function joinLeltarWithCode(code) {
     if (!result.active) { alert(result.message || "Ez a leltár már nem aktív."); return; }
     activeLeltar = { leltar_id: result.leltar_id, code: code.toUpperCase(), tipus: result.tipus, raktar: result.raktar };
     renderLeltarScreen();
+    el("leltarScreen").classList.remove("show");
+    await loadSectors();
+    updateGateUI();
   } catch (e) {
     alert("Hiba a csatlakozáskor: " + e.message);
   }
@@ -1249,7 +1325,9 @@ function renderActiveLeltarStatus(body) {
   `;
   el("leaveLeltarBtn").addEventListener("click", () => {
     activeLeltar = null;
+    currentSector = "";
     renderLeltarScreen();
+    updateGateUI();
   });
 }
 
@@ -1386,7 +1464,7 @@ async function checkScanLoop() {
 async function handleCheckScanResult(barcode) {
   el("checkMsg").textContent = "Keresés: " + barcode + "…";
   try {
-    const data = await apiGet({ action: "check_stock", barcode: barcode });
+    const data = await apiGet({ action: "check_stock", barcode: barcode, felhasznalo: userEmail });
     if (!data.found) {
       el("checkResultBody").innerHTML = `<p class="placeholderNote">
         A(z) ${escapeHtml(barcode)} vonalkód nem található a terméktörzsben.</p>`;
