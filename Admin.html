@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Leltár admin</title>
+<style>
+  :root{
+    --bg:#0d1210;
+    --panel:#161d1a;
+    --panel-2:#1f2925;
+    --line:#2a3530;
+    --text:#eef2f0;
+    --text-dim:#8fa199;
+    --accent:#3ecf8e;
+    --accent-dim:#1f6b4c;
+    --warn:#e0a63e;
+    --danger:#e0553e;
+    --radius:14px;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0; min-height:100%; background:var(--bg); color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;}
+  #app{max-width:920px; margin:0 auto; padding:0 20px 60px;}
+
+  header{padding:22px 0 16px; border-bottom:1px solid var(--line); margin-bottom:20px;
+    display:flex; align-items:center; justify-content:space-between;}
+  header h1{font-size:20px; margin:0;}
+  header .sub{font-size:12px; color:var(--text-dim); margin-top:2px;}
+
+  nav{display:flex; gap:8px; margin-bottom:24px; border-bottom:1px solid var(--line); flex-wrap:wrap;}
+  nav button{background:none; border:none; color:var(--text-dim); font-size:14px; font-weight:600;
+    padding:10px 4px; margin-right:20px; border-bottom:2px solid transparent; cursor:pointer;}
+  nav button.active{color:var(--text); border-bottom-color:var(--accent);}
+
+  .panel{display:none;}
+  .panel.active{display:block;}
+
+  .card{background:var(--panel); border:1px solid var(--line); border-radius:var(--radius);
+    padding:20px; margin-bottom:16px;}
+  .cardTitle{font-size:13px; font-weight:700; color:var(--text-dim); text-transform:uppercase;
+    letter-spacing:.04em; margin-bottom:14px;}
+
+  input[type=text], input:not([type]){
+    background:var(--panel-2); border:1px solid var(--line); border-radius:10px;
+    padding:10px 12px; color:var(--text); font-size:14px; width:100%;}
+  button{cursor:pointer; font-family:inherit;}
+  .btn{padding:10px 18px; border-radius:10px; border:1px solid var(--line);
+    background:var(--panel-2); color:var(--text); font-size:14px; font-weight:600;}
+  .btn.primary{background:var(--accent); color:#06231a; border:none;}
+  .btn.danger{background:var(--danger); color:#fff; border:none;}
+  .btn:disabled{opacity:.4; cursor:default;}
+
+  .row{display:flex; gap:10px; align-items:center;}
+  .row > input{flex:1;}
+
+  /* ---------- Szektorok ---------- */
+  .sectorRow{display:flex; align-items:center; justify-content:space-between;
+    padding:12px 14px; background:var(--panel-2); border:1px solid var(--line);
+    border-radius:10px; margin-bottom:8px;}
+  .sectorRow button{background:none; border:none; color:var(--danger); font-size:16px;}
+  .emptyNote{color:var(--text-dim); font-size:14px;}
+
+  /* ---------- Leltár ---------- */
+  .typeChoice{display:flex; flex-direction:column; gap:8px; margin-bottom:14px;}
+  .typeChoice label{display:flex; align-items:center; gap:10px; padding:12px 14px;
+    background:var(--panel-2); border:1px solid var(--line); border-radius:10px; font-size:14px;}
+  #productTypeList{display:flex; flex-wrap:wrap; gap:8px; margin-bottom:14px;}
+  #productTypeList label{display:flex; align-items:center; gap:6px; padding:8px 12px;
+    background:var(--panel-2); border:1px solid var(--line); border-radius:999px; font-size:13px;}
+
+  .activeLeltarCard{display:flex; gap:20px; align-items:flex-start; flex-wrap:wrap;}
+  .activeLeltarCard .qrBox{flex:0 0 auto; background:#fff; padding:10px; border-radius:10px;}
+  .activeLeltarCard .info{flex:1; min-width:220px;}
+  .activeLeltarCard .codeValue{font-size:30px; font-weight:800; letter-spacing:.1em; margin-bottom:8px;}
+  .activeLeltarCard .metaLine{font-size:13px; color:var(--text-dim); margin-bottom:4px;}
+
+  .diffRow{display:flex; align-items:center; gap:10px; padding:12px 14px;
+    background:var(--panel-2); border:1px solid var(--line); border-radius:10px; margin-bottom:8px;}
+  .diffRow .info{flex:1; min-width:0;}
+  .diffRow .info b{display:block; font-size:14px;}
+  .diffRow .info span{font-size:11px; color:var(--text-dim); display:block; margin-top:2px;}
+  .diffRow .diffVal{font-size:16px; font-weight:800; min-width:52px; text-align:right;}
+  .diffVal.pos{color:var(--accent);}
+  .diffVal.neg{color:var(--danger);}
+  .diffVal.zero{color:var(--text-dim);}
+  .otherWarehouses{font-size:11px; color:var(--text-dim); margin-top:4px;}
+
+  /* ---------- Ellenőrzés ---------- */
+  .checkResultCard .modelName{font-size:18px; font-weight:700; margin-bottom:2px;}
+  .checkResultCard .modelCode{font-size:12px; color:var(--text-dim); margin-bottom:14px;}
+  .checkSizeRow{display:flex; align-items:center; justify-content:space-between;
+    padding:9px 0; border-bottom:1px solid var(--line); font-size:14px;}
+  .checkSizeRow:last-child{border-bottom:none;}
+  .checkSizeRow .qty{font-weight:700;}
+  .checkSizeRow .qty.zero{color:var(--danger);}
+</style>
+</head>
+<body>
+<div id="app">
+
+  <header>
+    <div>
+      <h1>Leltár admin</h1>
+      <div class="sub">Szektorok, leltár-indítás és eltérés-riport</div>
+    </div>
+  </header>
+
+  <nav>
+    <button class="navBtn active" data-panel="sectors">Szektorok</button>
+    <button class="navBtn" data-panel="leltar">Leltár</button>
+    <button class="navBtn" data-panel="check">Ellenőrzés</button>
+  </nav>
+
+  <!-- SZEKTOROK -->
+  <div class="panel active" id="panel-sectors">
+    <div class="card">
+      <div class="cardTitle">Új szektor hozzáadása</div>
+      <div class="row">
+        <input type="text" id="newSectorInput" placeholder="pl. C-01">
+        <button class="btn primary" id="addSectorBtn">Hozzáadás</button>
+      </div>
+    </div>
+    <div class="card">
+      <div class="cardTitle">Jelenlegi szektorok</div>
+      <div id="sectorList"><p class="emptyNote">Betöltés…</p></div>
+    </div>
+  </div>
+
+  <!-- LELTÁR -->
+  <div class="panel" id="panel-leltar">
+    <div class="card" id="activeLeltarakCard" style="display:none;">
+      <div class="cardTitle">Futó leltár</div>
+      <div id="activeLeltarakBody"></div>
+    </div>
+
+    <div class="card" id="startLeltarCard">
+      <div class="cardTitle">Új leltár indítása</div>
+      <div class="typeChoice">
+        <label><input type="radio" name="leltarTipus" value="teljes" checked> Teljes vakleltár</label>
+        <label><input type="radio" name="leltarTipus" value="termektipus"> Vakleltár terméktípus szerint</label>
+      </div>
+      <div id="productTypeList" style="display:none;"></div>
+      <button class="btn primary" id="startLeltarBtn">Leltár indítása</button>
+      <div id="startLeltarMsg" style="margin-top:10px; font-size:13px; color:var(--text-dim);"></div>
+    </div>
+
+    <div class="card" id="diffReportCard" style="display:none;">
+      <div class="cardTitle">Eltérés-riport</div>
+      <div id="diffReportBody"></div>
+    </div>
+  </div>
+
+  <!-- ELLENŐRZÉS -->
+  <div class="panel" id="panel-check">
+    <div class="card">
+      <div class="cardTitle">Vonalkód alapján készlet-lekérdezés</div>
+      <div class="row">
+        <input type="text" id="checkBarcodeInput" placeholder="Vonalkód beírása vagy beolvasása">
+        <button class="btn primary" id="checkBtn">Keresés</button>
+      </div>
+    </div>
+    <div class="card" id="checkResultCard" style="display:none;"></div>
+  </div>
+
+</div>
+
+<script>
+try {
+
+/* =========================================================================
+   BACKEND HÍVÁSOK — ugyanaz a Code.gs, mint a scanner.html-nél.
+   ========================================================================= */
+let APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwlZfz8f_nn8X_AIFciyi42OL81xkTWAXcPfczqYo_xjb7KtYIVKrkGWVpe8iYjMWAKzQ/exec";
+const APPS_SCRIPT_KEY = "oaYB9SYL15UkpopXllHgYZRjD6sGk6iD";
+
+async function apiGet(params) {
+  const qs = Object.entries({ ...params, key: APPS_SCRIPT_KEY })
+    .map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join("&");
+  const res = await fetch(`${APPS_SCRIPT_URL}?${qs}`);
+  return res.json();
+}
+async function apiPost(body) {
+  const res = await fetch(APPS_SCRIPT_URL, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: JSON.stringify({ ...body, key: APPS_SCRIPT_KEY }),
+  });
+  return res.json();
+}
+
+const el = (id) => document.getElementById(id);
+function escapeHtml(str) {
+  const d = document.createElement("div");
+  d.textContent = str == null ? "" : str;
+  return d.innerHTML;
+}
+
+/* =========================================================================
+   NAVIGÁCIÓ
+   ========================================================================= */
+document.querySelectorAll(".navBtn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".navBtn").forEach(b => b.classList.remove("active"));
+    document.querySelectorAll(".panel").forEach(p => p.classList.remove("active"));
+    btn.classList.add("active");
+    el("panel-" + btn.dataset.panel).classList.add("active");
+    if (btn.dataset.panel === "leltar") loadActiveLeltarak();
+  });
+});
+
+/* =========================================================================
+   SZEKTOROK
+   ========================================================================= */
+async function loadSectorList() {
+  const wrap = el("sectorList");
+  wrap.innerHTML = `<p class="emptyNote">Betöltés…</p>`;
+  try {
+    const data = await apiGet({ action: "sectors" });
+    const list = data.sectors || [];
+    if (!list.length) {
+      wrap.innerHTML = `<p class="emptyNote">Még nincs felvéve egyetlen szektor sem.</p>`;
+      return;
+    }
+    wrap.innerHTML = list.map(s => `
+      <div class="sectorRow">
+        <span>${escapeHtml(s)}</span>
+        <button data-sector="${escapeHtml(s)}" aria-label="Törlés">✕</button>
+      </div>
+    `).join("");
+    wrap.querySelectorAll("button[data-sector]").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        if (!confirm(`Biztosan törlöd a(z) "${btn.dataset.sector}" szektort?`)) return;
+        await apiPost({ action: "delete_sector", nev: btn.dataset.sector });
+        loadSectorList();
+      });
+    });
+  } catch (e) {
+    wrap.innerHTML = `<p class="emptyNote">Hiba a betöltéskor: ${escapeHtml(e.message)}</p>`;
+  }
+}
+
+el("addSectorBtn").addEventListener("click", async () => {
+  const input = el("newSectorInput");
+  const name = input.value.trim();
+  if (!name) return;
+  el("addSectorBtn").disabled = true;
+  try {
+    await apiPost({ action: "add_sector", nev: name });
+    input.value = "";
+    loadSectorList();
+  } catch (e) {
+    alert("Hiba: " + e.message);
+  }
+  el("addSectorBtn").disabled = false;
+});
+el("newSectorInput").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") el("addSectorBtn").click();
+});
+
+loadSectorList();
+
+/* =========================================================================
+   LELTÁR
+   ========================================================================= */
+let selectedProductTypes = new Set();
+
+document.querySelectorAll('input[name="leltarTipus"]').forEach(r => {
+  r.addEventListener("change", async (e) => {
+    const listWrap = el("productTypeList");
+    if (e.target.value === "termektipus") {
+      listWrap.style.display = "flex";
+      listWrap.innerHTML = `<span class="emptyNote">Terméktípusok betöltése…</span>`;
+      try {
+        const data = await apiGet({ action: "producttypes" });
+        const types = data.types || [];
+        listWrap.innerHTML = types.length
+          ? types.map(t => `<label><input type="checkbox" class="typeCheck" value="${escapeHtml(t)}"> ${escapeHtml(t)}</label>`).join("")
+          : `<span class="emptyNote">Nem található terméktípus.</span>`;
+        listWrap.querySelectorAll(".typeCheck").forEach(cb => {
+          cb.addEventListener("change", () => {
+            if (cb.checked) selectedProductTypes.add(cb.value);
+            else selectedProductTypes.delete(cb.value);
+          });
+        });
+      } catch (e) {
+        listWrap.innerHTML = `<span class="emptyNote">Hiba: ${escapeHtml(e.message)}</span>`;
+      }
+    } else {
+      listWrap.style.display = "none";
+    }
+  });
+});
+
+let adminName = "";
+function getAdminName() {
+  if (!adminName) {
+    adminName = window.prompt(
+      "Add meg az e-mail címedet (ennek szerepelnie kell a leltar_inditok táblában):", ""
+    ) || "ismeretlen";
+  }
+  return adminName;
+}
+
+el("startLeltarBtn").addEventListener("click", async () => {
+  const tipus = document.querySelector('input[name="leltarTipus"]:checked').value;
+  const btn = el("startLeltarBtn");
+  btn.disabled = true;
+  btn.textContent = "Indítás…";
+  el("startLeltarMsg").textContent = "";
+  try {
+    const result = await apiPost({
+      action: "create_leltar",
+      inditotta: getAdminName(),
+      tipus: tipus,
+      termektipusok: Array.from(selectedProductTypes),
+    });
+    if (result.error) {
+      el("startLeltarMsg").textContent = result.error;
+    } else {
+      loadActiveLeltarak();
+    }
+  } catch (e) {
+    el("startLeltarMsg").textContent = "Hiba: " + e.message;
+  }
+  btn.disabled = false;
+  btn.textContent = "Leltár indítása";
+});
+
+async function loadActiveLeltarak() {
+  const card = el("activeLeltarakCard");
+  const body = el("activeLeltarakBody");
+  try {
+    const data = await apiGet({ action: "active_leltarak" });
+    const list = data.leltarak || [];
+    if (!list.length) {
+      card.style.display = "none";
+      return;
+    }
+    card.style.display = "block";
+    body.innerHTML = list.map(l => `
+      <div class="activeLeltarCard">
+        <div id="qrWrap-${escapeHtml(l.leltar_id)}" class="qrBox">
+          <canvas width="150" height="150"></canvas>
+        </div>
+        <div class="info">
+          <div class="codeValue">${escapeHtml(l.csatlakozasi_kod)}</div>
+          <div class="metaLine">Típus: ${escapeHtml(l.tipus)} · Raktár: ${escapeHtml(l.raktar)}</div>
+          <div class="metaLine">Indította: ${escapeHtml(l.inditotta)} · ${escapeHtml(l.inditva)}</div>
+          <button class="btn danger" data-close="${escapeHtml(l.leltar_id)}" style="margin-top:10px;">
+            Leltár lezárása és eltérés-riport
+          </button>
+        </div>
+      </div>
+    `).join("");
+    list.forEach(l => renderQrInto(`qrWrap-${l.leltar_id}`, l.csatlakozasi_kod));
+    body.querySelectorAll("button[data-close]").forEach(btn => {
+      btn.addEventListener("click", () => closeLeltar(btn.dataset.close, btn));
+    });
+  } catch (e) {
+    card.style.display = "block";
+    body.innerHTML = `<p class="emptyNote">Hiba: ${escapeHtml(e.message)}</p>`;
+  }
+}
+
+async function closeLeltar(leltarId, btn) {
+  if (!confirm("Biztosan lezárod a leltárat? Ezután már nem lehet több beolvasást hozzáadni.")) return;
+  btn.disabled = true;
+  btn.textContent = "Lezárás…";
+  try {
+    const result = await apiPost({ action: "close_leltar", leltar_id: leltarId });
+    renderDiffReport(result.diff || []);
+    loadActiveLeltarak();
+  } catch (e) {
+    alert("Hiba a lezáráskor: " + e.message);
+    btn.disabled = false;
+    btn.textContent = "Leltár lezárása és eltérés-riport";
+  }
+}
+
+function renderDiffReport(rows) {
+  const card = el("diffReportCard");
+  const body = el("diffReportBody");
+  card.style.display = "block";
+  const elteroCount = rows.filter(r => r.elteres !== 0).length;
+  body.innerHTML = `
+    <p class="emptyNote" style="margin-bottom:14px;">${elteroCount} eltérő tétel a ${rows.length}-ből</p>
+    ${rows.map(r => {
+      const cls = r.elteres > 0 ? "pos" : (r.elteres < 0 ? "neg" : "zero");
+      const sign = r.elteres > 0 ? "+" : "";
+      const others = (r.masik_raktar || []).map(o => `${escapeHtml(o.raktar)}: ${o.mennyiseg} db`).join(" · ");
+      return `
+        <div class="diffRow">
+          <div class="info">
+            <b>${escapeHtml(r.nev || r.vonalkod)}</b>
+            <span>${escapeHtml(r.vonalkod)} · rendszer: ${r.rendszer} db · számolt: ${r.szamolt} db</span>
+            ${others ? `<span class="otherWarehouses">Más raktárak — ${others}</span>` : ""}
+          </div>
+          <div class="diffVal ${cls}">${sign}${r.elteres}</div>
+        </div>`;
+    }).join("")}
+  `;
+  card.scrollIntoView({ behavior: "smooth" });
+}
+
+loadActiveLeltarak();
+
+/* ---------- QR-kód generálás (kliens oldali) ---------- */
+function loadScript(src) {
+  return new Promise((resolve, reject) => {
+    const s = document.createElement("script");
+    s.src = src; s.onload = resolve; s.onerror = reject;
+    document.head.appendChild(s);
+  });
+}
+let qrLibPromise = null;
+function ensureQrLib() {
+  if (!qrLibPromise) qrLibPromise = loadScript("https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js");
+  return qrLibPromise;
+}
+ensureQrLib().catch(() => {});
+
+async function renderQrInto(wrapId, text) {
+  try {
+    await ensureQrLib();
+    const qr = qrcode(0, "M");
+    qr.addData(text);
+    qr.make();
+    const canvas = document.querySelector(`#${CSS.escape(wrapId)} canvas`);
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    const size = canvas.width;
+    const count = qr.getModuleCount();
+    const cell = size / count;
+    ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, size, size);
+    ctx.fillStyle = "#000";
+    for (let r = 0; r < count; r++) {
+      for (let c = 0; c < count; c++) {
+        if (qr.isDark(r, c)) ctx.fillRect(c * cell, r * cell, cell, cell);
+      }
+    }
+  } catch (e) { /* nem kritikus, ha a QR nem generálódik, a kód szövegesen ott van */ }
+}
+
+/* =========================================================================
+   ELLENŐRZÉS
+   ========================================================================= */
+el("checkBtn").addEventListener("click", runCheck);
+el("checkBarcodeInput").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") runCheck();
+});
+
+async function runCheck() {
+  const barcode = el("checkBarcodeInput").value.trim();
+  if (!barcode) return;
+  const card = el("checkResultCard");
+  card.style.display = "block";
+  card.innerHTML = `<p class="emptyNote">Keresés…</p>`;
+  try {
+    const data = await apiGet({ action: "check_stock", barcode: barcode });
+    if (!data.found) {
+      card.innerHTML = `<p class="emptyNote">A(z) ${escapeHtml(barcode)} vonalkód nem található a terméktörzsben.</p>`;
+      return;
+    }
+    const sizesHtml = data.sizes.length
+      ? data.sizes.map(s => `
+          <div class="checkSizeRow">
+            <span>${escapeHtml(s.meret)}</span>
+            <span class="qty${s.mennyiseg === 0 ? " zero" : ""}">${s.mennyiseg} db</span>
+          </div>`).join("")
+      : `<p class="emptyNote">Nincs készlet-adat ehhez a modellhez.</p>`;
+    card.innerHTML = `
+      <div class="checkResultCard">
+        <div class="modelName">${escapeHtml(data.nev)}</div>
+        <div class="modelCode">${escapeHtml(data.modell)}</div>
+        ${sizesHtml}
+      </div>`;
+  } catch (e) {
+    card.innerHTML = `<p class="emptyNote">Hiba: ${escapeHtml(e.message)}</p>`;
+  }
+}
+
+} catch (e) {
+  alert("KRITIKUS HIBA a szkriptben: " + (e && e.stack ? e.stack : e));
+}
+</script>
+</body>
+</html>
