@@ -255,14 +255,20 @@
   .verifyItemRow .vName{font-size:15px; font-weight:700; margin-bottom:2px;}
   .verifyItemRow .vMeta{font-size:11px; color:var(--text-dim); line-height:1.5; margin-bottom:10px;}
   .verifyItemRow .vRow{display:flex; align-items:center; gap:8px;}
-  .verifyItemRow .vRow button{width:40px; height:40px; border-radius:10px; border:1px solid var(--line);
-    background:var(--panel-2); color:var(--text); font-size:18px; font-weight:700;}
-  .verifyItemRow .vQtyInput{flex:1; text-align:center; font-size:18px; font-weight:700; height:40px;
+  .verifyItemRow .vMinus, .verifyItemRow .vPlus{width:40px; height:40px; flex:0 0 40px; border-radius:10px;
+    border:1px solid var(--line); background:var(--panel-2); color:var(--text); font-size:18px; font-weight:700; padding:0;}
+  .verifyItemRow .vQtyInput{flex:1; min-width:0; text-align:center; font-size:18px; font-weight:700; height:40px;
     background:var(--panel-2); border:1px solid var(--line); border-radius:10px; color:var(--text);}
-  .verifyItemRow .vSaveBtn{flex:0 0 auto; height:40px; padding:0 16px; border-radius:10px; border:none;
-    background:var(--accent); color:#06231a; font-weight:700;}
-  .verifyItemRow.done .vSaveBtn{background:var(--panel); color:var(--accent); border:1px solid var(--accent-dim);}
+  .verifyItemRow .vSaveBtn{flex:0 0 auto; height:40px; padding:0 18px; border-radius:10px; border:none;
+    background:var(--accent); color:#06231a; font-weight:700; font-size:14px; white-space:nowrap;}
+  .verifyDoneSummary{display:flex; align-items:center; justify-content:space-between;
+    background:var(--panel-2); border-radius:10px; padding:10px 14px;}
+  .verifyDoneSummary b{color:var(--accent); font-size:15px;}
+  .verifyDoneSummary button{background:none; border:none; color:var(--text-dim); font-size:13px;
+    text-decoration:underline; padding:4px;}
   .verifySummary{text-align:center; color:var(--text-dim); font-size:13px; margin-bottom:14px;}
+  #verifyFinishBtn{width:100%; padding:16px; border-radius:12px; border:none; font-size:16px;
+    font-weight:700; background:var(--accent); color:#06231a; margin-top:16px;}
 
   /* ---------- Törlés megerősítő ablak ---------- */
   #confirmOverlay{display:none; position:fixed; inset:0; z-index:50;
@@ -620,7 +626,7 @@ async function startCamera() {
   }
 }
 
-const APP_VERSION = "v44";
+const APP_VERSION = "v45";
 let frameCount = 0, detectCount = 0;
 function debugLog(msg) {
   // A felületen csak a verziószám látszik (lásd lent) — a részletes
@@ -884,10 +890,11 @@ async function acceptCode(barcode) {
 
 function formatCheckedDate_(idobelyeg) {
   try {
-    // A BigQuery másodperc-alapú Unix időbélyeget ad vissza (szövegként) —
-    // *1000 kell, mert a JS Date ezredmásodpercet vár.
+    // Lásd admin.html formatDateTime — a BigQuery gyakran tudományos
+    // jelöléssel adja vissza az időbélyeget, ezt a parseFloat helyesen
+    // értelmezi, csak *1000 kell (ezredmásodperc).
     const num = parseFloat(idobelyeg);
-    const d = !isNaN(num) && String(idobelyeg).match(/^-?\d+(\.\d+)?$/) ? new Date(num * 1000) : new Date(idobelyeg);
+    const d = isFinite(num) ? new Date(num * 1000) : new Date(idobelyeg);
     if (isNaN(d.getTime())) return String(idobelyeg);
     return d.toLocaleDateString("hu-HU") + " " + d.toLocaleTimeString("hu-HU", { hour: "2-digit", minute: "2-digit" });
   } catch (e) {
@@ -1641,28 +1648,45 @@ async function openVerifyMode(kod) {
   }
 }
 
+let verifyDoneCount = 0;
+
 function renderVerifyList(items) {
   const body = el("verifyListBody");
   if (!items.length) {
     body.innerHTML = `<p class="placeholderNote">Nincs ellenőrizendő tétel ebben a körben.</p>`;
     return;
   }
+  verifyDoneCount = 0;
   body.innerHTML = `
-    <div class="verifySummary">${items.length} tétel újraszámolásra vár</div>
+    <div class="verifySummary" id="verifySummaryText">0 / ${items.length} tétel mentve</div>
     ${items.map((it, i) => verifyRowHtml(it, i)).join("")}
+    <button id="verifyFinishBtn">Befejezem</button>
   `;
-  items.forEach((it, i) => {
-    const row = document.getElementById("verifyRow-" + i);
-    row.querySelector(".vMinus").addEventListener("click", () => {
-      const input = row.querySelector(".vQtyInput");
-      input.value = Math.max(0, (parseInt(input.value || "0", 10) - 1));
-    });
-    row.querySelector(".vPlus").addEventListener("click", () => {
-      const input = row.querySelector(".vQtyInput");
-      input.value = parseInt(input.value || "0", 10) + 1;
-    });
-    row.querySelector(".vSaveBtn").addEventListener("click", () => saveVerifyRow(row, it));
+  items.forEach((it, i) => bindVerifyRow(i, it));
+  el("verifyFinishBtn").addEventListener("click", () => {
+    if (verifyDoneCount < items.length) {
+      if (!confirm(`Még ${items.length - verifyDoneCount} tétel nincs elmentve. Biztosan befejezed?`)) return;
+    }
+    el("verifyListBody").innerHTML = `<p class="placeholderNote">Köszönjük! Az ellenőrzés véget ért, becsukhatod ezt az oldalt.</p>`;
   });
+}
+
+function updateVerifySummary(total) {
+  const el2 = el("verifySummaryText");
+  if (el2) el2.textContent = `${verifyDoneCount} / ${total} tétel mentve`;
+}
+
+function bindVerifyRow(i, it) {
+  const row = document.getElementById("verifyRow-" + i);
+  row.querySelector(".vMinus").addEventListener("click", () => {
+    const input = row.querySelector(".vQtyInput");
+    input.value = Math.max(0, (parseInt(input.value || "0", 10) - 1));
+  });
+  row.querySelector(".vPlus").addEventListener("click", () => {
+    const input = row.querySelector(".vQtyInput");
+    input.value = parseInt(input.value || "0", 10) + 1;
+  });
+  row.querySelector(".vSaveBtn").addEventListener("click", () => saveVerifyRow(row, it, i));
 }
 
 function verifyRowHtml(it, i) {
@@ -1675,7 +1699,7 @@ function verifyRowHtml(it, i) {
         Gyártói cikkszám: ${escapeHtml(it.gyartoi_cikkszam || "—")}<br>
         ${szektorText}
       </div>
-      <div class="vRow">
+      <div class="vRow" id="verifyRowInput-${i}">
         <button class="vMinus" aria-label="Csökkentés">–</button>
         <input class="vQtyInput" type="text" inputmode="numeric" pattern="[0-9]*" placeholder="0" value="">
         <button class="vPlus" aria-label="Növelés">+</button>
@@ -1684,9 +1708,10 @@ function verifyRowHtml(it, i) {
     </div>`;
 }
 
-async function saveVerifyRow(row, it) {
+async function saveVerifyRow(row, it, i) {
   const btn = row.querySelector(".vSaveBtn");
-  const qty = Math.max(0, parseInt(row.querySelector(".vQtyInput").value || "0", 10));
+  const qtyInput = row.querySelector(".vQtyInput");
+  const qty = Math.max(0, parseInt(qtyInput.value || "0", 10));
   btn.disabled = true;
   btn.textContent = "Mentés…";
   try {
@@ -1697,7 +1722,31 @@ async function saveVerifyRow(row, it) {
       items: [{ barcode: it.vonalkod, sector: it.szektor, qty: qty, user: userEmail || "ismeretlen" }],
     });
     row.classList.add("done");
-    btn.textContent = "Mentve ✓";
+    // A gombsor helyett egy EGYÉRTELMŰ, olvasható összefoglaló jelenik
+    // meg — így nem lehet véletlenül összekeverni, hogy megtörtént-e
+    // már a mentés, és nem lehet véletlenül duplán beküldeni.
+    const wasAlreadyDone = row.dataset.done === "1";
+    row.dataset.done = "1";
+    row.querySelector(`#verifyRowInput-${i}`).outerHTML = `
+      <div class="verifyDoneSummary" id="verifyRowInput-${i}">
+        <span>Mentve: <b>${qty} db</b></span>
+        <button id="verifyEditBtn-${i}">Módosítás</button>
+      </div>`;
+    document.getElementById(`verifyEditBtn-${i}`).addEventListener("click", () => {
+      row.classList.remove("done");
+      document.getElementById(`verifyRowInput-${i}`).outerHTML = `
+        <div class="vRow" id="verifyRowInput-${i}">
+          <button class="vMinus" aria-label="Csökkentés">–</button>
+          <input class="vQtyInput" type="text" inputmode="numeric" pattern="[0-9]*" placeholder="0" value="${qty}">
+          <button class="vPlus" aria-label="Növelés">+</button>
+          <button class="vSaveBtn">Mentés</button>
+        </div>`;
+      bindVerifyRow(i, it);
+    });
+    if (!wasAlreadyDone) {
+      verifyDoneCount++;
+      updateVerifySummary(document.querySelectorAll(".verifyItemRow").length);
+    }
     beep(880); haptic(20);
   } catch (e) {
     alert("Hiba a mentéskor: " + e.message);
