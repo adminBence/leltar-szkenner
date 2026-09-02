@@ -248,6 +248,22 @@
   .rowItem .qtyEdit .qtyVal{min-width:26px; text-align:center; font-size:14px; font-weight:600;}
   .rowItem .delBtn{background:none; border:none; color:var(--text-dim); font-size:16px; padding:4px 2px 4px 8px;}
 
+  /* ---------- Ellenőrzési kör (checklist) ---------- */
+  .verifyItemRow{background:var(--panel); border:1px solid var(--line); border-radius:12px;
+    padding:14px; margin-bottom:10px;}
+  .verifyItemRow.done{border-color:var(--accent-dim); background:var(--panel-2);}
+  .verifyItemRow .vName{font-size:15px; font-weight:700; margin-bottom:2px;}
+  .verifyItemRow .vMeta{font-size:11px; color:var(--text-dim); line-height:1.5; margin-bottom:10px;}
+  .verifyItemRow .vRow{display:flex; align-items:center; gap:8px;}
+  .verifyItemRow .vRow button{width:40px; height:40px; border-radius:10px; border:1px solid var(--line);
+    background:var(--panel-2); color:var(--text); font-size:18px; font-weight:700;}
+  .verifyItemRow .vQtyInput{flex:1; text-align:center; font-size:18px; font-weight:700; height:40px;
+    background:var(--panel-2); border:1px solid var(--line); border-radius:10px; color:var(--text);}
+  .verifyItemRow .vSaveBtn{flex:0 0 auto; height:40px; padding:0 16px; border-radius:10px; border:none;
+    background:var(--accent); color:#06231a; font-weight:700;}
+  .verifyItemRow.done .vSaveBtn{background:var(--panel); color:var(--accent); border:1px solid var(--accent-dim);}
+  .verifySummary{text-align:center; color:var(--text-dim); font-size:13px; margin-bottom:14px;}
+
   /* ---------- Törlés megerősítő ablak ---------- */
   #confirmOverlay{display:none; position:fixed; inset:0; z-index:50;
     background:rgba(0,0,0,0.55); align-items:center; justify-content:center; padding:24px;}
@@ -336,6 +352,17 @@
     <div id="joinScanCamWrap">
       <video id="joinVideo" autoplay playsinline muted></video>
       <div id="joinScanMsg"></div>
+    </div>
+  </div>
+
+  <!-- Ellenőrzési kör: admin által kijelölt tételek újraszámolása —
+       kamera nélkül, egyszerű checklist + mennyiség-bevitel. -->
+  <div id="verifyScreen" class="subScreen" style="z-index:85;">
+    <div class="subScreenHeader">
+      <b>Ellenőrzés — újraszámolás</b>
+    </div>
+    <div class="subScreenBody" id="verifyListBody">
+      <p class="placeholderNote">Betöltés…</p>
     </div>
   </div>
 
@@ -593,7 +620,7 @@ async function startCamera() {
   }
 }
 
-const APP_VERSION = "v41";
+const APP_VERSION = "v42";
 let frameCount = 0, detectCount = 0;
 function debugLog(msg) {
   // A felületen csak a verziószám látszik (lásd lent) — a részletes
@@ -1244,9 +1271,20 @@ el("nameGateBtn").addEventListener("click", () => {
   userEmail = name;
   el("nameGateOverlay").classList.add("hide");
 
+  const params = new URLSearchParams(window.location.search);
+  const verifyCodeFromUrl = params.get("verify");
+  const joinCodeFromUrl = params.get("join");
+
+  // Ha a linkben ?verify=KÓD van, ez egy ELLENŐRZÉSI kör QR-je — teljesen
+  // más módba kapcsolunk (nincs kamera, nincs szektor, csak egy checklist).
+  if (verifyCodeFromUrl) {
+    openVerifyMode(verifyCodeFromUrl);
+    window.history.replaceState({}, "", window.location.pathname);
+    return;
+  }
+
   // Ha a linkben van ?join=KÓD paraméter (a QR-kódból jövünk), automatikusan
   // csatlakozunk — nem kell külön megnyitni a menüt és beírni a kódot.
-  const joinCodeFromUrl = new URLSearchParams(window.location.search).get("join");
   if (joinCodeFromUrl) {
     joinLeltarWithCode(joinCodeFromUrl);
     // A paraméter eltüntetése a címsorból, hogy egy véletlen frissítés
@@ -1566,6 +1604,102 @@ async function handleCheckScanResult(barcode) {
   } catch (e) {
     el("checkResultBody").innerHTML = `<p class="placeholderNote">Hiba: ${escapeHtml(e.message)}</p>`;
   }
+}
+
+/* =========================================================================
+   ELLENŐRZÉSI KÖR (verifikáció) — az admin által kiválasztott, eltérést
+   mutató tételek újraszámolása. Nincs kamera: az admin már pontosan
+   tudja, mit kell újraszámolni, itt csak a mennyiséget kell megadni.
+   Több eszközről is egyszerre elérhető ugyanaz a lista.
+   ========================================================================= */
+let verifyKorId = null;
+let verifyLeltarId = null;
+
+async function openVerifyMode(kod) {
+  // A .subScreen már eleve teljes képernyőt fedő, magas z-indexű réteg
+  // (position:fixed, inset:0, tömör háttér), nincs szükség az #app
+  // elrejtésére — az csak elrontaná (mivel a verifyScreen maga is az
+  // #app-on belül van, elrejtésével eltűnne a checklist is).
+  el("verifyScreen").classList.add("show");
+  const body = el("verifyListBody");
+  body.innerHTML = `<p class="placeholderNote">Ellenőrzési lista betöltése…</p>`;
+
+  try {
+    const data = await apiGet({ action: "join_verification", code: kod });
+    if (!data.found) {
+      body.innerHTML = `<p class="placeholderNote">Nincs ilyen ellenőrzési kód, vagy már nem érvényes.</p>`;
+      return;
+    }
+    verifyKorId = data.kor_id;
+    verifyLeltarId = data.leltar_id;
+    renderVerifyList(data.items || []);
+  } catch (e) {
+    body.innerHTML = `<p class="placeholderNote">Hiba: ${escapeHtml(e.message)}</p>`;
+  }
+}
+
+function renderVerifyList(items) {
+  const body = el("verifyListBody");
+  if (!items.length) {
+    body.innerHTML = `<p class="placeholderNote">Nincs ellenőrizendő tétel ebben a körben.</p>`;
+    return;
+  }
+  body.innerHTML = `
+    <div class="verifySummary">${items.length} tétel újraszámolásra vár</div>
+    ${items.map((it, i) => verifyRowHtml(it, i)).join("")}
+  `;
+  items.forEach((it, i) => {
+    const row = document.getElementById("verifyRow-" + i);
+    row.querySelector(".vMinus").addEventListener("click", () => {
+      const input = row.querySelector(".vQtyInput");
+      input.value = Math.max(0, (parseInt(input.value || "0", 10) - 1));
+    });
+    row.querySelector(".vPlus").addEventListener("click", () => {
+      const input = row.querySelector(".vQtyInput");
+      input.value = parseInt(input.value || "0", 10) + 1;
+    });
+    row.querySelector(".vSaveBtn").addEventListener("click", () => saveVerifyRow(row, it));
+  });
+}
+
+function verifyRowHtml(it, i) {
+  return `
+    <div class="verifyItemRow" id="verifyRow-${i}">
+      <div class="vName">${escapeHtml(it.nev || it.vonalkod)}</div>
+      <div class="vMeta">
+        Vonalkód: ${escapeHtml(it.vonalkod)} · Saját cikkszám: ${escapeHtml(it.sajat_cikkszam || "—")}<br>
+        Gyártói cikkszám: ${escapeHtml(it.gyartoi_cikkszam || "—")}<br>
+        Szektor: <b>${escapeHtml(it.szektor)}</b> · Korábban ide ${it.korabbi_mennyiseg} db lett beírva
+      </div>
+      <div class="vRow">
+        <button class="vMinus" aria-label="Csökkentés">–</button>
+        <input class="vQtyInput" type="text" inputmode="numeric" pattern="[0-9]*" value="${it.korabbi_mennyiseg}">
+        <button class="vPlus" aria-label="Növelés">+</button>
+        <button class="vSaveBtn">Mentés</button>
+      </div>
+    </div>`;
+}
+
+async function saveVerifyRow(row, it) {
+  const btn = row.querySelector(".vSaveBtn");
+  const qty = Math.max(0, parseInt(row.querySelector(".vQtyInput").value || "0", 10));
+  btn.disabled = true;
+  btn.textContent = "Mentés…";
+  try {
+    await apiPost({
+      action: "submit_verification",
+      leltar_id: verifyLeltarId,
+      kor_id: verifyKorId,
+      items: [{ barcode: it.vonalkod, sector: it.szektor, qty: qty, user: userEmail || "ismeretlen" }],
+    });
+    row.classList.add("done");
+    btn.textContent = "Mentve ✓";
+    beep(880); haptic(20);
+  } catch (e) {
+    alert("Hiba a mentéskor: " + e.message);
+    btn.textContent = "Mentés";
+  }
+  btn.disabled = false;
 }
 
 } catch (e) {
