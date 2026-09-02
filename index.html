@@ -620,7 +620,7 @@ async function startCamera() {
   }
 }
 
-const APP_VERSION = "v43";
+const APP_VERSION = "v44";
 let frameCount = 0, detectCount = 0;
 function debugLog(msg) {
   // A felületen csak a verziószám látszik (lásd lent) — a részletes
@@ -884,7 +884,10 @@ async function acceptCode(barcode) {
 
 function formatCheckedDate_(idobelyeg) {
   try {
-    const d = new Date(idobelyeg);
+    // A BigQuery másodperc-alapú Unix időbélyeget ad vissza (szövegként) —
+    // *1000 kell, mert a JS Date ezredmásodpercet vár.
+    const num = parseFloat(idobelyeg);
+    const d = !isNaN(num) && String(idobelyeg).match(/^-?\d+(\.\d+)?$/) ? new Date(num * 1000) : new Date(idobelyeg);
     if (isNaN(d.getTime())) return String(idobelyeg);
     return d.toLocaleDateString("hu-HU") + " " + d.toLocaleTimeString("hu-HU", { hour: "2-digit", minute: "2-digit" });
   } catch (e) {
