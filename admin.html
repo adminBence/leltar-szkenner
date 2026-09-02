@@ -244,7 +244,12 @@ document.querySelectorAll(".navBtn").forEach(btn => {
 function formatDateTime(raw) {
   if (!raw) return "—";
   try {
-    const d = new Date(raw);
+    // A BigQuery a TIMESTAMP mezőket másodperc-alapú Unix időbélyegként
+    // (szövegként, pl. "1788352650.236586") adja vissza — ezt *1000-rel
+    // kell szorozni, mert a JS Date ezredmásodpercet vár. Ha ez nem
+    // numerikus, egyszerű dátum-szövegként próbáljuk értelmezni.
+    const num = parseFloat(raw);
+    const d = !isNaN(num) && String(raw).match(/^-?\d+(\.\d+)?$/) ? new Date(num * 1000) : new Date(raw);
     if (isNaN(d.getTime())) return String(raw);
     return d.toLocaleDateString("hu-HU") + " " + d.toLocaleTimeString("hu-HU", { hour: "2-digit", minute: "2-digit" });
   } catch (e) { return String(raw); }
