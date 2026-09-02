@@ -29,9 +29,10 @@
     padding:10px 14px; background:var(--panel); border-bottom:1px solid var(--line);}
   #menuBtn{flex:0 0 auto; width:38px; height:38px; border-radius:10px; border:1px solid var(--line);
     background:var(--panel-2); color:var(--text); font-size:17px;}
-  header select{
-    flex:1; background:var(--panel-2); color:var(--text); border:1px solid var(--line);
-    border-radius:10px; padding:9px 10px; font-size:15px; font-weight:500;}
+  #sectorBadge{
+    flex:1; background:var(--panel-2); color:var(--text-dim); border:1px solid var(--line);
+    border-radius:10px; padding:9px 10px; font-size:14px; font-weight:600; text-align:center;}
+  #sectorBadge.active{color:var(--accent); border-color:var(--accent-dim);}
   .stat{display:flex; flex-direction:column; align-items:flex-end; line-height:1.2;}
   .stat b{font-size:16px; font-weight:600;}
   .stat span{font-size:11px; color:var(--text-dim);}
@@ -180,6 +181,17 @@
     padding:13px 14px; color:var(--text); font-size:16px; margin-bottom:14px; text-align:center;}
   #nameGateBox .bigBtn{width:100%;}
 
+  /* ---------- Szektor-modal ---------- */
+  #sectorModalOverlay{display:none; position:fixed; inset:0; z-index:900; background:rgba(0,0,0,0.7);
+    align-items:center; justify-content:center; padding:24px;}
+  #sectorModalOverlay.show{display:flex;}
+  #sectorModalBox{width:100%; max-width:340px; text-align:center; background:var(--panel);
+    border:1px solid var(--line); border-radius:16px; padding:24px;}
+  #sectorModalInput{width:100%; background:var(--panel-2); border:1px solid var(--line); border-radius:10px;
+    padding:16px 14px; color:var(--text); font-size:24px; font-weight:700; margin-bottom:14px; text-align:center;}
+  #sectorModalBox .bigBtn{width:100%; margin-bottom:10px;}
+  #sectorModalBox .secondaryBtn{margin-top:0;}
+
   #camMsg{position:absolute; inset:0; display:none; align-items:center; justify-content:center;
     text-align:center; padding:24px; color:var(--text-dim); font-size:14px; background:var(--bg);}
   #camMsg.show{display:flex;}
@@ -289,9 +301,7 @@
 
   <header>
     <button id="menuBtn" aria-label="Menü">☰</button>
-    <select id="sectorSelect" aria-label="Szektor kiválasztása" disabled>
-      <option value="">Csatlakozz egy leltárhoz…</option>
-    </select>
+    <div id="sectorBadge">Nincs aktív szektor</div>
     <div class="dot" id="netDot" title="Kapcsolat állapota"></div>
     <div class="stat">
       <b id="itemCount">0</b>
@@ -357,9 +367,6 @@
         Csatlakozz egy futó leltárhoz a kezdéshez</div>
       <button id="joinFirstBtn" class="bigBtn" style="max-width:220px; margin:0 auto;">🔗 Csatlakozás leltárhoz</button>
     </div>
-    <div id="selectSectorHint" style="display:none; position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
-      color:var(--text-dim); font-size:14px; text-align:center; padding:0 24px;">
-      Válassz szektort a kamera indításához ⬆️</div>
     <button id="torchBtn" aria-label="Vaku">🔦</button>
     <div id="debugBar" style="position:absolute; top:6px; left:8px; font-size:9px;
       color:rgba(255,255,255,0.35); font-family:monospace; pointer-events:none; z-index:2;"></div>
@@ -398,6 +405,17 @@
         <button id="confirmCancel">Mégse</button>
         <button id="confirmDelete">Törlés</button>
       </div>
+    </div>
+  </div>
+
+  <!-- Szektor megadása — beolvasás előtt mindig ezt kéri -->
+  <div id="sectorModalOverlay">
+    <div id="sectorModalBox">
+      <div class="nameGateTitle" id="sectorModalTitle">Szektor</div>
+      <p class="nameGateNote">Add meg, melyik szektort kezded — utána minden beolvasás ebbe kerül, amíg le nem zárod.</p>
+      <input id="sectorModalInput" type="text" inputmode="numeric" pattern="[0-9]*" placeholder="pl. 12">
+      <button id="sectorModalOkBtn" class="bigBtn">OK</button>
+      <button id="finishAllBtn" class="secondaryBtn">Befejezem</button>
     </div>
   </div>
 
@@ -575,7 +593,7 @@ async function startCamera() {
   }
 }
 
-const APP_VERSION = "v39";
+const APP_VERSION = "v40";
 let frameCount = 0, detectCount = 0;
 function debugLog(msg) {
   // A felületen csak a verziószám látszik (lásd lent) — a részletes
@@ -914,28 +932,53 @@ el("nextBtn").addEventListener("click", commitPending);
 
 function updateGateUI() {
   const joined = !!activeLeltar;
-  el("sectorSelect").disabled = !joined;
   el("joinFirstHint").style.display = joined ? "none" : "block";
+
+  const badge = el("sectorBadge");
+  if (!joined) {
+    badge.textContent = "Nincs aktív szektor";
+    badge.classList.remove("active");
+  } else if (currentSector) {
+    badge.textContent = "Szektor: " + currentSector;
+    badge.classList.add("active");
+  } else {
+    badge.textContent = "Szektor megadása…";
+    badge.classList.remove("active");
+  }
+
   const hasSector = joined && !!currentSector;
-  el("selectSectorHint").style.display = (joined && !hasSector) ? "block" : "none";
   if (hasSector && !activeStream) {
     el("startBtn").style.display = "block";
     el("guide").style.display = "block";
-  } else if (!joined) {
+  } else if (!hasSector) {
     el("startBtn").style.display = "none";
     el("guide").style.display = "none";
   }
-}
 
-el("sectorSelect").addEventListener("change", (e) => {
-  currentSector = e.target.value;
-  renderList();
-  updateGateUI();
-});
+  // A szektor-modal pontosan akkor jelenik meg, ha már csatlakoztunk egy
+  // leltárhoz, de még nincs kiválasztva/megadva szektor (induláskor,
+  // vagy egy "Szektor lezárása" után, amíg meg nem adjuk a következőt).
+  el("sectorModalOverlay").classList.toggle("show", joined && !currentSector);
+  if (joined && !currentSector) {
+    el("sectorModalInput").value = "";
+    setTimeout(() => el("sectorModalInput").focus(), 50);
+  }
+}
 
 el("joinFirstBtn").addEventListener("click", () => {
   renderLeltarScreen();
   el("leltarScreen").classList.add("show");
+});
+
+el("sectorModalOkBtn").addEventListener("click", () => {
+  const val = el("sectorModalInput").value.trim();
+  if (!val) { el("sectorModalInput").focus(); return; }
+  currentSector = val;
+  renderList();
+  updateGateUI();
+});
+el("sectorModalInput").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") el("sectorModalOkBtn").click();
 });
 
 /* =========================================================================
@@ -963,27 +1006,50 @@ document.querySelectorAll("[data-back]").forEach(btn => {
 });
 
 /* =========================================================================
-   SZEKTOROK — a szkenner felület csak OLVASSA a közös listát (az admin
-   felület kezeli a hozzáadást/törlést). Csak csatlakozás után töltjük be.
+   SZEKTOR LEZÁRÁSA / BEFEJEZÉS
    ========================================================================= */
-async function loadSectors() {
-  const select = el("sectorSelect");
-  select.innerHTML = `<option value="">Betöltés…</option>`;
+async function syncPendingScans() {
+  const pendingItems = scanned.filter(s => !s.synced);
+  if (!pendingItems.length || !APPS_SCRIPT_URL || !activeLeltar) return;
   try {
-    const data = await apiGet({ action: "sectors" });
-    const list = data.sectors || [];
-    select.innerHTML = `<option value="">Szektor kiválasztása…</option>`
-      + list.map(s => `<option>${escapeHtml(s)}</option>`).join("");
+    await apiPost({
+      action: "submit_scans",
+      leltar_id: activeLeltar.leltar_id,
+      items: pendingItems.map(s => ({
+        sector: s.sector, barcode: s.barcode, qty: s.qty, user: userEmail || "ismeretlen",
+      })),
+    });
+    pendingItems.forEach(s => s.synced = true);
+    updatePendingCount();
   } catch (e) {
-    select.innerHTML = `<option value="">Hiba a szektorok betöltésekor</option>`;
-    debugLog("szektorok betöltési hiba: " + e.message);
+    debugLog("háttér-szinkron hiba: " + e.message);
   }
 }
 
-el("closeSectorBtn").addEventListener("click", () => {
+el("closeSectorBtn").addEventListener("click", async () => {
   if (pendingHit) commitPending();
   if (!currentSector) return;
-  alert(`"${currentSector}" szektor lezárva. Tételek: ${scanned.filter(s => s.sector === currentSector).length}`);
+  const closedSector = currentSector;
+  const count = scanned.filter(s => s.sector === closedSector).length;
+  await syncPendingScans();
+  alert(`${closedSector}. szektor lezárva. Tételek: ${count}`);
+  currentSector = "";
+  renderList();
+  updateGateUI();
+});
+
+el("finishAllBtn").addEventListener("click", async () => {
+  if (pendingHit) commitPending();
+  if (!confirm("Biztosan befejezed a beolvasást? Ez lezárja az összes eddigi tételedet.")) return;
+  await syncPendingScans();
+  if (activeStream) { activeStream.getTracks().forEach(t => t.stop()); activeStream = null; }
+  activeLeltar = null;
+  currentSector = "";
+  scanned = [];
+  renderList();
+  updateGateUI();
+  el("sectorModalOverlay").classList.remove("show");
+  alert("Köszönjük! A beolvasásaid rögzítve lettek.");
 });
 
 el("syncBtn").addEventListener("click", async () => {
@@ -1305,7 +1371,6 @@ async function joinLeltarWithCode(code) {
     activeLeltar = { leltar_id: result.leltar_id, code: code.toUpperCase(), tipus: result.tipus, raktar: result.raktar };
     renderLeltarScreen();
     el("leltarScreen").classList.remove("show");
-    await loadSectors();
     updateGateUI();
   } catch (e) {
     alert("Hiba a csatlakozáskor: " + e.message);
