@@ -107,28 +107,12 @@
   </header>
 
   <nav>
-    <button class="navBtn active" data-panel="sectors">Szektorok</button>
-    <button class="navBtn" data-panel="leltar">Leltár</button>
+    <button class="navBtn active" data-panel="leltar">Leltár</button>
     <button class="navBtn" data-panel="check">Ellenőrzés</button>
   </nav>
 
-  <!-- SZEKTOROK -->
-  <div class="panel active" id="panel-sectors">
-    <div class="card">
-      <div class="cardTitle">Új szektor hozzáadása</div>
-      <div class="row">
-        <input type="text" id="newSectorInput" placeholder="pl. C-01">
-        <button class="btn primary" id="addSectorBtn">Hozzáadás</button>
-      </div>
-    </div>
-    <div class="card">
-      <div class="cardTitle">Rögzített szektorok</div>
-      <div id="sectorList"><p class="emptyNote">Betöltés…</p></div>
-    </div>
-  </div>
-
   <!-- LELTÁR -->
-  <div class="panel" id="panel-leltar">
+  <div class="panel active" id="panel-leltar">
     <div class="card" id="activeLeltarakCard" style="display:none;">
       <div class="cardTitle">Futó leltár</div>
       <div id="activeLeltarakBody"></div>
@@ -211,76 +195,6 @@ document.querySelectorAll(".navBtn").forEach(btn => {
     if (btn.dataset.panel === "leltar") loadActiveLeltarak();
   });
 });
-
-/* =========================================================================
-   SZEKTOROK
-   ========================================================================= */
-function renderSectorList(list) {
-  const wrap = el("sectorList");
-  if (!list.length) {
-    wrap.innerHTML = `<p class="emptyNote">Még nincs felvéve egyetlen szektor sem.</p>`;
-    return;
-  }
-  wrap.innerHTML = list.map(s => `
-    <div class="sectorRow">
-      <span>${escapeHtml(s)}</span>
-      <button data-sector="${escapeHtml(s)}" aria-label="Törlés">✕</button>
-    </div>
-  `).join("");
-  wrap.querySelectorAll("button[data-sector]").forEach(btn => {
-    btn.addEventListener("click", async () => {
-      if (!confirm(`Biztosan törlöd a(z) "${btn.dataset.sector}" szektort?`)) return;
-      btn.disabled = true;
-      try {
-        const result = await apiPost({ action: "delete_sector", nev: btn.dataset.sector });
-        if (result.error) { alert("Hiba a törléskor: " + result.error); btn.disabled = false; return; }
-        renderSectorList(result.sectors || []);
-      } catch (e) {
-        alert("Hiba a törléskor: " + e.message);
-        btn.disabled = false;
-      }
-    });
-  });
-}
-
-async function loadSectorList() {
-  const wrap = el("sectorList");
-  wrap.innerHTML = `<p class="emptyNote">Betöltés…</p>`;
-  try {
-    const data = await apiGet({ action: "sectors" });
-    if (data.error) { wrap.innerHTML = `<p class="emptyNote">Hiba: ${escapeHtml(data.error)}</p>`; return; }
-    renderSectorList(data.sectors || []);
-  } catch (e) {
-    wrap.innerHTML = `<p class="emptyNote">Hiba a betöltéskor: ${escapeHtml(e.message)}</p>`;
-  }
-}
-
-el("addSectorBtn").addEventListener("click", async () => {
-  const input = el("newSectorInput");
-  const name = input.value.trim();
-  if (!name) return;
-  const btn = el("addSectorBtn");
-  btn.disabled = true;
-  btn.textContent = "Hozzáadás…";
-  try {
-    const result = await apiPost({ action: "add_sector", nev: name });
-    if (result.error) {
-      alert("Hiba a hozzáadáskor: " + result.error);
-    } else {
-      input.value = "";
-      renderSectorList(result.sectors || []);
-    }
-  } catch (e) {
-    alert("Hiba: " + e.message);
-  }
-  btn.disabled = false;
-  btn.textContent = "Hozzáadás";
-});
-el("newSectorInput").addEventListener("keydown", (e) => {
-  if (e.key === "Enter") el("addSectorBtn").click();
-});
-
-loadSectorList();
 
 /* =========================================================================
    LELTÁR
