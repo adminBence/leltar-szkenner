@@ -161,6 +161,12 @@ try {
 let APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwlZfz8f_nn8X_AIFciyi42OL81xkTWAXcPfczqYo_xjb7KtYIVKrkGWVpe8iYjMWAKzQ/exec";
 const APPS_SCRIPT_KEY = "oaYB9SYL15UkpopXllHgYZRjD6sGk6iD";
 
+// A telefonos szkenner oldal (scanner.html) elérési útja — ezt írd át a
+// saját GitHub Pages linkedre. A QR-kód ide fog mutatni egy ?join=KÓD
+// paraméterrel, hogy a telefon SAJÁT kamera-appjával beolvasva is
+// automatikusan megnyíljon és csatlakozzon a leltárhoz.
+const SCANNER_URL = "https://adminbence.github.io/leltar-szkenner/";
+
 async function apiGet(params) {
   const qs = Object.entries({ ...params, key: APPS_SCRIPT_KEY })
     .map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join("&");
@@ -282,7 +288,7 @@ async function loadActiveLeltarak() {
         </div>
       </div>
     `).join("");
-    list.forEach(l => renderQrInto(`qrWrap-${l.leltar_id}`, l.csatlakozasi_kod));
+    list.forEach(l => renderQrInto(`qrWrap-${l.leltar_id}`, buildJoinUrl(l.csatlakozasi_kod)));
     body.querySelectorAll("button[data-close]").forEach(btn => {
       btn.addEventListener("click", () => closeLeltar(btn.dataset.close, btn));
     });
@@ -348,6 +354,10 @@ function ensureQrLib() {
   return qrLibPromise;
 }
 ensureQrLib().catch(() => {});
+
+function buildJoinUrl(code) {
+  return `${SCANNER_URL}?join=${encodeURIComponent(code)}`;
+}
 
 async function renderQrInto(wrapId, text) {
   try {
