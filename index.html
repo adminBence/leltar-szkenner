@@ -620,7 +620,7 @@ async function startCamera() {
   }
 }
 
-const APP_VERSION = "v42";
+const APP_VERSION = "v43";
 let frameCount = 0, detectCount = 0;
 function debugLog(msg) {
   // A felületen csak a verziószám látszik (lásd lent) — a részletes
@@ -1663,17 +1663,18 @@ function renderVerifyList(items) {
 }
 
 function verifyRowHtml(it, i) {
+  const szektorText = it.szektor ? `Szektor: <b>${escapeHtml(it.szektor)}</b>` : `<span style="color:var(--warn);">Korábban nem lett beolvasva egyik szektorban sem</span>`;
   return `
     <div class="verifyItemRow" id="verifyRow-${i}">
       <div class="vName">${escapeHtml(it.nev || it.vonalkod)}</div>
       <div class="vMeta">
         Vonalkód: ${escapeHtml(it.vonalkod)} · Saját cikkszám: ${escapeHtml(it.sajat_cikkszam || "—")}<br>
         Gyártói cikkszám: ${escapeHtml(it.gyartoi_cikkszam || "—")}<br>
-        Szektor: <b>${escapeHtml(it.szektor)}</b> · Korábban ide ${it.korabbi_mennyiseg} db lett beírva
+        ${szektorText}
       </div>
       <div class="vRow">
         <button class="vMinus" aria-label="Csökkentés">–</button>
-        <input class="vQtyInput" type="text" inputmode="numeric" pattern="[0-9]*" value="${it.korabbi_mennyiseg}">
+        <input class="vQtyInput" type="text" inputmode="numeric" pattern="[0-9]*" placeholder="0" value="">
         <button class="vPlus" aria-label="Növelés">+</button>
         <button class="vSaveBtn">Mentés</button>
       </div>
