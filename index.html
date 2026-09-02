@@ -593,7 +593,7 @@ async function startCamera() {
   }
 }
 
-const APP_VERSION = "v40";
+const APP_VERSION = "v41";
 let frameCount = 0, detectCount = 0;
 function debugLog(msg) {
   // A felületen csak a verziószám látszik (lásd lent) — a részletes
@@ -1027,8 +1027,9 @@ async function syncPendingScans() {
 }
 
 el("closeSectorBtn").addEventListener("click", async () => {
-  if (pendingHit) commitPending();
   if (!currentSector) return;
+  if (!confirm(`Biztosan lezárod a(z) ${currentSector}. szektort? Utána új szektort kell megadnod a folytatáshoz.`)) return;
+  if (pendingHit) commitPending();
   const closedSector = currentSector;
   const count = scanned.filter(s => s.sector === closedSector).length;
   await syncPendingScans();
@@ -1040,7 +1041,7 @@ el("closeSectorBtn").addEventListener("click", async () => {
 
 el("finishAllBtn").addEventListener("click", async () => {
   if (pendingHit) commitPending();
-  if (!confirm("Biztosan befejezed a beolvasást? Ez lezárja az összes eddigi tételedet.")) return;
+  if (!confirm("Biztosan befejezed a leltározást? Ez után nem tudsz több terméket beolvasni ebben a munkamenetben.")) return;
   await syncPendingScans();
   if (activeStream) { activeStream.getTracks().forEach(t => t.stop()); activeStream = null; }
   activeLeltar = null;
@@ -1242,6 +1243,17 @@ el("nameGateBtn").addEventListener("click", () => {
   if (!name) { el("nameGateInput").focus(); return; }
   userEmail = name;
   el("nameGateOverlay").classList.add("hide");
+
+  // Ha a linkben van ?join=KÓD paraméter (a QR-kódból jövünk), automatikusan
+  // csatlakozunk — nem kell külön megnyitni a menüt és beírni a kódot.
+  const joinCodeFromUrl = new URLSearchParams(window.location.search).get("join");
+  if (joinCodeFromUrl) {
+    joinLeltarWithCode(joinCodeFromUrl);
+    // A paraméter eltüntetése a címsorból, hogy egy véletlen frissítés
+    // ne csatlakoztasson újra automatikusan, ha időközben leváltál.
+    const cleanUrl = window.location.pathname;
+    window.history.replaceState({}, "", cleanUrl);
+  }
 });
 el("nameGateInput").addEventListener("keydown", (e) => {
   if (e.key === "Enter") el("nameGateBtn").click();
