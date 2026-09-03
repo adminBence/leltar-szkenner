@@ -521,19 +521,26 @@ function renderDiffRowHtml(r, showCheckbox, isOpen) {
     ? `<div class="recountNote">Újraszámolva ${recountCount} alkalommal — utoljára: ${escapeHtml(formatDateTime(r.ujraszamolasok[r.ujraszamolasok.length - 1].idobelyeg))}, ${escapeHtml(r.ujraszamolasok[r.ujraszamolasok.length - 1].felhasznalo)}</div>`
     : "";
   const correctionCount = (r.rendszer_korrekciok || []).length;
-  const correctionNote = correctionCount
-    ? `<div class="recountNote" style="color:var(--accent);">Rendszer-adat javítva ${correctionCount} alkalommal — utoljára: ${escapeHtml(formatDateTime(r.rendszer_korrekciok[r.rendszer_korrekciok.length - 1].idobelyeg))}, ${escapeHtml(r.rendszer_korrekciok[r.rendszer_korrekciok.length - 1].felhasznalo)}${r.rendszer_korrekciok[r.rendszer_korrekciok.length - 1].megjegyzes ? " — " + escapeHtml(r.rendszer_korrekciok[r.rendszer_korrekciok.length - 1].megjegyzes) : ""}</div>`
+  const lastCorrection = correctionCount ? r.rendszer_korrekciok[r.rendszer_korrekciok.length - 1] : null;
+  const correctionNote = lastCorrection
+    ? `<div class="recountNote" style="color:var(--accent);">Rendszer-adat javítva ${correctionCount} alkalommal — utoljára: ${escapeHtml(formatDateTime(lastCorrection.idobelyeg))}, ${escapeHtml(lastCorrection.felhasznalo)}${lastCorrection.forras === "kezi" ? " [kézzel megadva]" : ""}${lastCorrection.megjegyzes ? " — " + escapeHtml(lastCorrection.megjegyzes) : ""}</div>`
     : "";
   const rowId = "diffrow-" + escapeHtml(r.vonalkod);
   const refreshBtn = showCheckbox ? `
     <button class="btn" style="font-size:11px; padding:5px 10px; margin-top:8px;" data-refresh-toggle="${escapeHtml(r.vonalkod)}">
-      Laurelben javítva
+      Készlet frissítve a Laurelben
     </button>
-    <div id="${rowId}-form" style="display:none; margin-top:8px; gap:6px; flex-direction:column;">
-      <input type="text" placeholder="Megjegyzés (opcionális)"
+    <div id="${rowId}-form" style="display:none; margin-top:8px; gap:8px; flex-direction:column; padding:10px;
+      background:var(--panel-2); border:1px solid var(--line); border-radius:8px;">
+      <div id="${rowId}-loaded" style="font-size:12px; color:var(--text-dim);">Betöltés…</div>
+      <div class="row" style="gap:6px;">
+        <input type="text" inputmode="numeric" id="${rowId}-qty" style="font-size:14px; padding:8px 10px; font-weight:700;">
+        <button class="btn" style="font-size:11px; padding:8px 10px; flex:0 0 auto;" data-refresh-reload="${escapeHtml(r.vonalkod)}">🔄 Frissítés</button>
+      </div>
+      <input type="text" placeholder="Megjegyzés (opcionális, ha nem írod át a számot)"
         id="${rowId}-note" style="font-size:12px; padding:8px 10px;">
-      <button class="btn primary" style="font-size:12px; padding:7px 10px;" data-refresh-confirm="${escapeHtml(r.vonalkod)}">
-        Friss adat lekérése és mentése
+      <button class="btn primary" style="font-size:12px; padding:7px 10px;" data-refresh-save="${escapeHtml(r.vonalkod)}">
+        Mentés
       </button>
     </div>` : "";
   const eyeBtn = isOpen ? `<button class="rowEyeBtn" aria-label="Tartsd lenyomva a számok megtekintéséhez">👁</button>` : "";
@@ -557,49 +564,81 @@ function renderDiffRowHtml(r, showCheckbox, isOpen) {
 }
 
 function bindDiffRowRefreshButtons(wrapEl, leltarId, targetContainer) {
+  async function loadLiveQty(barcode) {
+    const loadedEl = document.getElementById("diffrow-" + barcode + "-loaded");
+    const qtyInput = document.getElementById("diffrow-" + barcode + "-qty");
+    loadedEl.textContent = "Betöltés…";
+    try {
+      const result = await apiGet({ action: "preview_live_qty", barcode: barcode });
+      if (result.error) {
+        loadedEl.textContent = "Hiba: " + result.error;
+        return;
+      }
+      const idoInfo = result.frissitve ? ` (${formatDateTime(result.frissitve)})` : "";
+      loadedEl.textContent = `Laurelből frissítve: ${result.mennyiseg} db${idoInfo}`;
+      qtyInput.value = result.mennyiseg;
+      qtyInput.dataset.fetchedValue = String(result.mennyiseg);
+    } catch (e) {
+      loadedEl.textContent = "Hiba: " + e.message;
+    }
+  }
+
   wrapEl.querySelectorAll("[data-refresh-toggle]").forEach(btn => {
     btn.addEventListener("click", () => {
       const barcode = btn.dataset.refreshToggle;
       const form = document.getElementById("diffrow-" + barcode + "-form");
-      form.style.display = form.style.display === "flex" ? "none" : "flex";
+      const wasHidden = form.style.display !== "flex";
+      form.style.display = wasHidden ? "flex" : "none";
+      if (wasHidden) loadLiveQty(barcode);
     });
   });
-  wrapEl.querySelectorAll("[data-refresh-confirm]").forEach(btn => {
+
+  wrapEl.querySelectorAll("[data-refresh-reload]").forEach(btn => {
+    btn.addEventListener("click", () => loadLiveQty(btn.dataset.refreshReload));
+  });
+
+  wrapEl.querySelectorAll("[data-refresh-save]").forEach(btn => {
     btn.addEventListener("click", async () => {
-      const barcode = btn.dataset.refreshConfirm;
+      const barcode = btn.dataset.refreshSave;
+      const qtyInput = document.getElementById("diffrow-" + barcode + "-qty");
+      const qty = qtyInput.value.trim();
       const note = document.getElementById("diffrow-" + barcode + "-note").value.trim();
+      if (!qty || isNaN(parseInt(qty, 10))) { alert("Add meg a mennyiséget számmal."); return; }
+
+      // Ha a mező tartalma eltér a betöltött (live) értéktől, ez egy
+      // kézi átírás — ilyenkor a megjegyzés kötelező.
+      const fetchedValue = qtyInput.dataset.fetchedValue;
+      const isManual = fetchedValue === undefined || qty !== fetchedValue;
+      if (isManual && !note) {
+        alert("Mivel átírtad a Laurelből betöltött számot, a megjegyzés kitöltése kötelező.");
+        return;
+      }
+
       const name = (el("adminNameInput") && el("adminNameInput").value.trim()) || "admin";
       btn.disabled = true;
-      btn.textContent = "Frissítés…";
+      btn.textContent = "Mentés…";
       try {
         const result = await apiPost({
-          action: "refresh_system_value",
+          action: "submit_system_correction",
           leltar_id: leltarId,
           barcode: barcode,
-          felhasznalo: name,
+          uj_mennyiseg: qty,
           megjegyzes: note,
+          felhasznalo: name,
+          forras: isManual ? "kezi" : "live_webshop",
         });
         if (result.error) {
           alert("Hiba: " + result.error);
           btn.disabled = false;
-          btn.textContent = "Friss adat lekérése és mentése";
-        } else if (result.same) {
-          alert(result.message);
-          btn.disabled = false;
-          btn.textContent = "Friss adat lekérése és mentése";
-        } else if (result.zero) {
-          alert(result.message);
-          btn.disabled = false;
-          btn.textContent = "Friss adat lekérése és mentése";
+          btn.textContent = "Mentés";
         } else {
-          const idoInfo = result.frissitve ? ` (a live adat frissítve: ${formatDateTime(result.frissitve)})` : "";
-          alert(`Frissítve: ${result.regi_mennyiseg} db → ${result.uj_mennyiseg} db${idoInfo}`);
+          alert(`Mentve (${isManual ? "kézzel megadva" : "Laurelből"}): ${result.regi_mennyiseg} db → ${result.uj_mennyiseg} db`);
           openReport(leltarId, targetContainer, { showActions: true });
         }
       } catch (e) {
         alert("Hiba: " + e.message);
         btn.disabled = false;
-        btn.textContent = "Friss adat lekérése és mentése";
+        btn.textContent = "Mentés";
       }
     });
   });
