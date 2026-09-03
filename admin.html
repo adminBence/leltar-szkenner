@@ -471,32 +471,61 @@ function renderFullReport(container, report, opts) {
     </div>
   `;
 
-  // Soronkénti szem-gombok: mindegyik CSAK a saját sora számait mutatja,
-  // amíg lenyomva tartják — így görgetés közben is használható, nem kell
-  // egy távoli, közös gombot nyomva tartani.
-  if (isOpen) {
-    el("diffListWrap").querySelectorAll(".rowEyeBtn").forEach(btn => {
-      const row = btn.closest(".diffRow");
-      const reveal = () => row.classList.add("revealed");
-      const hide = () => row.classList.remove("revealed");
-      btn.addEventListener("pointerdown", reveal);
-      btn.addEventListener("pointerup", hide);
-      btn.addEventListener("pointerleave", hide);
-      btn.addEventListener("pointercancel", hide);
-      btn.addEventListener("contextmenu", (e) => e.preventDefault());
-    });
-  }
+  // Soronkénti eseménykezelők (szem-gomb, checkbox, rendszer-adat
+  // frissítő panel) — közös függvénybe kiemelve, hogy egy sor önálló
+  // frissítésekor (lásd refreshSingleDiffRow) is újra tudjuk kötni,
+  // anélkül hogy az EGÉSZ riportot újra kellene tölteni.
+  el("diffListWrap").querySelectorAll(".diffRow").forEach(rowEl => {
+    bindDiffRowEvents(rowEl, leltar.leltar_id, container, showActions, isOpen);
+  });
 
   if (showActions) {
     el("createVerifyBtn").addEventListener("click", () => createVerificationRoundForSelected(leltar.leltar_id));
     el("closeLeltarActionBtn").addEventListener("click", () => closeLeltarAction(leltar.leltar_id));
-    container.querySelectorAll(".diffSelect").forEach(cb => {
+  }
+}
+
+function bindDiffRowEvents(rowEl, leltarId, targetContainer, showActions, isOpen) {
+  if (isOpen) {
+    const eyeBtn = rowEl.querySelector(".rowEyeBtn");
+    if (eyeBtn) {
+      const reveal = () => rowEl.classList.add("revealed");
+      const hide = () => rowEl.classList.remove("revealed");
+      eyeBtn.addEventListener("pointerdown", reveal);
+      eyeBtn.addEventListener("pointerup", hide);
+      eyeBtn.addEventListener("pointerleave", hide);
+      eyeBtn.addEventListener("pointercancel", hide);
+      eyeBtn.addEventListener("contextmenu", (e) => e.preventDefault());
+    }
+  }
+  if (showActions) {
+    const cb = rowEl.querySelector(".diffSelect");
+    if (cb) {
       cb.addEventListener("change", () => {
         if (cb.checked) selectedDiffBarcodes.add(cb.value);
         else selectedDiffBarcodes.delete(cb.value);
       });
-    });
-    bindDiffRowRefreshButtons(container, leltar.leltar_id, container);
+    }
+    bindDiffRowRefreshButtons(rowEl, leltarId, targetContainer);
+  }
+}
+
+// Egyetlen sor frissítése a szerverről (friss riport-lekérdezéssel), a
+// TELJES riport újratöltése/újrarajzolása nélkül — megőrzi a görgetési
+// pozíciót és a többi nyitva lévő panelt.
+async function refreshSingleDiffRow(leltarId, barcode, targetContainer) {
+  try {
+    const report = await apiGet({ action: "full_report", leltar_id: leltarId });
+    if (report.error) return;
+    const rowData = report.diff.find(r => r.vonalkod === barcode);
+    if (!rowData) return;
+    const oldRowEl = document.getElementById("diffrow-" + barcode + "-row");
+    if (!oldRowEl) return;
+    oldRowEl.outerHTML = renderDiffRowHtml(rowData, true, true);
+    const newRowEl = document.getElementById("diffrow-" + barcode + "-row");
+    bindDiffRowEvents(newRowEl, leltarId, targetContainer, true, true);
+  } catch (e) {
+    console.error("Sor-frissítési hiba:", e);
   }
 }
 
@@ -545,7 +574,7 @@ function renderDiffRowHtml(r, showCheckbox, isOpen) {
     </div>` : "";
   const eyeBtn = isOpen ? `<button class="rowEyeBtn" aria-label="Tartsd lenyomva a számok megtekintéséhez">👁</button>` : "";
   return `
-    <div class="diffRow">
+    <div class="diffRow" id="diffrow-${escapeHtml(r.vonalkod)}-row">
       ${showCheckbox && r.elteres !== 0 ? `<input type="checkbox" class="diffSelect" value="${escapeHtml(r.vonalkod)}">` : (showCheckbox ? `<span style="width:18px;"></span>` : "")}
       <div class="info">
         <b>${escapeHtml(r.nev || r.vonalkod)}</b>
@@ -633,7 +662,7 @@ function bindDiffRowRefreshButtons(wrapEl, leltarId, targetContainer) {
           btn.textContent = "Mentés";
         } else {
           alert(`Mentve (${isManual ? "kézzel megadva" : "Laurelből"}): ${result.regi_mennyiseg} db → ${result.uj_mennyiseg} db`);
-          openReport(leltarId, targetContainer, { showActions: true });
+          refreshSingleDiffRow(leltarId, barcode, targetContainer);
         }
       } catch (e) {
         alert("Hiba: " + e.message);
