@@ -130,9 +130,24 @@
   .checkSizeRow:last-child{border-bottom:none;}
   .checkSizeRow .qty{font-weight:700;}
   .checkSizeRow .qty.zero{color:var(--danger);}
+  /* ---------- Értesítési panel (alert() helyett) ---------- */
+  #toastContainer{position:fixed; bottom:20px; right:20px; left:20px; z-index:2000;
+    display:flex; flex-direction:column; align-items:flex-end; gap:10px; pointer-events:none;}
+  .toast{pointer-events:auto; max-width:380px; width:100%; background:var(--panel);
+    border:1px solid var(--line); border-left:4px solid var(--accent); border-radius:10px;
+    padding:14px 34px 14px 16px; box-shadow:0 8px 24px rgba(0,0,0,0.45); font-size:14px;
+    line-height:1.4; position:relative; animation:toastIn .2s ease; transition:opacity .2s ease, transform .2s ease;}
+  .toast.error{border-left-color:var(--danger);}
+  .toast.success{border-left-color:var(--accent);}
+  .toast.warn{border-left-color:var(--warn);}
+  .toast .toastClose{position:absolute; top:8px; right:10px; background:none; border:none;
+    color:var(--text-dim); cursor:pointer; font-size:14px; padding:4px; line-height:1;}
+  @keyframes toastIn{from{opacity:0; transform:translateY(12px);} to{opacity:1; transform:translateY(0);}}
+
 </style>
 </head>
 <body>
+<div id="toastContainer"></div>
 <div id="app">
 
   <header>
@@ -230,6 +245,27 @@ function escapeHtml(str) {
   const d = document.createElement("div");
   d.textContent = str == null ? "" : str;
   return d.innerHTML;
+}
+
+// Egységes, az oldal stílusához illő értesítési panel — az összes
+// alert() helyett ezt használjuk (kivéve a legalsó, szkript-szintű
+// vészhelyzeti hibaüzenetet, ami akkor is működnie kell, ha maga ez a
+// rendszer sem tudott betöltődni).
+function showToast(message, type) {
+  type = type || "info";
+  const container = el("toastContainer");
+  if (!container) { console.log(message); return; }
+  const toast = document.createElement("div");
+  toast.className = "toast " + type;
+  toast.innerHTML = `<button class="toastClose" aria-label="Bezárás">✕</button><div>${escapeHtml(message)}</div>`;
+  container.appendChild(toast);
+  const remove = () => {
+    toast.style.opacity = "0";
+    toast.style.transform = "translateY(8px)";
+    setTimeout(() => toast.remove(), 200);
+  };
+  toast.querySelector(".toastClose").addEventListener("click", remove);
+  setTimeout(remove, type === "error" ? 7000 : 4500);
 }
 
 /* =========================================================================
@@ -445,9 +481,9 @@ function renderFullReport(container, report, opts) {
       ${termektipusokHtml}
 
       <div class="summaryGrid">
-        <div class="summaryBox"><div class="num">${osszesito.elteres_tetelek_szama}</div><div class="lbl">eltérő tétel a ${osszesito.osszes_tetel_szama}-ból</div></div>
-        <div class="summaryBox"><div class="num">${formatFt(osszesito.elteres_ertek_netto)}</div><div class="lbl">eltérés értéke (nettó, előjeles)</div></div>
-        <div class="summaryBox"><div class="num">${formatFt(osszesito.elteres_ertek_abszolut)}</div><div class="lbl">eltérés értéke (abszolút)</div></div>
+        <div class="summaryBox"><div class="num" id="summaryTetelSzam">${osszesito.elteres_tetelek_szama}</div><div class="lbl" id="summaryTetelLbl">eltérő tétel a ${osszesito.osszes_tetel_szama}-ból</div></div>
+        <div class="summaryBox"><div class="num" id="summaryErtekNetto">${formatFt(osszesito.elteres_ertek_netto)}</div><div class="lbl">eltérés értéke (nettó, előjeles)</div></div>
+        <div class="summaryBox"><div class="num" id="summaryErtekAbsz">${formatFt(osszesito.elteres_ertek_abszolut)}</div><div class="lbl">eltérés értéke (abszolút)</div></div>
       </div>
 
       <div class="cardTitle">Szektoronkénti haladás</div>
@@ -524,6 +560,16 @@ async function refreshSingleDiffRow(leltarId, barcode, targetContainer) {
     oldRowEl.outerHTML = renderDiffRowHtml(rowData, true, true);
     const newRowEl = document.getElementById("diffrow-" + barcode + "-row");
     bindDiffRowEvents(newRowEl, leltarId, targetContainer, true, true);
+
+    // Az összesítő számokat is frissítjük — ugyanebből a lekérdezésből
+    // már megvan, nem kell külön hívás.
+    const o = report.osszesito;
+    if (o && el("summaryTetelSzam")) {
+      el("summaryTetelSzam").textContent = o.elteres_tetelek_szama;
+      el("summaryTetelLbl").textContent = `eltérő tétel a ${o.osszes_tetel_szama}-ból`;
+      el("summaryErtekNetto").textContent = formatFt(o.elteres_ertek_netto);
+      el("summaryErtekAbsz").textContent = formatFt(o.elteres_ertek_abszolut);
+    }
   } catch (e) {
     console.error("Sor-frissítési hiba:", e);
   }
@@ -632,14 +678,14 @@ function bindDiffRowRefreshButtons(wrapEl, leltarId, targetContainer) {
       const qtyInput = document.getElementById("diffrow-" + barcode + "-qty");
       const qty = qtyInput.value.trim();
       const note = document.getElementById("diffrow-" + barcode + "-note").value.trim();
-      if (!qty || isNaN(parseInt(qty, 10))) { alert("Add meg a mennyiséget számmal."); return; }
+      if (!qty || isNaN(parseInt(qty, 10))) { showToast("Add meg a mennyiséget számmal.", "warn"); return; }
 
       // Ha a mező tartalma eltér a betöltött (live) értéktől, ez egy
       // kézi átírás — ilyenkor a megjegyzés kötelező.
       const fetchedValue = qtyInput.dataset.fetchedValue;
       const isManual = fetchedValue === undefined || qty !== fetchedValue;
       if (isManual && !note) {
-        alert("Mivel átírtad a Laurelből betöltött számot, a megjegyzés kitöltése kötelező.");
+        showToast("Mivel átírtad a Laurelből betöltött számot, a megjegyzés kitöltése kötelező.", "warn");
         return;
       }
 
@@ -657,15 +703,15 @@ function bindDiffRowRefreshButtons(wrapEl, leltarId, targetContainer) {
           forras: isManual ? "kezi" : "live_webshop",
         });
         if (result.error) {
-          alert("Hiba: " + result.error);
+          showToast("Hiba: " + result.error, "error");
           btn.disabled = false;
           btn.textContent = "Mentés";
         } else {
-          alert(`Mentve (${isManual ? "kézzel megadva" : "Laurelből"}): ${result.regi_mennyiseg} db → ${result.uj_mennyiseg} db`);
+          showToast(`Mentve (${isManual ? "kézzel megadva" : "Laurelből"}): ${result.regi_mennyiseg} db → ${result.uj_mennyiseg} db`, "success");
           refreshSingleDiffRow(leltarId, barcode, targetContainer);
         }
       } catch (e) {
-        alert("Hiba: " + e.message);
+        showToast("Hiba: " + e.message, "error");
         btn.disabled = false;
         btn.textContent = "Mentés";
       }
@@ -676,7 +722,7 @@ function bindDiffRowRefreshButtons(wrapEl, leltarId, targetContainer) {
 let selectedDiffBarcodes = new Set();
 
 async function createVerificationRoundForSelected(leltarId) {
-  if (!selectedDiffBarcodes.size) { alert("Válassz ki legalább egy tételt a checkbox-okkal."); return; }
+  if (!selectedDiffBarcodes.size) { showToast("Válassz ki legalább egy tételt a checkbox-okkal.", "warn"); return; }
   const btn = el("createVerifyBtn");
   btn.disabled = true;
   btn.textContent = "QR generálása…";
@@ -686,13 +732,13 @@ async function createVerificationRoundForSelected(leltarId) {
       leltar_id: leltarId,
       barcodes: Array.from(selectedDiffBarcodes),
     });
-    if (result.error) { alert("Hiba: " + result.error); }
+    if (result.error) { showToast("Hiba: " + result.error, "error"); }
     else {
       showVerifyQr(result.kod, result.tetelek_szama);
       selectedDiffBarcodes.clear();
     }
   } catch (e) {
-    alert("Hiba: " + e.message);
+    showToast("Hiba: " + e.message, "error");
   }
   btn.disabled = false;
   btn.textContent = "Kiválasztottak ellenőrzése (új QR)";
@@ -724,11 +770,11 @@ async function closeLeltarAction(leltarId) {
   if (!confirm("Biztosan lezárod a leltárat? Ezután már nem lehet több beolvasást/ellenőrzést hozzáadni.")) return;
   try {
     const result = await apiPost({ action: "close_leltar", leltar_id: leltarId });
-    if (result.error) { alert("Hiba: " + result.error); return; }
+    if (result.error) { showToast("Hiba: " + result.error, "error"); return; }
     renderFullReport(el("reportContainer"), result.report, { showActions: false });
     loadActiveLeltarak();
   } catch (e) {
-    alert("Hiba a lezáráskor: " + e.message);
+    showToast("Hiba a lezáráskor: " + e.message, "error");
   }
 }
 
