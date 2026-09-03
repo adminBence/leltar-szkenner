@@ -422,10 +422,14 @@ function renderFullReport(container, report, opts) {
     ...szektor_felelosok.ujraszamolasok.map(f => ({ ...f, tipus: "újraszámolás" })),
   ].map(f => `
     <div class="felelosRow">
-      <span>${escapeHtml(f.szektor)}. szektor — ${escapeHtml(f.felhasznalo)} (${f.tipus})</span>
+      <span>${f.szektor ? escapeHtml(f.szektor) + ". szektor — " : ""}${escapeHtml(f.felhasznalo)} (${f.tipus})</span>
       <span class="meta">${f.tetel_fajta} féle tétel</span>
     </div>
   `).join("") || `<p class="emptyNote">Nincs adat.</p>`;
+
+  const termektipusokHtml = (leltar.tipus === "termektipus" && leltar.termektipusok && leltar.termektipusok.length)
+    ? `<div class="metaLine" style="margin-bottom:14px;">Kiválasztott terméktípusok: ${leltar.termektipusok.map(escapeHtml).join(", ")}</div>`
+    : "";
 
   container.innerHTML = `
     <div class="card">
@@ -434,10 +438,11 @@ function renderFullReport(container, report, opts) {
         Leltár indítva: ${escapeHtml(formatDateTime(leltar.inditva))}
       </div>
       ${!isOpen ? `<div class="metaLine" style="margin-bottom:4px;">Leltár vége: ${escapeHtml(formatDateTime(leltar.lezarva))}</div>` : ""}
-      <div class="metaLine" style="margin-bottom:14px;">
+      <div class="metaLine" style="margin-bottom:${termektipusokHtml ? "4px" : "14px"};">
         Indította: ${escapeHtml(leltar.inditotta)} · Típus: ${escapeHtml(leltar.tipus)} · Raktár: ${escapeHtml(leltar.raktar)}
         · Státusz: <span class="statusPill ${isOpen ? "folyamatban" : "lezart"}">${isOpen ? "Folyamatban" : "Lezárva"}</span>
       </div>
+      ${termektipusokHtml}
 
       <div class="summaryGrid">
         <div class="summaryBox"><div class="num">${osszesito.elteres_tetelek_szama}</div><div class="lbl">eltérő tétel a ${osszesito.osszes_tetel_szama}-ból</div></div>
@@ -522,10 +527,10 @@ function renderDiffRowHtml(r, showCheckbox, isOpen) {
   const rowId = "diffrow-" + escapeHtml(r.vonalkod);
   const refreshBtn = showCheckbox ? `
     <button class="btn" style="font-size:11px; padding:5px 10px; margin-top:8px;" data-refresh-toggle="${escapeHtml(r.vonalkod)}">
-      🔄 Rendszer-adat frissítése
+      Laurelben javítva
     </button>
     <div id="${rowId}-form" style="display:none; margin-top:8px; gap:6px; flex-direction:column;">
-      <input type="text" placeholder="Miért javítod? (pl. hibás raktár-besorolás, javítva Laurelben)"
+      <input type="text" placeholder="Megjegyzés (opcionális)"
         id="${rowId}-note" style="font-size:12px; padding:8px 10px;">
       <button class="btn primary" style="font-size:12px; padding:7px 10px;" data-refresh-confirm="${escapeHtml(r.vonalkod)}">
         Friss adat lekérése és mentése
@@ -538,7 +543,8 @@ function renderDiffRowHtml(r, showCheckbox, isOpen) {
       <div class="info">
         <b>${escapeHtml(r.nev || r.vonalkod)}</b>
         <span>Vonalkód: ${escapeHtml(r.vonalkod)} · Saját cikkszám: ${escapeHtml(r.sajat_cikkszam || "—")} · Gyártói cikkszám: ${escapeHtml(r.gyartoi_cikkszam || "—")}</span>
-        <span>Rendszer: ${mask(r.rendszer_mennyiseg + " db")} · Számolt: ${mask(r.szamolt_mennyiseg + " db")}</span>
+        <span class="qtyLine">Rendszer: ${mask(r.rendszer_mennyiseg + " db")}</span>
+        <span class="qtyLine">Számolt: ${mask(r.szamolt_mennyiseg + " db")}</span>
         ${sectorChips ? `<div class="sectorBreakdown">${sectorChips}</div>` : ""}
         ${others ? `<span class="otherWarehouses">Más raktárak — ${others}</span>` : ""}
         ${recountNote}
@@ -575,6 +581,10 @@ function bindDiffRowRefreshButtons(wrapEl, leltarId, targetContainer) {
         });
         if (result.error) {
           alert("Hiba: " + result.error);
+          btn.disabled = false;
+          btn.textContent = "Friss adat lekérése és mentése";
+        } else if (result.same) {
+          alert(result.message);
           btn.disabled = false;
           btn.textContent = "Friss adat lekérése és mentése";
         } else {
