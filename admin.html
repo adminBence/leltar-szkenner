@@ -101,6 +101,14 @@
   .summaryBox .num{font-size:20px; font-weight:800;}
   .summaryBox .lbl{font-size:11px; color:var(--text-dim); margin-top:2px;}
 
+  /* ---------- Számok eltakarása (vak leltár elve) ---------- */
+  .maskedNum{filter:blur(6px); transition:filter .08s; user-select:none;}
+  .revealNumbers .maskedNum{filter:none;}
+  #revealEyeBtn{display:inline-flex; align-items:center; gap:6px; padding:9px 14px; border-radius:10px;
+    border:1px solid var(--line); background:var(--panel-2); color:var(--text); font-size:13px;
+    font-weight:600; -webkit-user-select:none; user-select:none; touch-action:manipulation;}
+  #revealEyeBtn.active{background:var(--accent-dim); color:var(--accent); border-color:var(--accent);}
+
   /* ---------- Felelősök ---------- */
   .felelosRow{display:flex; align-items:center; justify-content:space-between;
     padding:9px 12px; background:var(--panel-2); border:1px solid var(--line); border-radius:8px; margin-bottom:6px; font-size:13px;}
@@ -431,17 +439,21 @@ function renderFullReport(container, report, opts) {
         · Státusz: <span class="statusPill ${isOpen ? "folyamatban" : "lezart"}">${isOpen ? "Folyamatban" : "Lezárva"}</span>
       </div>
 
-      <div class="summaryGrid">
-        <div class="summaryBox"><div class="num">${osszesito.elteres_tetelek_szama}</div><div class="lbl">eltérő tétel a ${osszesito.osszes_tetel_szama}-ból</div></div>
-        <div class="summaryBox"><div class="num">${formatFt(osszesito.elteres_ertek_netto)}</div><div class="lbl">eltérés értéke (nettó, előjeles)</div></div>
-        <div class="summaryBox"><div class="num">${formatFt(osszesito.elteres_ertek_abszolut)}</div><div class="lbl">eltérés értéke (abszolút)</div></div>
+      <button id="revealEyeBtn">👁 Tartsd lenyomva a számok megtekintéséhez</button>
+
+      <div id="numbersMaskRoot">
+        <div class="summaryGrid" style="margin-top:14px;">
+          <div class="summaryBox"><div class="num maskedNum">${osszesito.elteres_tetelek_szama}</div><div class="lbl">eltérő tétel a ${osszesito.osszes_tetel_szama}-ból</div></div>
+          <div class="summaryBox"><div class="num maskedNum">${formatFt(osszesito.elteres_ertek_netto)}</div><div class="lbl">eltérés értéke (nettó, előjeles)</div></div>
+          <div class="summaryBox"><div class="num maskedNum">${formatFt(osszesito.elteres_ertek_abszolut)}</div><div class="lbl">eltérés értéke (abszolút)</div></div>
+        </div>
+
+        <div class="cardTitle">Szektoronkénti haladás</div>
+        ${renderProgressHtml(progress)}
+
+        <div class="cardTitle" style="margin-top:16px;">Ki mit csinált</div>
+        ${felelosHtml}
       </div>
-
-      <div class="cardTitle">Szektoronkénti haladás</div>
-      ${renderProgressHtml(progress)}
-
-      <div class="cardTitle" style="margin-top:16px;">Ki mit csinált</div>
-      ${felelosHtml}
     </div>
 
     <div class="card" id="verifyQrCard" style="display:none;"></div>
@@ -452,11 +464,24 @@ function renderFullReport(container, report, opts) {
         <button class="btn primary" id="createVerifyBtn">Kiválasztottak ellenőrzése (új QR)</button>
         <button class="btn danger" id="closeLeltarActionBtn" data-leltar="${escapeHtml(leltar.leltar_id)}">Leltár lezárása</button>
       </div>` : ""}
-      <div id="diffListWrap">
+      <div id="diffListWrap" class="numbersMaskRootSecondary">
         ${diff.map(r => renderDiffRowHtml(r, showActions)).join("") || `<p class="emptyNote">Nincs tétel.</p>`}
       </div>
     </div>
   `;
+
+  // A szem-gombot lenyomva mutatja, elengedve (vagy ha lecsúszik róla az
+  // ujj) azonnal újra eltakarja a számokat — mind az összesítőt, mind a
+  // tételes listát (két külön DOM-ágban vannak, ezért mindkettőt jelöljük).
+  const eyeBtn = el("revealEyeBtn");
+  const maskTargets = [el("numbersMaskRoot"), document.querySelector(".numbersMaskRootSecondary")];
+  const reveal = () => { maskTargets.forEach(t => t && t.classList.add("revealNumbers")); eyeBtn.classList.add("active"); };
+  const hide = () => { maskTargets.forEach(t => t && t.classList.remove("revealNumbers")); eyeBtn.classList.remove("active"); };
+  eyeBtn.addEventListener("pointerdown", reveal);
+  eyeBtn.addEventListener("pointerup", hide);
+  eyeBtn.addEventListener("pointerleave", hide);
+  eyeBtn.addEventListener("pointercancel", hide);
+  eyeBtn.addEventListener("contextmenu", (e) => e.preventDefault());
 
   if (showActions) {
     el("createVerifyBtn").addEventListener("click", () => createVerificationRoundForSelected(leltar.leltar_id));
@@ -467,33 +492,97 @@ function renderFullReport(container, report, opts) {
         else selectedDiffBarcodes.delete(cb.value);
       });
     });
+    bindDiffRowRefreshButtons(container, leltar.leltar_id, container);
   }
 }
 
 function renderDiffRowHtml(r, showCheckbox) {
   const cls = r.elteres > 0 ? "pos" : (r.elteres < 0 ? "neg" : "zero");
   const sign = r.elteres > 0 ? "+" : "";
-  const others = (r.masik_raktar || []).map(o => `${escapeHtml(o.raktar)}: ${o.mennyiseg} db`).join(" · ");
-  const sectorChips = (r.szektorok || []).map(s =>
-    `<span>${escapeHtml(s.szektor)}. szektor: ${s.mennyiseg} db${s.forras === "ujraszamolas" ? " (újraszámolva)" : ""}</span>`
-  ).join("");
+  const others = (r.masik_raktar || []).map(o => `${escapeHtml(o.raktar)}: <span class="maskedNum">${o.mennyiseg} db</span>`).join(" · ");
+  const sectorChips = (r.szektorok || []).map(s => {
+    if (s.forras === "ujraszamolas") {
+      return s.szektor
+        ? `<span>${escapeHtml(s.szektor)}. szektor — újraszámolva: <span class="maskedNum">${s.mennyiseg} db</span></span>`
+        : `<span>Újraszámolva: <span class="maskedNum">${s.mennyiseg} db</span></span>`;
+    }
+    return `<span>${escapeHtml(s.szektor)}. szektor: <span class="maskedNum">${s.mennyiseg} db</span></span>`;
+  }).join("");
   const recountCount = (r.ujraszamolasok || []).length;
   const recountNote = recountCount
     ? `<div class="recountNote">Újraszámolva ${recountCount} alkalommal — utoljára: ${escapeHtml(formatDateTime(r.ujraszamolasok[r.ujraszamolasok.length - 1].idobelyeg))}, ${escapeHtml(r.ujraszamolasok[r.ujraszamolasok.length - 1].felhasznalo)}</div>`
     : "";
+  const correctionCount = (r.rendszer_korrekciok || []).length;
+  const correctionNote = correctionCount
+    ? `<div class="recountNote" style="color:var(--accent);">Rendszer-adat javítva ${correctionCount} alkalommal — utoljára: ${escapeHtml(formatDateTime(r.rendszer_korrekciok[r.rendszer_korrekciok.length - 1].idobelyeg))}, ${escapeHtml(r.rendszer_korrekciok[r.rendszer_korrekciok.length - 1].felhasznalo)}${r.rendszer_korrekciok[r.rendszer_korrekciok.length - 1].megjegyzes ? " — " + escapeHtml(r.rendszer_korrekciok[r.rendszer_korrekciok.length - 1].megjegyzes) : ""}</div>`
+    : "";
+  const rowId = "diffrow-" + escapeHtml(r.vonalkod);
+  const refreshBtn = showCheckbox ? `
+    <button class="btn" style="font-size:11px; padding:5px 10px; margin-top:8px;" data-refresh-toggle="${escapeHtml(r.vonalkod)}">
+      🔄 Rendszer-adat frissítése
+    </button>
+    <div id="${rowId}-form" style="display:none; margin-top:8px; gap:6px; flex-direction:column;">
+      <input type="text" placeholder="Miért javítod? (pl. hibás raktár-besorolás, javítva Laurelben)"
+        id="${rowId}-note" style="font-size:12px; padding:8px 10px;">
+      <button class="btn primary" style="font-size:12px; padding:7px 10px;" data-refresh-confirm="${escapeHtml(r.vonalkod)}">
+        Friss adat lekérése és mentése
+      </button>
+    </div>` : "";
   return `
     <div class="diffRow">
       ${showCheckbox && r.elteres !== 0 ? `<input type="checkbox" class="diffSelect" value="${escapeHtml(r.vonalkod)}">` : (showCheckbox ? `<span style="width:18px;"></span>` : "")}
       <div class="info">
         <b>${escapeHtml(r.nev || r.vonalkod)}</b>
         <span>Vonalkód: ${escapeHtml(r.vonalkod)} · Saját cikkszám: ${escapeHtml(r.sajat_cikkszam || "—")} · Gyártói cikkszám: ${escapeHtml(r.gyartoi_cikkszam || "—")}</span>
-        <span>Rendszer: ${r.rendszer_mennyiseg} db · Számolt: ${r.szamolt_mennyiseg} db</span>
+        <span>Rendszer: <span class="maskedNum">${r.rendszer_mennyiseg} db</span> · Számolt: <span class="maskedNum">${r.szamolt_mennyiseg} db</span></span>
         ${sectorChips ? `<div class="sectorBreakdown">${sectorChips}</div>` : ""}
         ${others ? `<span class="otherWarehouses">Más raktárak — ${others}</span>` : ""}
         ${recountNote}
+        ${correctionNote}
+        ${refreshBtn}
       </div>
-      <div class="diffVal ${cls}">${sign}${r.elteres} db<br><span style="font-size:11px; font-weight:600;">${sign}${formatFt(r.elteres_ertek)}</span></div>
+      <div class="diffVal ${cls} maskedNum">${sign}${r.elteres} db<br><span style="font-size:11px; font-weight:600;">${sign}${formatFt(r.elteres_ertek)}</span></div>
     </div>`;
+}
+
+function bindDiffRowRefreshButtons(wrapEl, leltarId, targetContainer) {
+  wrapEl.querySelectorAll("[data-refresh-toggle]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const barcode = btn.dataset.refreshToggle;
+      const form = document.getElementById("diffrow-" + barcode + "-form");
+      form.style.display = form.style.display === "flex" ? "none" : "flex";
+    });
+  });
+  wrapEl.querySelectorAll("[data-refresh-confirm]").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const barcode = btn.dataset.refreshConfirm;
+      const note = document.getElementById("diffrow-" + barcode + "-note").value.trim();
+      const name = (el("adminNameInput") && el("adminNameInput").value.trim()) || "admin";
+      btn.disabled = true;
+      btn.textContent = "Frissítés…";
+      try {
+        const result = await apiPost({
+          action: "refresh_system_value",
+          leltar_id: leltarId,
+          barcode: barcode,
+          felhasznalo: name,
+          megjegyzes: note,
+        });
+        if (result.error) {
+          alert("Hiba: " + result.error);
+          btn.disabled = false;
+          btn.textContent = "Friss adat lekérése és mentése";
+        } else {
+          alert(`Frissítve: ${result.regi_mennyiseg} db → ${result.uj_mennyiseg} db`);
+          openReport(leltarId, targetContainer, { showActions: true });
+        }
+      } catch (e) {
+        alert("Hiba: " + e.message);
+        btn.disabled = false;
+        btn.textContent = "Friss adat lekérése és mentése";
+      }
+    });
+  });
 }
 
 let selectedDiffBarcodes = new Set();
