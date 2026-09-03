@@ -101,6 +101,16 @@
   .summaryBox .num{font-size:20px; font-weight:800;}
   .summaryBox .lbl{font-size:11px; color:var(--text-dim); margin-top:2px;}
 
+  .summarySection{background:var(--panel-2); border:1px solid var(--line); border-left:4px solid var(--line);
+    border-radius:10px; padding:14px;}
+  .summarySection.hiany{border-left-color:var(--danger);}
+  .summarySection.tobblet{border-left-color:var(--accent);}
+  .summarySection.osszesen{border-left-color:var(--text-dim);}
+  .summarySection .sectionTitle{font-size:12px; font-weight:700; text-transform:uppercase;
+    letter-spacing:.04em; color:var(--text-dim); margin-bottom:8px;}
+  .summarySection .sectionStat{font-size:19px; font-weight:800; line-height:1.3;}
+  .summarySection .sectionStat.secondary{font-size:14px; font-weight:600; color:var(--text-dim);}
+
   /* ---------- Számok eltakarása (vak leltár elve) ---------- */
   .maskedNum{filter:blur(6px); transition:filter .08s; user-select:none;}
   .diffRow.revealed .maskedNum{filter:none;}
@@ -148,6 +158,21 @@
 </head>
 <body>
 <div id="toastContainer"></div>
+
+<div id="negStockModal" style="display:none; position:fixed; inset:0; z-index:1500; background:rgba(0,0,0,0.6);
+  align-items:center; justify-content:center; padding:20px;">
+  <div style="background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:24px; max-width:480px; width:100%;">
+    <div style="font-size:15px; font-weight:700; margin-bottom:6px;">Van olyan termék, aminek negatív a készlete.</div>
+    <div style="font-size:13px; color:var(--text-dim); margin-bottom:16px;">Ennek ellenére elindítod a leltárat?</div>
+    <div id="negStockDetails" style="display:none; max-height:240px; overflow-y:auto; margin-bottom:16px;
+      font-size:12px; background:var(--panel-2); border:1px solid var(--line); border-radius:8px; padding:10px;"></div>
+    <div class="row" style="gap:8px;">
+      <button class="btn" id="negStockDetailsBtn">Részletek</button>
+      <button class="btn" id="negStockNoBtn">Nem</button>
+      <button class="btn primary" id="negStockYesBtn">Igen</button>
+    </div>
+  </div>
+</div>
 <div id="app">
 
   <header>
@@ -335,6 +360,26 @@ document.querySelectorAll('input[name="leltarTipus"]').forEach(r => {
   });
 });
 
+function showNegativeStockModal(items) {
+  return new Promise(resolve => {
+    const modal = el("negStockModal");
+    const detailsWrap = el("negStockDetails");
+    detailsWrap.style.display = "none";
+    detailsWrap.innerHTML = items.map(it => `
+      <div style="padding:6px 0; border-bottom:1px solid var(--line);">
+        <b>${escapeHtml(it.nev || it.vonalkod)}</b><br>
+        <span style="color:var(--text-dim);">Cikkszám: ${escapeHtml(it.cikkszam || "—")} · Vonalkód: ${escapeHtml(it.vonalkod)} · Mennyiség: ${it.mennyiseg} db</span>
+      </div>`).join("");
+    modal.style.display = "flex";
+
+    el("negStockDetailsBtn").onclick = () => {
+      detailsWrap.style.display = detailsWrap.style.display === "block" ? "none" : "block";
+    };
+    el("negStockYesBtn").onclick = () => { modal.style.display = "none"; resolve(true); };
+    el("negStockNoBtn").onclick = () => { modal.style.display = "none"; resolve(false); };
+  });
+}
+
 el("startLeltarBtn").addEventListener("click", async () => {
   const tipus = document.querySelector('input[name="leltarTipus"]:checked').value;
   const name = el("adminNameInput").value.trim();
@@ -342,8 +387,28 @@ el("startLeltarBtn").addEventListener("click", async () => {
 
   const btn = el("startLeltarBtn");
   btn.disabled = true;
-  btn.textContent = "Indítás…";
+  btn.textContent = "Ellenőrzés…";
   el("startLeltarMsg").textContent = "";
+
+  try {
+    const negCheck = await apiPost({
+      action: "check_negative_stock",
+      tipus: tipus,
+      termektipusok: Array.from(selectedProductTypes),
+    });
+    if (negCheck.items && negCheck.items.length) {
+      const proceed = await showNegativeStockModal(negCheck.items);
+      if (!proceed) {
+        btn.disabled = false;
+        btn.textContent = "Leltár indítása";
+        return;
+      }
+    }
+  } catch (e) {
+    console.error("Negatív készlet ellenőrzési hiba (nem blokkoló):", e);
+  }
+
+  btn.textContent = "Indítás…";
   try {
     const result = await apiPost({
       action: "create_leltar",
@@ -388,6 +453,7 @@ async function loadActiveLeltarak() {
             Leltár indítva: ${escapeHtml(formatDateTime(l.inditva))}
           </div>
           <div class="metaLine">Indította: ${escapeHtml(l.inditotta)} · Típus: ${escapeHtml(l.tipus)} · Raktár: ${escapeHtml(l.raktar)}</div>
+          ${l.tipus === "termektipus" && l.termektipusok && l.termektipusok.length ? `<div class="metaLine">Kiválasztott terméktípusok: ${l.termektipusok.map(escapeHtml).join(", ")}</div>` : ""}
           <div class="metaLine">Csatlakozási kód: <b>${escapeHtml(l.csatlakozasi_kod)}</b></div>
           <div class="row" style="margin-top:10px; gap:8px;">
             <button class="btn" data-progress="${escapeHtml(l.leltar_id)}">Eddig beolvasott adatok</button>
@@ -480,11 +546,28 @@ function renderFullReport(container, report, opts) {
       </div>
       ${termektipusokHtml}
 
-      <div class="summaryGrid">
-        <div class="summaryBox"><div class="num" id="summaryTetelSzam">${osszesito.elteres_tetelek_szama}</div><div class="lbl" id="summaryTetelLbl">eltérő tétel a ${osszesito.osszes_tetel_szama}-ból</div></div>
-        <div class="summaryBox"><div class="num" id="summaryErtekNetto">${formatFt(osszesito.elteres_ertek_netto)}</div><div class="lbl">eltérés értéke (nettó, előjeles)</div></div>
-        <div class="summaryBox"><div class="num" id="summaryErtekAbsz">${formatFt(osszesito.elteres_ertek_abszolut)}</div><div class="lbl">eltérés értéke (abszolút)</div></div>
+      <div class="summaryGrid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr));">
+        <div class="summarySection hiany">
+          <div class="sectionTitle">Hiány</div>
+          <div class="sectionStat" id="summaryHianyDb">${osszesito.hiany_db} db</div>
+          <div class="sectionStat secondary" id="summaryHianyErtek">${formatFt(osszesito.hiany_ertek)}</div>
+        </div>
+        <div class="summarySection tobblet">
+          <div class="sectionTitle">Többlet</div>
+          <div class="sectionStat" id="summaryTobbletDb">${osszesito.tobblet_db} db</div>
+          <div class="sectionStat secondary" id="summaryTobbletErtek">${formatFt(osszesito.tobblet_ertek)}</div>
+        </div>
+        <div class="summarySection osszesen">
+          <div class="sectionTitle">Összesen (eltérés)</div>
+          <div class="sectionStat" id="summaryTetelSzam">${osszesito.elteres_tetelek_szama} <span style="font-size:13px; font-weight:600; color:var(--text-dim);" id="summaryTetelLbl">/ ${osszesito.osszes_tetel_szama} tétel</span></div>
+          <div class="sectionStat secondary" id="summaryErtekAbsz">${formatFt(osszesito.elteres_ertek_abszolut)} (${formatFt(osszesito.elteres_ertek_netto)} előjeles)</div>
+        </div>
       </div>
+      ${!isOpen ? `
+      <div class="summaryGrid">
+        <div class="summaryBox"><div class="num">${osszesito.osszes_rendszer_db} db</div><div class="lbl">teljes készlet (rendszer szerint, db)</div></div>
+        <div class="summaryBox"><div class="num">${formatFt(osszesito.osszes_rendszer_ertek)}</div><div class="lbl">teljes készlet értéke (rendszer szerint)</div></div>
+      </div>` : ""}
 
       <div class="cardTitle">Szektoronkénti haladás</div>
       ${renderProgressHtml(progress)}
@@ -565,10 +648,12 @@ async function refreshSingleDiffRow(leltarId, barcode, targetContainer) {
     // már megvan, nem kell külön hívás.
     const o = report.osszesito;
     if (o && el("summaryTetelSzam")) {
-      el("summaryTetelSzam").textContent = o.elteres_tetelek_szama;
-      el("summaryTetelLbl").textContent = `eltérő tétel a ${o.osszes_tetel_szama}-ból`;
-      el("summaryErtekNetto").textContent = formatFt(o.elteres_ertek_netto);
-      el("summaryErtekAbsz").textContent = formatFt(o.elteres_ertek_abszolut);
+      el("summaryHianyDb").textContent = `${o.hiany_db} db`;
+      el("summaryHianyErtek").textContent = formatFt(o.hiany_ertek);
+      el("summaryTobbletDb").textContent = `${o.tobblet_db} db`;
+      el("summaryTobbletErtek").textContent = formatFt(o.tobblet_ertek);
+      el("summaryTetelSzam").innerHTML = `${o.elteres_tetelek_szama} <span style="font-size:13px; font-weight:600; color:var(--text-dim);" id="summaryTetelLbl">/ ${o.osszes_tetel_szama} tétel</span>`;
+      el("summaryErtekAbsz").textContent = `${formatFt(o.elteres_ertek_abszolut)} (${formatFt(o.elteres_ertek_netto)} előjeles)`;
     }
   } catch (e) {
     console.error("Sor-frissítési hiba:", e);
