@@ -587,8 +587,13 @@ function bindDiffRowRefreshButtons(wrapEl, leltarId, targetContainer) {
           alert(result.message);
           btn.disabled = false;
           btn.textContent = "Friss adat lekérése és mentése";
+        } else if (result.zero) {
+          alert(result.message);
+          btn.disabled = false;
+          btn.textContent = "Friss adat lekérése és mentése";
         } else {
-          alert(`Frissítve: ${result.regi_mennyiseg} db → ${result.uj_mennyiseg} db`);
+          const idoInfo = result.frissitve ? ` (a live adat frissítve: ${formatDateTime(result.frissitve)})` : "";
+          alert(`Frissítve: ${result.regi_mennyiseg} db → ${result.uj_mennyiseg} db${idoInfo}`);
           openReport(leltarId, targetContainer, { showActions: true });
         }
       } catch (e) {
