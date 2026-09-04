@@ -160,6 +160,14 @@
     color:var(--text-dim); cursor:pointer; font-size:14px; padding:4px; line-height:1;}
   @keyframes toastIn{from{opacity:0; transform:translateY(12px);} to{opacity:1; transform:translateY(0);}}
 
+  /* ---------- Általános betöltés-jelző (spinner) ---------- */
+  .spinner{width:26px; height:26px; border:3px solid var(--line); border-top-color:var(--accent);
+    border-radius:50%; margin:0 auto; animation:spin .7s linear infinite;}
+  .spinner.small{width:16px; height:16px; border-width:2px;}
+  @keyframes spin{to{transform:rotate(360deg);}}
+  .inlineLoading{display:flex; align-items:center; justify-content:center; gap:10px;
+    padding:20px; color:var(--text-dim); font-size:13px;}
+
   /* ---------- Google-bejelentkezési kapu ---------- */
   #authGateOverlay{display:flex; position:fixed; inset:0; z-index:3000;
     background:radial-gradient(circle at 50% 30%, #16241c 0%, var(--bg) 60%);
@@ -242,10 +250,7 @@
   <!-- LELTÁR -->
   <div class="panel active" id="panel-leltar">
     <div class="card" id="activeLeltarakCard" style="display:none;">
-      <div class="row" style="justify-content:space-between; align-items:center; margin-bottom:12px;">
-        <div class="cardTitle" style="margin-bottom:0;">Futó leltár</div>
-        <button class="btn" id="activeLeltarakRefreshBtn" style="font-size:11px; padding:6px 12px;">🔄 Frissítés</button>
-      </div>
+      <div class="cardTitle">Futó leltár</div>
       <div id="activeLeltarakBody"></div>
     </div>
 
@@ -266,11 +271,8 @@
   <!-- KORÁBBI LELTÁRAK -->
   <div class="panel" id="panel-history">
     <div class="card">
-      <div class="row" style="justify-content:space-between; align-items:center; margin-bottom:12px;">
-        <div class="cardTitle" style="margin-bottom:0;">Korábbi leltárak</div>
-        <button class="btn" id="historyRefreshBtn" style="font-size:11px; padding:6px 12px;">🔄 Frissítés</button>
-      </div>
-      <div id="historyList"><p class="emptyNote">Betöltés…</p></div>
+      <div class="cardTitle">Korábbi leltárak</div>
+      <div id="historyList"><div class="inlineLoading"><div class="spinner small"></div>Betöltés…</div></div>
     </div>
     <div id="historyReportContainer"></div>
   </div>
@@ -300,11 +302,8 @@
       <button class="btn primary" id="addUserBtn">Hozzáadás</button>
     </div>
     <div class="card">
-      <div class="row" style="justify-content:space-between; align-items:center; margin-bottom:12px;">
-        <div class="cardTitle" style="margin-bottom:0;">Jogosult felhasználók</div>
-        <button class="btn" id="usersRefreshBtn" style="font-size:11px; padding:6px 12px;">🔄 Frissítés</button>
-      </div>
-      <div id="usersList"><p class="emptyNote">Betöltés…</p></div>
+      <div class="cardTitle">Jogosult felhasználók</div>
+      <div id="usersList"><div class="inlineLoading"><div class="spinner small"></div>Betöltés…</div></div>
     </div>
   </div>
 
@@ -524,6 +523,7 @@ el("startLeltarBtn").addEventListener("click", async () => {
       el("startLeltarMsg").textContent = result.error;
     } else {
       el("reportContainer").innerHTML = "";
+      currentOpenReport = null;
       loadActiveLeltarak();
     }
   } catch (e) {
@@ -585,7 +585,7 @@ async function toggleProgress(leltarId) {
   const wrap = el("progressWrap-" + leltarId);
   if (wrap.style.display === "block") { wrap.style.display = "none"; return; }
   wrap.style.display = "block";
-  wrap.innerHTML = `<p class="emptyNote">Betöltés…</p>`;
+  wrap.innerHTML = `<div class="inlineLoading"><div class="spinner small"></div>Betöltés…</div>`;
   try {
     const data = await apiGet({ action: "progress", leltar_id: leltarId });
     wrap.innerHTML = renderProgressHtml(data.progress || []);
@@ -607,9 +607,12 @@ function renderProgressHtml(progress) {
 /* =========================================================================
    TELJES RIPORT (élő vagy korábbi leltárhoz egyaránt)
    ========================================================================= */
+let currentOpenReport = null; // { leltarId, container, opts } — a poll-alapú automatikus frissítéshez
+
 async function openReport(leltarId, container, opts) {
-  container.innerHTML = `<div class="card"><p class="emptyNote">Riport betöltése…</p></div>`;
+  container.innerHTML = `<div class="card"><div class="inlineLoading"><div class="spinner"></div>Riport betöltése…</div></div>`;
   container.scrollIntoView({ behavior: "smooth" });
+  currentOpenReport = { leltarId, container, opts: opts || {} };
   try {
     const report = await apiGet({ action: "full_report", leltar_id: leltarId });
     if (report.error) { container.innerHTML = `<div class="card"><p class="emptyNote">Hiba: ${escapeHtml(report.error)}</p></div>`; return; }
@@ -795,10 +798,10 @@ function renderDiffRowHtml(r, showCheckbox, isOpen) {
   const szallitolevelNote = r.nem_veglegesitett_szallitolevel
     ? `<div class="recountNote" style="color:var(--warn);">⚠ A termék szerepel nem véglegesített szállítólevélen — szám(ok): ${escapeHtml(r.nem_veglegesitett_szallitolevel.szamok || "ismeretlen")}</div>`
     : "";
-  const itemNotesHtml = (r.tetel_megjegyzesek || []).map(n =>
-    `<div class="recountNote">💬 ${escapeHtml(n.felhasznalo)}, ${escapeHtml(formatDateTime(n.idobelyeg))}: ${escapeHtml(n.megjegyzes)}</div>`
-  ).join("");
   const rowId = "diffrow-" + escapeHtml(r.vonalkod);
+  const itemNotesHtml = `<div id="${rowId}-notes-list">${(r.tetel_megjegyzesek || []).map(n =>
+    `<div class="recountNote">💬 ${escapeHtml(n.felhasznalo)}, ${escapeHtml(formatDateTime(n.idobelyeg))}: ${escapeHtml(n.megjegyzes)}</div>`
+  ).join("")}</div>`;
   const unknownSurplusPanel = (showCheckbox && r.ismeretlen_tobblet) ? `
     <div style="margin-top:8px; gap:6px; display:flex; flex-direction:column; padding:10px;
       background:var(--panel-2); border:1px solid var(--line); border-radius:8px;">
@@ -942,8 +945,18 @@ function bindDiffRowRefreshButtons(wrapEl, leltarId, targetContainer) {
           showToast("Hiba: " + result.error, "error");
         } else {
           showToast("Megjegyzés mentve.", "success");
+          // Azonnal, helyben megjelenítjük az új megjegyzést — nem
+          // várunk egy újabb szerver-lekérdezésre, mert a BigQuery-nél
+          // előfordulhat pár másodperces késés, mire egy frissen
+          // beszúrt sor megjelenik egy azonnali új lekérdezésben.
+          const notesList = document.getElementById("diffrow-" + barcode + "-notes-list");
+          if (notesList) {
+            const noteDiv = document.createElement("div");
+            noteDiv.className = "recountNote";
+            noteDiv.textContent = `💬 ${googleUserName || googleUserEmail}, most: ${note}`;
+            notesList.appendChild(noteDiv);
+          }
           noteInput.value = "";
-          refreshSingleDiffRow(leltarId, barcode, targetContainer);
         }
       } catch (e) {
         showToast("Hiba: " + e.message, "error");
@@ -981,9 +994,36 @@ function bindDiffRowRefreshButtons(wrapEl, leltarId, targetContainer) {
 
 let selectedDiffBarcodes = new Set();
 
-el("activeLeltarakRefreshBtn").addEventListener("click", () => loadActiveLeltarak());
-el("historyRefreshBtn").addEventListener("click", () => loadHistory());
-el("usersRefreshBtn").addEventListener("click", () => loadAdminUsers());
+// A nyitott riportot csendben frissíti, DE csak akkor, ha a felhasználó
+// épp nem ír valamelyik beviteli mezőbe (hogy ne szakítsuk félbe egy
+// éppen folyamatban lévő korrekció/megjegyzés beírását).
+function isTypingInReport_() {
+  const a = document.activeElement;
+  return !!(a && a.closest && a.closest("#diffListWrap") && (a.tagName === "INPUT" || a.tagName === "TEXTAREA"));
+}
+async function refreshOpenReportSilently_() {
+  if (!currentOpenReport || isTypingInReport_()) return;
+  try {
+    const report = await apiGet({ action: "full_report", leltar_id: currentOpenReport.leltarId });
+    if (report.error || !currentOpenReport) return;
+    renderFullReport(currentOpenReport.container, report, currentOpenReport.opts);
+  } catch (e) { /* csendben kihagyjuk ezt a kört, legközelebb újra próbálja */ }
+}
+
+// Automatikus, csendes frissítés (nincs manuális gomb) — csak azt
+// frissíti, ami épp látszik a képernyőn.
+setInterval(() => {
+  const activePanel = document.querySelector(".panel.active");
+  if (!activePanel) return;
+  if (activePanel.id === "panel-leltar") {
+    loadActiveLeltarak();
+    if (currentOpenReport) refreshOpenReportSilently_();
+  } else if (activePanel.id === "panel-history") {
+    loadHistory(true);
+  } else if (activePanel.id === "panel-users") {
+    loadAdminUsers(true);
+  }
+}, 15000);
 
 async function createVerificationRoundForSelected(leltarId) {
   if (!selectedDiffBarcodes.size) { showToast("Válassz ki legalább egy tételt a checkbox-okkal.", "warn"); return; }
@@ -1045,10 +1085,10 @@ async function closeLeltarAction(leltarId) {
 /* =========================================================================
    KORÁBBI LELTÁRAK
    ========================================================================= */
-async function loadHistory() {
+async function loadHistory(silent) {
   historyLoaded = true;
   const wrap = el("historyList");
-  wrap.innerHTML = `<p class="emptyNote">Betöltés…</p>`;
+  if (!silent) wrap.innerHTML = `<div class="inlineLoading"><div class="spinner small"></div>Betöltés…</div>`;
   try {
     const data = await apiGet({ action: "history" });
     const list = data.leltarak || [];
@@ -1185,14 +1225,16 @@ async function handleGoogleCredential(response) {
   googleIdToken = response.credential;
   googleUserEmail = payload.email;
   googleUserName = payload.name || "";
+  scheduleTokenRefresh_(payload);
 
   // A TÉNYLEGES jogosultság-ellenőrzés a szerveren történik (nem
   // domain szerint, hanem egy engedélyezési lista alapján) — ha nincs
   // rajta a listán, az apiPost belül automatikusan meghívja a
   // showAuthError-t (lásd fentebb, "authRequired" kezelés).
+  showLoginLoading_(true);
   try {
     const result = await apiPost({ action: "verify_login" });
-    if (result.error) { googleIdToken = null; return; }
+    if (result.error) { googleIdToken = null; showLoginLoading_(false); return; }
 
     el("authGateOverlay").classList.add("hide");
     el("authGateError").style.display = "none";
@@ -1201,6 +1243,7 @@ async function handleGoogleCredential(response) {
       googleIdToken = null;
       googleUserEmail = null;
       googleUserName = null;
+      if (tokenRefreshTimer) clearTimeout(tokenRefreshTimer);
       if (window.google && google.accounts) google.accounts.id.disableAutoSelect();
       el("signedInAs").innerHTML = "";
       el("authGateOverlay").classList.remove("hide");
@@ -1209,8 +1252,42 @@ async function handleGoogleCredential(response) {
     // Csak MOST, sikeres bejelentkezés után indul el az app tényleges
     // adatlekérése.
     loadActiveLeltarak();
+    showLoginLoading_(false);
   } catch (e) {
     googleIdToken = null;
+    showLoginLoading_(false);
+  }
+}
+
+let tokenRefreshTimer = null;
+function scheduleTokenRefresh_(payload) {
+  if (tokenRefreshTimer) clearTimeout(tokenRefreshTimer);
+  if (!payload.exp) return;
+  // A Google ID token kb. 1 óráig érvényes — ennek lejárta előtt kb.
+  // 5 perccel csendben megpróbáljuk frissíteni, hogy a felhasználót ne
+  // dobja ki a rendszer munka közben.
+  const expiresAtMs = Number(payload.exp) * 1000;
+  const refreshAtMs = expiresAtMs - Date.now() - (5 * 60 * 1000);
+  if (refreshAtMs <= 0) return;
+  tokenRefreshTimer = setTimeout(() => {
+    if (window.google && google.accounts) {
+      google.accounts.id.prompt(); // csendes újra-bejelentkezés, ha a böngésző engedi
+    }
+  }, refreshAtMs);
+}
+
+function showLoginLoading_(loading) {
+  const box = el("authGateBox");
+  if (!box) return;
+  box.querySelectorAll("[data-login-spinner]").forEach(n => n.remove());
+  if (loading) {
+    el("googleSignInBtn").style.display = "none";
+    const spinner = document.createElement("div");
+    spinner.setAttribute("data-login-spinner", "1");
+    spinner.innerHTML = `<div class="spinner"></div><div style="margin-top:10px; font-size:12px; color:var(--text-dim);">Bejelentkezés ellenőrzése…</div>`;
+    box.appendChild(spinner);
+  } else {
+    el("googleSignInBtn").style.display = "flex";
   }
 }
 
@@ -1231,10 +1308,10 @@ window.addEventListener("load", () => {
    Csak azok szerkeszthetik, akiknek "hozzaadhat_felhasznalot" joguk van
    — ezt a backend is kikényszeríti, itt csak a felület van hozzá.
    ========================================================================= */
-async function loadAdminUsers() {
+async function loadAdminUsers(silent) {
   usersLoaded = true;
   const wrap = el("usersList");
-  wrap.innerHTML = `<p class="emptyNote">Betöltés…</p>`;
+  if (!silent) wrap.innerHTML = `<div class="inlineLoading"><div class="spinner small"></div>Betöltés…</div>`;
   try {
     const data = await apiPost({ action: "get_admin_users" });
     if (data.error) { wrap.innerHTML = `<p class="emptyNote">${escapeHtml(data.error)}</p>`; return; }
