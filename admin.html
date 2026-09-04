@@ -197,6 +197,17 @@
 </div>
 
 
+<div id="confirmModalOverlay" style="display:none; position:fixed; inset:0; z-index:1600; background:rgba(0,0,0,0.6);
+  align-items:center; justify-content:center; padding:20px;">
+  <div style="background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:24px; max-width:400px; width:100%;">
+    <div id="confirmModalMessage" style="font-size:14px; line-height:1.5; margin-bottom:18px;"></div>
+    <div class="row" style="gap:8px;">
+      <button class="btn" id="confirmModalNoBtn">Mégse</button>
+      <button class="btn danger" id="confirmModalYesBtn">Igen, törlöm</button>
+    </div>
+  </div>
+</div>
+
 <div id="negStockModal" style="display:none; position:fixed; inset:0; z-index:1500; background:rgba(0,0,0,0.6);
   align-items:center; justify-content:center; padding:20px;">
   <div style="background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:24px; max-width:480px; width:100%;">
@@ -231,7 +242,10 @@
   <!-- LELTÁR -->
   <div class="panel active" id="panel-leltar">
     <div class="card" id="activeLeltarakCard" style="display:none;">
-      <div class="cardTitle">Futó leltár</div>
+      <div class="row" style="justify-content:space-between; align-items:center; margin-bottom:12px;">
+        <div class="cardTitle" style="margin-bottom:0;">Futó leltár</div>
+        <button class="btn" id="activeLeltarakRefreshBtn" style="font-size:11px; padding:6px 12px;">🔄 Frissítés</button>
+      </div>
       <div id="activeLeltarakBody"></div>
     </div>
 
@@ -252,7 +266,10 @@
   <!-- KORÁBBI LELTÁRAK -->
   <div class="panel" id="panel-history">
     <div class="card">
-      <div class="cardTitle">Korábbi leltárak</div>
+      <div class="row" style="justify-content:space-between; align-items:center; margin-bottom:12px;">
+        <div class="cardTitle" style="margin-bottom:0;">Korábbi leltárak</div>
+        <button class="btn" id="historyRefreshBtn" style="font-size:11px; padding:6px 12px;">🔄 Frissítés</button>
+      </div>
       <div id="historyList"><p class="emptyNote">Betöltés…</p></div>
     </div>
     <div id="historyReportContainer"></div>
@@ -283,7 +300,10 @@
       <button class="btn primary" id="addUserBtn">Hozzáadás</button>
     </div>
     <div class="card">
-      <div class="cardTitle">Jogosult felhasználók</div>
+      <div class="row" style="justify-content:space-between; align-items:center; margin-bottom:12px;">
+        <div class="cardTitle" style="margin-bottom:0;">Jogosult felhasználók</div>
+        <button class="btn" id="usersRefreshBtn" style="font-size:11px; padding:6px 12px;">🔄 Frissítés</button>
+      </div>
       <div id="usersList"><p class="emptyNote">Betöltés…</p></div>
     </div>
   </div>
@@ -307,6 +327,9 @@ const GOOGLE_CLIENT_ID = "129713453954-nfd29j45ectimbcjq12rj91p9rbtu116.apps.goo
 let googleIdToken = null;   // a bejelentkezés után ide kerül a Google ID token
 let googleUserEmail = null;
 let googleUserName = null;
+let activeLeltarakLoaded = false;
+let historyLoaded = false;
+let usersLoaded = false;
 
 // A telefonos szkenner oldal (scanner.html) elérési útja — ezt írd át a
 // saját GitHub Pages linkedre. A QR-kód ide fog mutatni egy ?join=KÓD
@@ -370,9 +393,9 @@ document.querySelectorAll(".navBtn").forEach(btn => {
     document.querySelectorAll(".panel").forEach(p => p.classList.remove("active"));
     btn.classList.add("active");
     el("panel-" + btn.dataset.panel).classList.add("active");
-    if (btn.dataset.panel === "leltar") loadActiveLeltarak();
-    if (btn.dataset.panel === "history") loadHistory();
-    if (btn.dataset.panel === "users") loadAdminUsers();
+    if (btn.dataset.panel === "leltar" && !activeLeltarakLoaded) loadActiveLeltarak();
+    if (btn.dataset.panel === "history" && !historyLoaded) loadHistory();
+    if (btn.dataset.panel === "users" && !usersLoaded) loadAdminUsers();
   });
 });
 
@@ -433,6 +456,16 @@ document.querySelectorAll('input[name="leltarTipus"]').forEach(r => {
     }
   });
 });
+
+function showConfirm(message) {
+  return new Promise(resolve => {
+    const modal = el("confirmModalOverlay");
+    el("confirmModalMessage").textContent = message;
+    modal.style.display = "flex";
+    el("confirmModalYesBtn").onclick = () => { modal.style.display = "none"; resolve(true); };
+    el("confirmModalNoBtn").onclick = () => { modal.style.display = "none"; resolve(false); };
+  });
+}
 
 function showNegativeStockModal(items) {
   return new Promise(resolve => {
@@ -504,6 +537,7 @@ el("startLeltarBtn").addEventListener("click", async () => {
    FUTÓ LELTÁR KÁRTYA
    ========================================================================= */
 async function loadActiveLeltarak() {
+  activeLeltarakLoaded = true;
   const card = el("activeLeltarakCard");
   const body = el("activeLeltarakBody");
   try {
@@ -922,7 +956,7 @@ function bindDiffRowRefreshButtons(wrapEl, leltarId, targetContainer) {
   wrapEl.querySelectorAll("[data-delete-unknown]").forEach(btn => {
     btn.addEventListener("click", async () => {
       const barcode = btn.dataset.deleteUnknown;
-      if (!confirm("Biztosan törlöd ezt az ismeretlen többlet tételt? Ez törli az összes hozzá tartozó beolvasást ebben a leltárban.")) return;
+      if (!(await showConfirm("Biztosan törlöd ezt az ismeretlen többlet tételt? Ez törli az összes hozzá tartozó beolvasást ebben a leltárban."))) return;
       btn.disabled = true;
       btn.textContent = "Törlés…";
       try {
@@ -946,6 +980,10 @@ function bindDiffRowRefreshButtons(wrapEl, leltarId, targetContainer) {
 }
 
 let selectedDiffBarcodes = new Set();
+
+el("activeLeltarakRefreshBtn").addEventListener("click", () => loadActiveLeltarak());
+el("historyRefreshBtn").addEventListener("click", () => loadHistory());
+el("usersRefreshBtn").addEventListener("click", () => loadAdminUsers());
 
 async function createVerificationRoundForSelected(leltarId) {
   if (!selectedDiffBarcodes.size) { showToast("Válassz ki legalább egy tételt a checkbox-okkal.", "warn"); return; }
@@ -993,7 +1031,7 @@ function buildVerifyUrl(kod) {
 }
 
 async function closeLeltarAction(leltarId) {
-  if (!confirm("Biztosan lezárod a leltárat? Ezután már nem lehet több beolvasást/ellenőrzést hozzáadni.")) return;
+  if (!(await showConfirm("Biztosan lezárod a leltárat? Ezután már nem lehet több beolvasást/ellenőrzést hozzáadni."))) return;
   try {
     const result = await apiPost({ action: "close_leltar", leltar_id: leltarId });
     if (result.error) { showToast("Hiba: " + result.error, "error"); return; }
@@ -1008,6 +1046,7 @@ async function closeLeltarAction(leltarId) {
    KORÁBBI LELTÁRAK
    ========================================================================= */
 async function loadHistory() {
+  historyLoaded = true;
   const wrap = el("historyList");
   wrap.innerHTML = `<p class="emptyNote">Betöltés…</p>`;
   try {
@@ -1193,6 +1232,7 @@ window.addEventListener("load", () => {
    — ezt a backend is kikényszeríti, itt csak a felület van hozzá.
    ========================================================================= */
 async function loadAdminUsers() {
+  usersLoaded = true;
   const wrap = el("usersList");
   wrap.innerHTML = `<p class="emptyNote">Betöltés…</p>`;
   try {
@@ -1219,7 +1259,7 @@ function renderAdminUsersList(users) {
   `).join("");
   wrap.querySelectorAll("[data-remove-user]").forEach(btn => {
     btn.addEventListener("click", async () => {
-      if (!confirm(`Biztosan törlöd "${btn.dataset.removeUser}" hozzáférését?`)) return;
+      if (!(await showConfirm(`Biztosan törlöd "${btn.dataset.removeUser}" hozzáférését?`))) return;
       btn.disabled = true;
       try {
         const result = await apiPost({ action: "remove_admin_user", email: btn.dataset.removeUser });
