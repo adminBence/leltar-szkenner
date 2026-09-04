@@ -243,7 +243,6 @@
   <nav>
     <button class="navBtn active" data-panel="leltar">Leltár</button>
     <button class="navBtn" data-panel="history">Korábbi leltárak</button>
-    <button class="navBtn" data-panel="check">Ellenőrzés</button>
     <button class="navBtn" data-panel="users">Felhasználók</button>
   </nav>
 
@@ -275,18 +274,6 @@
       <div id="historyList"><div class="inlineLoading"><div class="spinner small"></div>Betöltés…</div></div>
     </div>
     <div id="historyReportContainer"></div>
-  </div>
-
-  <!-- ELLENŐRZÉS -->
-  <div class="panel" id="panel-check">
-    <div class="card">
-      <div class="cardTitle">Vonalkód alapján készlet-lekérdezés</div>
-      <div class="row">
-        <input type="text" id="checkBarcodeInput" placeholder="Vonalkód beírása vagy beolvasása">
-        <button class="btn primary" id="checkBtn">Keresés</button>
-      </div>
-    </div>
-    <div class="card" id="checkResultCard" style="display:none;"></div>
   </div>
 
   <!-- FELHASZNÁLÓK -->
@@ -326,6 +313,33 @@ const GOOGLE_CLIENT_ID = "129713453954-nfd29j45ectimbcjq12rj91p9rbtu116.apps.goo
 let googleIdToken = null;   // a bejelentkezés után ide kerül a Google ID token
 let googleUserEmail = null;
 let googleUserName = null;
+
+// A bejelentkezési állapotot a localStorage-ban is eltároljuk, hogy egy
+// oldal-frissítés ne dobjon ki mindig — a Google saját "csendes
+// újra-bejelentkezés" (auto_select/prompt) funkciója nem működik
+// megbízhatóan minden böngészőben (pl. iOS Safari-n gyakran nem), ez a
+// tárolás viszont megbízható, amíg a token még nem járt le.
+const AUTH_STORAGE_KEY = "leltarAdminGoogleSession";
+function saveTokenToStorage_(token, payload) {
+  try {
+    localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({
+      token: token, exp: payload.exp, email: payload.email, name: payload.name || "",
+    }));
+  } catch (e) { /* localStorage nem elérhető (pl. inkognitó mód) — nem gond, csak nem marad meg */ }
+}
+function clearTokenStorage_() {
+  try { localStorage.removeItem(AUTH_STORAGE_KEY); } catch (e) { /* nem gond */ }
+}
+function loadTokenFromStorage_() {
+  try {
+    const raw = localStorage.getItem(AUTH_STORAGE_KEY);
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    if (!data.token || !data.exp) return null;
+    if (Number(data.exp) * 1000 <= Date.now()) return null; // lejárt
+    return data;
+  } catch (e) { return null; }
+}
 let activeLeltarakLoaded = false;
 let historyLoaded = false;
 let usersLoaded = false;
@@ -1155,49 +1169,12 @@ async function renderQrInto(wrapId, text) {
 }
 
 /* =========================================================================
-   ELLENŐRZÉS
-   ========================================================================= */
-el("checkBtn").addEventListener("click", runCheck);
-el("checkBarcodeInput").addEventListener("keydown", (e) => {
-  if (e.key === "Enter") runCheck();
-});
-
-async function runCheck() {
-  const barcode = el("checkBarcodeInput").value.trim();
-  if (!barcode) return;
-  const card = el("checkResultCard");
-  card.style.display = "block";
-  card.innerHTML = `<p class="emptyNote">Keresés…</p>`;
-  try {
-    const data = await apiGet({ action: "check_stock", barcode: barcode });
-    if (!data.found) {
-      card.innerHTML = `<p class="emptyNote">A(z) ${escapeHtml(barcode)} vonalkód nem található a terméktörzsben.</p>`;
-      return;
-    }
-    const sizesHtml = data.sizes.length
-      ? data.sizes.map(s => `
-          <div class="checkSizeRow">
-            <span>${escapeHtml(s.meret)}</span>
-            <span class="qty${s.mennyiseg === 0 ? " zero" : ""}">${s.mennyiseg} db</span>
-          </div>`).join("")
-      : `<p class="emptyNote">Nincs készlet-adat ehhez a modellhez.</p>`;
-    card.innerHTML = `
-      <div class="checkResultCard">
-        <div class="modelName">${escapeHtml(data.nev)}</div>
-        <div class="modelCode">${escapeHtml(data.modell)}</div>
-        ${sizesHtml}
-      </div>`;
-  } catch (e) {
-    card.innerHTML = `<p class="emptyNote">Hiba: ${escapeHtml(e.message)}</p>`;
-  }
-}
-
-/* =========================================================================
    GOOGLE-BEJELENTKEZÉS
    Csak sikeres, engedélyezett domainű bejelentkezés után indul el az
    app tényleges adatlekérése — addig az authGateOverlay fedi a képernyőt.
    ========================================================================= */
 function showAuthError(msg) {
+  clearTokenStorage_();
   const box = el("authGateError");
   if (box) { box.textContent = msg; box.style.display = "block"; }
   const overlay = el("authGateOverlay");
@@ -1211,6 +1188,25 @@ function decodeJwtPayload_(token) {
       "%" + ("00" + c.charCodeAt(0).toString(16)).slice(-2)).join(""));
     return JSON.parse(json);
   } catch (e) { return null; }
+}
+
+function onLoginVerified_() {
+  el("authGateOverlay").classList.add("hide");
+  el("authGateError").style.display = "none";
+  el("signedInAs").innerHTML = `${escapeHtml(googleUserName || googleUserEmail)} <button id="signOutBtn">Kijelentkezés</button>`;
+  el("signOutBtn").addEventListener("click", () => {
+    googleIdToken = null;
+    googleUserEmail = null;
+    googleUserName = null;
+    if (tokenRefreshTimer) clearTimeout(tokenRefreshTimer);
+    if (window.google && google.accounts) google.accounts.id.disableAutoSelect();
+    clearTokenStorage_();
+    el("signedInAs").innerHTML = "";
+    el("authGateOverlay").classList.remove("hide");
+  });
+  // Csak MOST, sikeres bejelentkezés után indul el az app tényleges
+  // adatlekérése.
+  loadActiveLeltarak();
 }
 
 async function handleGoogleCredential(response) {
@@ -1233,27 +1229,37 @@ async function handleGoogleCredential(response) {
   try {
     const result = await apiPost({ action: "verify_login" });
     if (result.error) { googleIdToken = null; showLoginLoading_(false); return; }
-
-    el("authGateOverlay").classList.add("hide");
-    el("authGateError").style.display = "none";
-    el("signedInAs").innerHTML = `${escapeHtml(googleUserName || googleUserEmail)} <button id="signOutBtn">Kijelentkezés</button>`;
-    el("signOutBtn").addEventListener("click", () => {
-      googleIdToken = null;
-      googleUserEmail = null;
-      googleUserName = null;
-      if (tokenRefreshTimer) clearTimeout(tokenRefreshTimer);
-      if (window.google && google.accounts) google.accounts.id.disableAutoSelect();
-      el("signedInAs").innerHTML = "";
-      el("authGateOverlay").classList.remove("hide");
-    });
-
-    // Csak MOST, sikeres bejelentkezés után indul el az app tényleges
-    // adatlekérése.
-    loadActiveLeltarak();
+    saveTokenToStorage_(response.credential, payload);
+    onLoginVerified_();
     showLoginLoading_(false);
   } catch (e) {
     googleIdToken = null;
     showLoginLoading_(false);
+  }
+}
+
+// Oldal-frissítéskor ELŐSZÖR ezt próbáljuk: ha van még érvényes,
+// korábban elmentett munkamenet, azzal jelentkezünk be újra —
+// megbízhatóbb, mint a Google csendes prompt-ja.
+async function trySilentSessionRestore_() {
+  const stored = loadTokenFromStorage_();
+  if (!stored) return false;
+  googleIdToken = stored.token;
+  googleUserEmail = stored.email;
+  googleUserName = stored.name;
+  scheduleTokenRefresh_({ exp: stored.exp });
+  try {
+    const result = await apiPost({ action: "verify_login" });
+    if (result.error) {
+      googleIdToken = null; googleUserEmail = null; googleUserName = null;
+      clearTokenStorage_();
+      return false;
+    }
+    onLoginVerified_();
+    return true;
+  } catch (e) {
+    googleIdToken = null;
+    return false;
   }
 }
 
@@ -1289,7 +1295,7 @@ function showLoginLoading_(loading) {
   }
 }
 
-window.addEventListener("load", () => {
+window.addEventListener("load", async () => {
   if (typeof google === "undefined" || !google.accounts) {
     showAuthError("A Google bejelentkezési szolgáltatás nem tudott betölteni. Ellenőrizd az internetkapcsolatot, és töltsd újra az oldalt.");
     return;
@@ -1302,15 +1308,20 @@ window.addEventListener("load", () => {
   });
   google.accounts.id.renderButton(el("googleSignInBtn"), { theme: "filled_black", size: "large", shape: "pill", text: "signin_with", width: 280 });
 
-  // Oldal-frissítés (vagy új látogatás) után ez próbálja meg csendben,
-  // interakció nélkül újra bejelentkeztetni a felhasználót, ha korábban
-  // már bejelentkezett és a böngészőben még aktív a Google-munkamenete —
-  // enélkül minden egyes frissítés kidobná a bejelentkezési képernyőre.
   showLoginLoading_(true);
+
+  // ELSŐKÉNT a korábban elmentett munkamenetet próbáljuk visszaállítani
+  // — ez megbízhatóbb, mint a Google saját "csendes" bejelentkezése,
+  // ami nem működik konzisztensen minden böngészőben (pl. iOS Safari-n
+  // gyakran nem enged silent prompt-ot).
+  const restored = await trySilentSessionRestore_();
+  if (restored) { showLoginLoading_(false); return; }
+
+  // Ha nincs (érvényes) mentett munkamenet, még megpróbáljuk a Google
+  // saját csendes bejelentkezését is — ha ez sem sikerül, a sima
+  // gombos bejelentkezés marad.
   google.accounts.id.prompt((notification) => {
     if (notification.isNotDisplayed() || notification.isSkippedMoment() || notification.isDismissedMoment()) {
-      // Nem sikerült csendben bejelentkezni (nincs aktív munkamenet, vagy
-      // a böngésző blokkolja) — ilyenkor a sima gombos bejelentkezés marad.
       showLoginLoading_(false);
     }
   });
