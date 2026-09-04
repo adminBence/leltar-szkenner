@@ -391,6 +391,11 @@ function formatFt(n) {
   const num = Math.round(Number(n) || 0);
   return num.toLocaleString("hu-HU") + " Ft";
 }
+function formatFtSigned(n) {
+  const num = Math.round(Number(n) || 0);
+  const sign = num > 0 ? "+" : "";
+  return sign + num.toLocaleString("hu-HU") + " Ft";
+}
 
 /* =========================================================================
    LELTÁR INDÍTÁSA
@@ -620,8 +625,9 @@ function renderFullReport(container, report, opts) {
         </div>
         <div class="summarySection osszesen">
           <div class="sectionTitle">Összesen (eltérés)</div>
-          <div class="sectionStat" id="summaryTetelSzam">${osszesito.elteres_tetelek_szama} <span style="font-size:13px; font-weight:600; color:var(--text-dim);" id="summaryTetelLbl">/ ${osszesito.osszes_tetel_szama} tétel</span></div>
-          <div class="sectionStat secondary" id="summaryErtekAbsz">${formatFt(osszesito.elteres_ertek_abszolut)} (${formatFt(osszesito.elteres_ertek_netto)} előjeles)</div>
+          <div class="sectionStat" id="summaryOsszesDb">${osszesito.hiany_db + osszesito.tobblet_db} db</div>
+          <div class="sectionStat secondary" id="summaryTetelSzam">${osszesito.elteres_tetelek_szama} / ${osszesito.osszes_tetel_szama} tétel</div>
+          <div class="sectionStat secondary" id="summaryErtekAbsz">${formatFtSigned(osszesito.elteres_ertek_netto)}</div>
         </div>
       </div>
       ${!isOpen ? `
@@ -708,13 +714,14 @@ async function refreshSingleDiffRow(leltarId, barcode, targetContainer) {
     // Az összesítő számokat is frissítjük — ugyanebből a lekérdezésből
     // már megvan, nem kell külön hívás.
     const o = report.osszesito;
-    if (o && el("summaryTetelSzam")) {
+    if (o && el("summaryOsszesDb")) {
       el("summaryHianyDb").textContent = `${o.hiany_db} db`;
       el("summaryHianyErtek").textContent = formatFt(o.hiany_ertek);
       el("summaryTobbletDb").textContent = `${o.tobblet_db} db`;
       el("summaryTobbletErtek").textContent = formatFt(o.tobblet_ertek);
-      el("summaryTetelSzam").innerHTML = `${o.elteres_tetelek_szama} <span style="font-size:13px; font-weight:600; color:var(--text-dim);" id="summaryTetelLbl">/ ${o.osszes_tetel_szama} tétel</span>`;
-      el("summaryErtekAbsz").textContent = `${formatFt(o.elteres_ertek_abszolut)} (${formatFt(o.elteres_ertek_netto)} előjeles)`;
+      el("summaryOsszesDb").textContent = `${o.hiany_db + o.tobblet_db} db`;
+      el("summaryTetelSzam").textContent = `${o.elteres_tetelek_szama} / ${o.osszes_tetel_szama} tétel`;
+      el("summaryErtekAbsz").textContent = formatFtSigned(o.elteres_ertek_netto);
     }
   } catch (e) {
     console.error("Sor-frissítési hiba:", e);
