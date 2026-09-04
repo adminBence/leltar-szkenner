@@ -160,6 +160,9 @@
     color:var(--text-dim); cursor:pointer; font-size:14px; padding:4px; line-height:1;}
   @keyframes toastIn{from{opacity:0; transform:translateY(12px);} to{opacity:1; transform:translateY(0);}}
 
+  .liveDot{width:8px; height:8px; border-radius:50%; background:var(--accent); display:inline-block; animation:pulseLive 1.2s infinite;}
+  @keyframes pulseLive{0%,100%{opacity:1; box-shadow:0 0 0 0 rgba(62,207,142,0.5);} 50%{opacity:0.6; box-shadow:0 0 0 4px rgba(62,207,142,0);}}
+
   /* ---------- Általános betöltés-jelző (spinner) ---------- */
   .spinner{width:26px; height:26px; border:3px solid var(--line); border-top-color:var(--accent);
     border-radius:50%; margin:0 auto; animation:spin .7s linear infinite;}
@@ -415,6 +418,13 @@ document.querySelectorAll(".navBtn").forEach(btn => {
 /* =========================================================================
    SEGÉDFÜGGVÉNYEK
    ========================================================================= */
+function parseBqTimestamp_(raw) {
+  if (raw === null || raw === undefined || raw === "") return null;
+  const num = parseFloat(raw);
+  const d = isFinite(num) ? new Date(num * 1000) : new Date(raw);
+  return isNaN(d.getTime()) ? null : d;
+}
+
 function formatDateTime(raw) {
   if (raw === null || raw === undefined || raw === "") return "—";
   try {
@@ -637,15 +647,50 @@ function renderFullReport(container, report, opts) {
   const isOpen = leltar.statusz === "folyamatban";
   const showActions = !!opts.showActions && isOpen;
 
-  const felelosHtml = [
+  // Csoportosítás személyenként — mindenkinek egy saját kártyája van,
+  // benne mit olvasott be és mit számolt újra, plusz "éppen szkennel"
+  // jelzés, ha az utolsó aktivitása friss (kb. másfél percen belüli).
+  const personMap = {};
+  [
     ...szektor_felelosok.beolvasasok.map(f => ({ ...f, tipus: "beolvasás" })),
     ...szektor_felelosok.ujraszamolasok.map(f => ({ ...f, tipus: "újraszámolás" })),
-  ].sort((a, b) => String(a.felhasznalo).localeCompare(String(b.felhasznalo), "hu")).map(f => `
-    <div class="felelosRow">
-      <span>${f.szektor ? escapeHtml(f.szektor) + ". szektor — " : ""}${escapeHtml(f.felhasznalo)} (${f.tipus})</span>
-      <span class="meta">${f.tetel_fajta} féle tétel</span>
-    </div>
-  `).join("") || `<p class="emptyNote">Nincs adat.</p>`;
+  ].forEach(f => {
+    if (!personMap[f.felhasznalo]) {
+      personMap[f.felhasznalo] = { felhasznalo: f.felhasznalo, beolvasott: [], ujraszamolt: [], utolsoDate: null, utolsoSzektor: null };
+    }
+    const p = personMap[f.felhasznalo];
+    if (f.tipus === "beolvasás") p.beolvasott.push(f); else p.ujraszamolt.push(f);
+    const d = parseBqTimestamp_(f.utolso);
+    if (d && (!p.utolsoDate || d > p.utolsoDate)) { p.utolsoDate = d; p.utolsoSzektor = f.szektor; }
+  });
+
+  const ACTIVE_THRESHOLD_MS = 90 * 1000;
+  const nowMs = Date.now();
+  const sortSzektorSzam = (a, b) => (parseInt(a, 10) || 0) - (parseInt(b, 10) || 0) || String(a).localeCompare(String(b), "hu");
+
+  const felelosHtml = Object.values(personMap)
+    .sort((a, b) => String(a.felhasznalo).localeCompare(String(b.felhasznalo), "hu"))
+    .map(p => {
+      const isLive = p.utolsoDate && (nowMs - p.utolsoDate.getTime()) < ACTIVE_THRESHOLD_MS;
+      const beolvasottSzektorok = [...new Set(p.beolvasott.map(f => f.szektor))].sort(sortSzektorSzam);
+      const ujraszamoltSzektorok = [...new Set(p.ujraszamolt.map(f => f.szektor))].sort(sortSzektorSzam);
+      const beolvasottDbOsszesen = p.beolvasott.reduce((sum, f) => sum + (f.db_osszesen || 0), 0);
+      const beolvasottTetelOsszesen = p.beolvasott.reduce((sum, f) => sum + (f.tetel_fajta || 0), 0);
+      return `
+        <div class="summarySection" style="border-left-color:${isLive ? "var(--accent)" : "var(--line)"}; margin-bottom:10px;">
+          <div class="sectionTitle" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+            <span>${escapeHtml(p.felhasznalo)}</span>
+            ${isLive ? `<span style="display:inline-flex; align-items:center; gap:5px; color:var(--accent); font-weight:700; text-transform:none; letter-spacing:0; font-size:12px;">
+              <span class="liveDot"></span>
+              éppen szkennel${p.utolsoSzektor ? ` (${escapeHtml(p.utolsoSzektor)}. szektor)` : ""}
+            </span>` : ""}
+          </div>
+          ${p.beolvasott.length ? `<div style="font-size:14px; font-weight:700; margin-top:6px;">Összesen beolvasva: ${beolvasottTetelOsszesen} féle termék, ${beolvasottDbOsszesen} db</div>` : ""}
+          ${beolvasottSzektorok.length ? `<div style="font-size:13px; margin-top:6px;"><b>Beolvasta:</b> ${beolvasottSzektorok.map(s => escapeHtml(s) + ". szektor").join(", ")}</div>` : ""}
+          ${ujraszamoltSzektorok.length ? `<div style="font-size:13px; margin-top:4px;"><b>Újraszámolta:</b> ${ujraszamoltSzektorok.map(s => escapeHtml(s) + ". szektor").join(", ")}</div>` : ""}
+        </div>
+      `;
+    }).join("") || `<p class="emptyNote">Nincs adat.</p>`;
 
   const termektipusokHtml = (leltar.tipus === "termektipus" && leltar.termektipusok && leltar.termektipusok.length)
     ? `<div class="metaLine" style="margin-bottom:14px;">Kiválasztott terméktípusok: ${leltar.termektipusok.map(escapeHtml).join(", ")}</div>`
@@ -664,7 +709,7 @@ function renderFullReport(container, report, opts) {
               <span>${escapeHtml(j.felhasznalo)} — ${j.tetel_fajta} féle tétel, ${j.db_osszesen} db</span>
               ${c.valasztott === j.felhasznalo
                 ? `<span class="permPill">kiválasztva</span>`
-                : (showActions ? `<button class="btn" style="font-size:11px; padding:6px 10px;" data-resolve-sector="${escapeHtml(c.szektor)}" data-resolve-user="${escapeHtml(j.felhasznalo)}">Ezt válasszd</button>` : `<span class="meta">kizárva</span>`)}
+                : (showActions ? `<button class="btn" style="font-size:11px; padding:6px 10px;" data-resolve-sector="${escapeHtml(c.szektor)}" data-resolve-user="${escapeHtml(j.felhasznalo)}">Ezt választom</button>` : `<span class="meta">kizárva</span>`)}
             </div>
           `).join("")}
         </div>
@@ -759,6 +804,7 @@ function renderFullReport(container, report, opts) {
       btn.addEventListener("click", async () => {
         const szektor = btn.dataset.resolveSector;
         const felhasznalo = btn.dataset.resolveUser;
+        if (!(await showConfirm(`Biztosan ${felhasznalo} adatait választod a(z) ${szektor}. szektorhoz? A másik felhasználó beolvasásai ki lesznek zárva a számításból.`))) return;
         btn.disabled = true;
         btn.textContent = "Mentés…";
         try {
@@ -771,7 +817,7 @@ function renderFullReport(container, report, opts) {
           if (result.error) {
             showToast("Hiba: " + result.error, "error");
             btn.disabled = false;
-            btn.textContent = "Ezt válasszd";
+            btn.textContent = "Ezt választom";
           } else {
             showToast(`${szektor}. szektor: ${felhasznalo} adatai lettek kiválasztva.`, "success");
             const keepTracking = !!(currentOpenReport && currentOpenReport.container === container);
@@ -780,7 +826,7 @@ function renderFullReport(container, report, opts) {
         } catch (e) {
           showToast("Hiba: " + e.message, "error");
           btn.disabled = false;
-          btn.textContent = "Ezt válasszd";
+          btn.textContent = "Ezt választom";
         }
       });
     });
