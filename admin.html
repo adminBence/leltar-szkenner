@@ -685,6 +685,9 @@ function renderDiffRowHtml(r, showCheckbox, isOpen) {
   const correctionNote = lastCorrection
     ? `<div class="recountNote" style="color:var(--accent);">Rendszer-adat javítva ${correctionCount} alkalommal — utoljára: ${escapeHtml(formatDateTime(lastCorrection.idobelyeg))}, ${escapeHtml(lastCorrection.felhasznalo)}${lastCorrection.forras === "kezi" ? " [kézzel megadva]" : ""}${lastCorrection.megjegyzes ? " — " + escapeHtml(lastCorrection.megjegyzes) : ""}</div>`
     : "";
+  const szallitolevelNote = r.nem_veglegesitett_szallitolevel
+    ? `<div class="recountNote" style="color:var(--warn);">⚠ A termék szerepel nem véglegesített szállítólevélen — szám(ok): ${escapeHtml(r.nem_veglegesitett_szallitolevel.szamok || "ismeretlen")}</div>`
+    : "";
   const rowId = "diffrow-" + escapeHtml(r.vonalkod);
   const refreshBtn = showCheckbox ? `
     <button class="btn" style="font-size:11px; padding:5px 10px; margin-top:8px;" data-refresh-toggle="${escapeHtml(r.vonalkod)}">
@@ -716,6 +719,7 @@ function renderDiffRowHtml(r, showCheckbox, isOpen) {
         ${others ? `<span class="otherWarehouses">Más raktárak — ${others}</span>` : ""}
         ${recountNote}
         ${correctionNote}
+        ${szallitolevelNote}
         ${refreshBtn}
       </div>
       ${eyeBtn}
