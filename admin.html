@@ -123,6 +123,12 @@
   .felelosRow{display:flex; align-items:center; justify-content:space-between;
     padding:9px 12px; background:var(--panel-2); border:1px solid var(--line); border-radius:8px; margin-bottom:6px; font-size:13px;}
 
+  /* ---------- Felhasználók ---------- */
+  .userRow{display:flex; align-items:center; justify-content:space-between; gap:10px;
+    padding:12px 14px; background:var(--panel-2); border:1px solid var(--line); border-radius:10px; margin-bottom:8px;}
+  .userRow .meta{font-size:11px; color:var(--text-dim); margin-top:2px;}
+  .userRow .permPill{font-size:10px; padding:2px 8px; border-radius:999px; background:var(--accent-dim); color:var(--accent); font-weight:700;}
+
   /* ---------- Előzmények ---------- */
   .historyRow{display:flex; align-items:center; justify-content:space-between; gap:12px;
     padding:14px; background:var(--panel-2); border:1px solid var(--line); border-radius:10px;
@@ -154,10 +160,37 @@
     color:var(--text-dim); cursor:pointer; font-size:14px; padding:4px; line-height:1;}
   @keyframes toastIn{from{opacity:0; transform:translateY(12px);} to{opacity:1; transform:translateY(0);}}
 
+  /* ---------- Google-bejelentkezési kapu ---------- */
+  #authGateOverlay{display:flex; position:fixed; inset:0; z-index:3000; background:var(--bg);
+    align-items:center; justify-content:center; padding:24px;}
+  #authGateOverlay.hide{display:none;}
+  #authGateBox{max-width:340px; width:100%; text-align:center;}
+  #authGateBox .icon{font-size:36px; margin-bottom:14px;}
+  #authGateBox h2{font-size:18px; margin:0 0 8px;}
+  #authGateBox p{color:var(--text-dim); font-size:13px; line-height:1.5; margin-bottom:22px;}
+  #googleSignInBtn{display:flex; justify-content:center;}
+  #authGateError{display:none; margin-top:16px; padding:12px; border-radius:10px;
+    background:#3a1f1f; border:1px solid var(--danger); color:#ffb3a8; font-size:13px;}
+  #signedInAs{font-size:11px; color:var(--text-dim);}
+  #signOutBtn{background:none; border:none; color:var(--text-dim); font-size:11px;
+    text-decoration:underline; padding:2px; margin-left:6px;}
+
 </style>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body>
 <div id="toastContainer"></div>
+
+<div id="authGateOverlay">
+  <div id="authGateBox">
+    <div class="icon">🔒</div>
+    <h2>Leltár admin — bejelentkezés</h2>
+    <p>Csak az engedélyezett e-mail címekkel lehet belépni. Ha nincs még hozzáférésed, kérj meghívást egy adminisztrátortól.</p>
+    <div id="googleSignInBtn"></div>
+    <div id="authGateError"></div>
+  </div>
+</div>
+
 
 <div id="negStockModal" style="display:none; position:fixed; inset:0; z-index:1500; background:rgba(0,0,0,0.6);
   align-items:center; justify-content:center; padding:20px;">
@@ -180,12 +213,14 @@
       <h1>Leltár admin</h1>
       <div class="sub">Szektorok, leltár-indítás és eltérés-riport</div>
     </div>
+    <div id="signedInAs"></div>
   </header>
 
   <nav>
     <button class="navBtn active" data-panel="leltar">Leltár</button>
     <button class="navBtn" data-panel="history">Korábbi leltárak</button>
     <button class="navBtn" data-panel="check">Ellenőrzés</button>
+    <button class="navBtn" data-panel="users">Felhasználók</button>
   </nav>
 
   <!-- LELTÁR -->
@@ -202,9 +237,6 @@
         <label><input type="radio" name="leltarTipus" value="termektipus"> Vakleltár terméktípus szerint</label>
       </div>
       <div id="productTypeList" style="display:none;"></div>
-      <div class="row" style="margin-bottom:10px;">
-        <input type="text" id="adminNameInput" placeholder="A neved">
-      </div>
       <button class="btn primary" id="startLeltarBtn">Leltár indítása</button>
       <div id="startLeltarMsg" style="margin-top:10px; font-size:13px; color:var(--text-dim);"></div>
     </div>
@@ -233,6 +265,24 @@
     <div class="card" id="checkResultCard" style="display:none;"></div>
   </div>
 
+  <!-- FELHASZNÁLÓK -->
+  <div class="panel" id="panel-users">
+    <div class="card">
+      <div class="cardTitle">Új felhasználó hozzáadása</div>
+      <div class="row" style="margin-bottom:10px;">
+        <input type="text" id="newUserEmail" placeholder="pl. nev@ceg.hu">
+      </div>
+      <label style="display:flex; align-items:center; gap:8px; font-size:13px; margin-bottom:12px;">
+        <input type="checkbox" id="newUserCanManage"> Hozzáadhat új felhasználót
+      </label>
+      <button class="btn primary" id="addUserBtn">Hozzáadás</button>
+    </div>
+    <div class="card">
+      <div class="cardTitle">Jogosult felhasználók</div>
+      <div id="usersList"><p class="emptyNote">Betöltés…</p></div>
+    </div>
+  </div>
+
 </div>
 
 <script>
@@ -244,6 +294,15 @@ try {
 let APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwlZfz8f_nn8X_AIFciyi42OL81xkTWAXcPfczqYo_xjb7KtYIVKrkGWVpe8iYjMWAKzQ/exec";
 const APPS_SCRIPT_KEY = "oaYB9SYL15UkpopXllHgYZRjD6sGk6iD";
 
+// A Google Cloud Console-ban létrehozott OAuth Client ID — pontosan
+// ugyanennek kell szerepelnie a Code.gs GOOGLE_OAUTH_CLIENT_ID
+// konstansában is, különben a backend elutasítja a bejelentkezést.
+const GOOGLE_CLIENT_ID = "IDE_MASOLD_A_CLIENT_ID-T.apps.googleusercontent.com";
+
+let googleIdToken = null;   // a bejelentkezés után ide kerül a Google ID token
+let googleUserEmail = null;
+let googleUserName = null;
+
 // A telefonos szkenner oldal (scanner.html) elérési útja — ezt írd át a
 // saját GitHub Pages linkedre. A QR-kód ide fog mutatni egy ?join=KÓD
 // paraméterrel, hogy a telefon SAJÁT kamera-appjával beolvasva is
@@ -251,18 +310,22 @@ const APPS_SCRIPT_KEY = "oaYB9SYL15UkpopXllHgYZRjD6sGk6iD";
 const SCANNER_URL = "https://adminbence.github.io/leltar-szkenner/";
 
 async function apiGet(params) {
-  const qs = Object.entries({ ...params, key: APPS_SCRIPT_KEY })
+  const qs = Object.entries({ ...params, key: APPS_SCRIPT_KEY, id_token: googleIdToken || "" })
     .map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join("&");
   const res = await fetch(`${APPS_SCRIPT_URL}?${qs}`);
-  return res.json();
+  const data = await res.json();
+  if (data.authRequired) { showAuthError(data.error); throw new Error(data.error); }
+  return data;
 }
 async function apiPost(body) {
   const res = await fetch(APPS_SCRIPT_URL, {
     method: "POST",
     headers: { "Content-Type": "text/plain;charset=utf-8" },
-    body: JSON.stringify({ ...body, key: APPS_SCRIPT_KEY }),
+    body: JSON.stringify({ ...body, key: APPS_SCRIPT_KEY, id_token: googleIdToken || "" }),
   });
-  return res.json();
+  const data = await res.json();
+  if (data.authRequired) { showAuthError(data.error); throw new Error(data.error); }
+  return data;
 }
 
 const el = (id) => document.getElementById(id);
@@ -304,6 +367,7 @@ document.querySelectorAll(".navBtn").forEach(btn => {
     el("panel-" + btn.dataset.panel).classList.add("active");
     if (btn.dataset.panel === "leltar") loadActiveLeltarak();
     if (btn.dataset.panel === "history") loadHistory();
+    if (btn.dataset.panel === "users") loadAdminUsers();
   });
 });
 
@@ -382,8 +446,6 @@ function showNegativeStockModal(items) {
 
 el("startLeltarBtn").addEventListener("click", async () => {
   const tipus = document.querySelector('input[name="leltarTipus"]:checked').value;
-  const name = el("adminNameInput").value.trim();
-  if (!name) { el("startLeltarMsg").textContent = "Add meg a neved."; return; }
 
   const btn = el("startLeltarBtn");
   btn.disabled = true;
@@ -412,7 +474,6 @@ el("startLeltarBtn").addEventListener("click", async () => {
   try {
     const result = await apiPost({
       action: "create_leltar",
-      inditotta: name,
       tipus: tipus,
       termektipusok: Array.from(selectedProductTypes),
     });
@@ -778,7 +839,6 @@ function bindDiffRowRefreshButtons(wrapEl, leltarId, targetContainer) {
         return;
       }
 
-      const name = (el("adminNameInput") && el("adminNameInput").value.trim()) || "admin";
       btn.disabled = true;
       btn.textContent = "Mentés…";
       try {
@@ -788,7 +848,6 @@ function bindDiffRowRefreshButtons(wrapEl, leltarId, targetContainer) {
           barcode: barcode,
           uj_mennyiseg: qty,
           megjegyzes: note,
-          felhasznalo: name,
           forras: isManual ? "kezi" : "live_webshop",
         });
         if (result.error) {
@@ -896,7 +955,8 @@ async function loadHistory() {
   }
 }
 
-loadActiveLeltarak();
+// A loadActiveLeltarak() indítását lásd lent — csak sikeres
+// Google-bejelentkezés UTÁN fut le, nem itt.
 
 /* ---------- QR-kód generálás (kliens oldali) ---------- */
 function loadScript(src) {
@@ -976,6 +1036,151 @@ async function runCheck() {
     card.innerHTML = `<p class="emptyNote">Hiba: ${escapeHtml(e.message)}</p>`;
   }
 }
+
+/* =========================================================================
+   GOOGLE-BEJELENTKEZÉS
+   Csak sikeres, engedélyezett domainű bejelentkezés után indul el az
+   app tényleges adatlekérése — addig az authGateOverlay fedi a képernyőt.
+   ========================================================================= */
+function showAuthError(msg) {
+  const box = el("authGateError");
+  if (box) { box.textContent = msg; box.style.display = "block"; }
+  const overlay = el("authGateOverlay");
+  if (overlay) overlay.classList.remove("hide");
+}
+
+function decodeJwtPayload_(token) {
+  try {
+    const base64 = token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+    const json = decodeURIComponent(atob(base64).split("").map(c =>
+      "%" + ("00" + c.charCodeAt(0).toString(16)).slice(-2)).join(""));
+    return JSON.parse(json);
+  } catch (e) { return null; }
+}
+
+async function handleGoogleCredential(response) {
+  const payload = decodeJwtPayload_(response.credential);
+  if (!payload || !payload.email) {
+    showAuthError("Nem sikerült feldolgozni a Google-választ. Próbáld újra.");
+    return;
+  }
+
+  googleIdToken = response.credential;
+  googleUserEmail = payload.email;
+  googleUserName = payload.name || "";
+
+  // A TÉNYLEGES jogosultság-ellenőrzés a szerveren történik (nem
+  // domain szerint, hanem egy engedélyezési lista alapján) — ha nincs
+  // rajta a listán, az apiPost belül automatikusan meghívja a
+  // showAuthError-t (lásd fentebb, "authRequired" kezelés).
+  try {
+    const result = await apiPost({ action: "verify_login" });
+    if (result.error) { googleIdToken = null; return; }
+
+    el("authGateOverlay").classList.add("hide");
+    el("authGateError").style.display = "none";
+    el("signedInAs").innerHTML = `${escapeHtml(googleUserName || googleUserEmail)} <button id="signOutBtn">Kijelentkezés</button>`;
+    el("signOutBtn").addEventListener("click", () => {
+      googleIdToken = null;
+      googleUserEmail = null;
+      googleUserName = null;
+      if (window.google && google.accounts) google.accounts.id.disableAutoSelect();
+      el("signedInAs").innerHTML = "";
+      el("authGateOverlay").classList.remove("hide");
+    });
+
+    // Csak MOST, sikeres bejelentkezés után indul el az app tényleges
+    // adatlekérése.
+    loadActiveLeltarak();
+  } catch (e) {
+    googleIdToken = null;
+  }
+}
+
+window.addEventListener("load", () => {
+  if (typeof google === "undefined" || !google.accounts) {
+    showAuthError("A Google bejelentkezési szolgáltatás nem tudott betölteni. Ellenőrizd az internetkapcsolatot, és töltsd újra az oldalt.");
+    return;
+  }
+  google.accounts.id.initialize({
+    client_id: GOOGLE_CLIENT_ID,
+    callback: handleGoogleCredential,
+  });
+  google.accounts.id.renderButton(el("googleSignInBtn"), { theme: "outline", size: "large", text: "signin_with" });
+});
+
+/* =========================================================================
+   FELHASZNÁLÓK KEZELÉSE — engedélyezési lista (nem domain-alapú).
+   Csak azok szerkeszthetik, akiknek "hozzaadhat_felhasznalot" joguk van
+   — ezt a backend is kikényszeríti, itt csak a felület van hozzá.
+   ========================================================================= */
+async function loadAdminUsers() {
+  const wrap = el("usersList");
+  wrap.innerHTML = `<p class="emptyNote">Betöltés…</p>`;
+  try {
+    const data = await apiPost({ action: "get_admin_users" });
+    if (data.error) { wrap.innerHTML = `<p class="emptyNote">${escapeHtml(data.error)}</p>`; return; }
+    renderAdminUsersList(data.users || []);
+  } catch (e) {
+    wrap.innerHTML = `<p class="emptyNote">Hiba: ${escapeHtml(e.message)}</p>`;
+  }
+}
+
+function renderAdminUsersList(users) {
+  const wrap = el("usersList");
+  if (!users.length) { wrap.innerHTML = `<p class="emptyNote">Nincs felhasználó.</p>`; return; }
+  wrap.innerHTML = users.map(u => `
+    <div class="userRow">
+      <div>
+        <b>${escapeHtml(u.email)}</b>
+        ${u.hozzaadhat_felhasznalot ? `<span class="permPill">felhasználó-kezelő</span>` : ""}
+        <div class="meta">Hozzáadta: ${escapeHtml(u.hozzaadta)} · ${escapeHtml(formatDateTime(u.hozzaadva))}</div>
+      </div>
+      ${u.orok_admin ? `<span class="meta">nem törölhető</span>` : `<button class="btn danger" data-remove-user="${escapeHtml(u.email)}">Törlés</button>`}
+    </div>
+  `).join("");
+  wrap.querySelectorAll("[data-remove-user]").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      if (!confirm(`Biztosan törlöd "${btn.dataset.removeUser}" hozzáférését?`)) return;
+      btn.disabled = true;
+      try {
+        const result = await apiPost({ action: "remove_admin_user", email: btn.dataset.removeUser });
+        if (result.error) { showToast("Hiba: " + result.error, "error"); btn.disabled = false; return; }
+        showToast("Felhasználó törölve.", "success");
+        renderAdminUsersList(result.users || []);
+      } catch (e) {
+        showToast("Hiba: " + e.message, "error");
+        btn.disabled = false;
+      }
+    });
+  });
+}
+
+el("addUserBtn").addEventListener("click", async () => {
+  const emailInput = el("newUserEmail");
+  const email = emailInput.value.trim();
+  const canManage = el("newUserCanManage").checked;
+  if (!email || email.indexOf("@") === -1) { showToast("Adj meg egy érvényes e-mail címet.", "warn"); return; }
+
+  const btn = el("addUserBtn");
+  btn.disabled = true;
+  btn.textContent = "Hozzáadás…";
+  try {
+    const result = await apiPost({ action: "add_admin_user", email: email, hozzaadhat_felhasznalot: canManage });
+    if (result.error) {
+      showToast("Hiba: " + result.error, "error");
+    } else {
+      showToast(`${email} hozzáadva — értesítő e-mailt kapott.`, "success");
+      emailInput.value = "";
+      el("newUserCanManage").checked = false;
+      renderAdminUsersList(result.users || []);
+    }
+  } catch (e) {
+    showToast("Hiba: " + e.message, "error");
+  }
+  btn.disabled = false;
+  btn.textContent = "Hozzáadás";
+});
 
 } catch (e) {
   alert("KRITIKUS HIBA a szkriptben: " + (e && e.stack ? e.stack : e));
