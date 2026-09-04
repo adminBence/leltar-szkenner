@@ -757,7 +757,7 @@ function renderDiffRowHtml(r, showCheckbox, isOpen) {
     ? `<div class="recountNote" style="color:var(--warn);">⚠ A termék szerepel nem véglegesített szállítólevélen — szám(ok): ${escapeHtml(r.nem_veglegesitett_szallitolevel.szamok || "ismeretlen")}</div>`
     : "";
   const rowId = "diffrow-" + escapeHtml(r.vonalkod);
-  const refreshBtn = showCheckbox ? `
+  const refreshBtn = (showCheckbox && !r.ismeretlen_tobblet) ? `
     <button class="btn" style="font-size:11px; padding:5px 10px; margin-top:8px;" data-refresh-toggle="${escapeHtml(r.vonalkod)}">
       Készlet frissítve a Laurelben
     </button>
@@ -779,7 +779,8 @@ function renderDiffRowHtml(r, showCheckbox, isOpen) {
     <div class="diffRow" id="diffrow-${escapeHtml(r.vonalkod)}-row">
       ${showCheckbox && r.elteres !== 0 ? `<input type="checkbox" class="diffSelect" value="${escapeHtml(r.vonalkod)}">` : (showCheckbox ? `<span style="width:18px;"></span>` : "")}
       <div class="info">
-        <b>${escapeHtml(r.nev || r.vonalkod)}</b>
+        <b>${escapeHtml(r.nev || (r.ismeretlen_termek ? "Ismeretlen termék" : r.vonalkod))}</b>
+        ${r.ismeretlen_tobblet ? `<span class="permPill" style="background:#4a3a17; color:var(--warn);">⚠ ISMERETLEN TÖBBLET${r.ismeretlen_termek ? " — nincs a törzsben" : " — nem volt ebben a leltárban"}</span>` : ""}
         <span>Vonalkód: ${escapeHtml(r.vonalkod)} · Saját cikkszám: ${escapeHtml(r.sajat_cikkszam || "—")} · Gyártói cikkszám: ${escapeHtml(r.gyartoi_cikkszam || "—")}</span>
         <span class="qtyLine">Rendszer: ${mask(r.rendszer_mennyiseg + " db")}</span>
         <span class="qtyLine">Számolt: ${mask(r.szamolt_mennyiseg + " db")}</span>
