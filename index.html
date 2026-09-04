@@ -692,7 +692,7 @@ async function startCamera() {
   }
 }
 
-const APP_VERSION = "v47";
+const APP_VERSION = "v48";
 let frameCount = 0, detectCount = 0;
 function debugLog(msg) {
   console.log("[leltár]", msg);
@@ -943,17 +943,33 @@ async function acceptCode(barcode) {
   beep(880); haptic(25); flashScreen();
 
   const existing = scanned.find(s => s.barcode === barcode && s.sector === currentSector);
-  const result = await lookupProduct(barcode);
 
+  // A kártyát (és benne a mennyiség-mezőt) AZONNAL megjelenítjük, még
+  // mielőtt megjönne a terméknév a szerverről — így a mennyiség
+  // beírása nem várat a hálózati válaszra. Ha már ismerjük a terméket
+  // (korábban ebben a szektorban beolvastuk), rögtön a valós nevet
+  // mutatjuk; ha nem, egy "keresés…" jelzést, amit a válasz megérkezve
+  // frissítünk.
   pendingHit = {
     barcode,
-    name: result.found ? result.name : "Ismeretlen vonalkód",
-    found: result.found,
+    name: existing ? existing.name : "Keresés…",
+    found: existing ? true : null,
     qty: existing ? existing.qty + 1 : 1,
     existing: !!existing,
-    checked: result.checked || (existing && existing.checked) || null,
+    checked: (existing && existing.checked) || null,
   };
   renderHitCard();
+
+  const result = await lookupProduct(barcode);
+  // Csak akkor frissítjük a kártyát a végleges adatokkal, ha időközben
+  // nem váltott a felhasználó másik kódra (pendingHit még ugyanerre a
+  // vonalkódra mutat).
+  if (pendingHit && pendingHit.barcode === barcode) {
+    pendingHit.name = result.found ? result.name : (existing ? existing.name : "Ismeretlen vonalkód");
+    pendingHit.found = result.found;
+    pendingHit.checked = result.checked || (existing && existing.checked) || null;
+    renderHitCard();
+  }
 }
 
 function formatCheckedDate_(idobelyeg) {
@@ -981,7 +997,11 @@ function renderHitCard() {
   el("hitBarcode").textContent = pendingHit.barcode;
   el("qtyInput").value = pendingHit.qty;
   const badge = el("hitBadge");
-  if (pendingHit.found) {
+  if (pendingHit.found === null) {
+    badge.textContent = "keresés…";
+    badge.className = "hitBadge";
+    hitCard.classList.remove("unknown");
+  } else if (pendingHit.found) {
     badge.textContent = pendingHit.existing ? "már szkennelve" : "ismert termék";
     badge.className = "hitBadge";
     hitCard.classList.remove("unknown");
