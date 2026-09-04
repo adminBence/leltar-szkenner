@@ -439,8 +439,9 @@
       <button id="joinFirstBtn" class="bigBtn" style="max-width:220px; margin:0 auto;">🔗 Csatlakozás leltárhoz</button>
     </div>
     <button id="torchBtn" aria-label="Vaku">🔦</button>
-    <div id="debugBar" style="position:absolute; top:6px; left:8px; font-size:9px;
-      color:rgba(255,255,255,0.35); font-family:monospace; pointer-events:none; z-index:2;"></div>
+    <div id="debugBar" style="position:absolute; top:6px; left:8px; right:8px; font-size:11px;
+      color:#fff; background:rgba(0,0,0,0.55); padding:4px 8px; border-radius:6px;
+      font-family:monospace; pointer-events:none; z-index:2; word-break:break-word;"></div>
 
     <div id="hit">
       <div class="hitTop">
@@ -691,13 +692,15 @@ async function startCamera() {
   }
 }
 
-const APP_VERSION = "v46";
+const APP_VERSION = "v47";
 let frameCount = 0, detectCount = 0;
 function debugLog(msg) {
-  // A felületen csak a verziószám látszik (lásd lent) — a részletes
-  // állapotüzenetek a böngésző konzoljába mennek, ott elérhetők
-  // hibakereséshez, de nem zsúfolják a kamera-képet.
   console.log("[leltár]", msg);
+  // Ideiglenesen a képernyőn is megjelenítjük az utolsó üzenetet
+  // (a verziószám mellett), hogy eszköz nélkül is látható legyen, hol
+  // akad el a kamera/felismerés — hibakereséshez.
+  const bar = document.getElementById("debugBar");
+  if (bar) bar.textContent = APP_VERSION + " · " + msg;
 }
 
 /* =========================================================================
