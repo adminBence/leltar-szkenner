@@ -302,9 +302,47 @@
   @media (orientation: landscape) and (max-height: 500px) {
     #rotateLock{display:flex;}
   }
+  /* ---------- Értesítési panel és megerősítő ablak (natív alert/confirm helyett) ---------- */
+  #toastContainer{position:fixed; bottom:16px; left:16px; right:16px; z-index:2000;
+    display:flex; flex-direction:column; align-items:center; gap:8px; pointer-events:none;}
+  .toast{pointer-events:auto; max-width:340px; width:100%; background:var(--panel);
+    border:1px solid var(--line); border-left:4px solid var(--accent); border-radius:10px;
+    padding:12px 30px 12px 14px; box-shadow:0 8px 24px rgba(0,0,0,0.45); font-size:13px;
+    line-height:1.4; position:relative; animation:toastIn .2s ease; transition:opacity .2s ease, transform .2s ease;}
+  .toast.error{border-left-color:var(--danger);}
+  .toast.success{border-left-color:var(--accent);}
+  .toast.warn{border-left-color:var(--warn);}
+  .toast .toastClose{position:absolute; top:6px; right:8px; background:none; border:none;
+    color:var(--text-dim); cursor:pointer; font-size:14px; padding:4px; line-height:1;}
+  @keyframes toastIn{from{opacity:0; transform:translateY(10px);} to{opacity:1; transform:translateY(0);}}
+
+  #confirmModalOverlay{display:none; position:fixed; inset:0; z-index:2100; background:rgba(0,0,0,0.65);
+    align-items:center; justify-content:center; padding:24px;}
+  #confirmModalOverlay.show{display:flex;}
+  #confirmModalBox{background:var(--panel); border:1px solid var(--line); border-radius:14px;
+    padding:22px; max-width:340px; width:100%;}
+  #confirmModalMessage{font-size:14px; line-height:1.5; margin-bottom:18px;}
+  #confirmModalButtons{display:flex; gap:8px;}
+  #confirmModalButtons button{flex:1; padding:11px; border-radius:10px; border:none;
+    font-size:14px; font-weight:700;}
+  #confirmModalNoBtn{background:var(--panel-2); color:var(--text); border:1px solid var(--line) !important;}
+  #confirmModalYesBtn{background:var(--accent); color:#06231a;}
+
 </style>
 </head>
 <body>
+<div id="toastContainer"></div>
+
+<div id="confirmModalOverlay">
+  <div id="confirmModalBox">
+    <div id="confirmModalMessage"></div>
+    <div id="confirmModalButtons">
+      <button id="confirmModalNoBtn">Mégse</button>
+      <button id="confirmModalYesBtn">Igen</button>
+    </div>
+  </div>
+</div>
+
 <div id="rotateLock">
   <div class="icon">📱</div>
   <div>Ez az alkalmazás csak álló tájolásban használható.<br>Fordítsd vissza a telefont.</div>
@@ -524,6 +562,33 @@ let barcodeDetector = null;
 let zxingControls = null;
 
 const el = (id) => document.getElementById(id);
+
+// Egységes, nem-blokkoló értesítés/megerősítés — a natív alert()/confirm()
+// helyett, mert azok BLOKKOLJÁK a JS futását (a kamera-frissítő ciklust
+// is), ami mobilon (főleg iOS-en) a kamera "lefagyásához" vezethet.
+function showToast(message, type) {
+  type = type || "info";
+  const container = el("toastContainer");
+  if (!container) { console.log(message); return; }
+  const toast = document.createElement("div");
+  toast.className = "toast " + type;
+  toast.innerHTML = `<button class="toastClose" aria-label="Bezárás">✕</button><div></div>`;
+  toast.querySelector("div").textContent = message;
+  container.appendChild(toast);
+  const remove = () => { toast.style.opacity = "0"; setTimeout(() => toast.remove(), 200); };
+  toast.querySelector(".toastClose").addEventListener("click", remove);
+  setTimeout(remove, type === "error" ? 6000 : 4000);
+}
+function showConfirm(message) {
+  return new Promise(resolve => {
+    const overlay = el("confirmModalOverlay");
+    el("confirmModalMessage").textContent = message;
+    overlay.classList.add("show");
+    el("confirmModalYesBtn").onclick = () => { overlay.classList.remove("show"); resolve(true); };
+    el("confirmModalNoBtn").onclick = () => { overlay.classList.remove("show"); resolve(false); };
+  });
+}
+
 function setCamMsg(text) {
   camMsg.textContent = text;
   camMsg.classList.toggle("show", !!text);
@@ -626,7 +691,7 @@ async function startCamera() {
   }
 }
 
-const APP_VERSION = "v45";
+const APP_VERSION = "v46";
 let frameCount = 0, detectCount = 0;
 function debugLog(msg) {
   // A felületen csak a verziószám látszik (lásd lent) — a részletes
@@ -1065,12 +1130,12 @@ async function syncPendingScans() {
 
 el("closeSectorBtn").addEventListener("click", async () => {
   if (!currentSector) return;
-  if (!confirm(`Biztosan lezárod a(z) ${currentSector}. szektort? Utána új szektort kell megadnod a folytatáshoz.`)) return;
+  if (!(await showConfirm(`Biztosan lezárod a(z) ${currentSector}. szektort? Utána új szektort kell megadnod a folytatáshoz.`))) return;
   if (pendingHit) commitPending();
   const closedSector = currentSector;
   const count = scanned.filter(s => s.sector === closedSector).length;
   await syncPendingScans();
-  alert(`${closedSector}. szektor lezárva. Tételek: ${count}`);
+  showToast(`${closedSector}. szektor lezárva. Tételek: ${count}`, "success");
   currentSector = "";
   renderList();
   updateGateUI();
@@ -1078,7 +1143,7 @@ el("closeSectorBtn").addEventListener("click", async () => {
 
 el("finishAllBtn").addEventListener("click", async () => {
   if (pendingHit) commitPending();
-  if (!confirm("Biztosan befejezed a leltározást? Ez után nem tudsz több terméket beolvasni ebben a munkamenetben.")) return;
+  if (!(await showConfirm("Biztosan befejezed a leltározást? Ez után nem tudsz több terméket beolvasni ebben a munkamenetben."))) return;
   await syncPendingScans();
   if (activeStream) { activeStream.getTracks().forEach(t => t.stop()); activeStream = null; }
   activeLeltar = null;
@@ -1087,7 +1152,7 @@ el("finishAllBtn").addEventListener("click", async () => {
   renderList();
   updateGateUI();
   el("sectorModalOverlay").classList.remove("show");
-  alert("Köszönjük! A beolvasásaid rögzítve lettek.");
+  showToast("Köszönjük! A beolvasásaid rögzítve lettek.", "success");
 });
 
 el("syncBtn").addEventListener("click", async () => {
@@ -1109,7 +1174,7 @@ el("syncBtn").addEventListener("click", async () => {
       });
       pendingItems.forEach(s => s.synced = true);
     } catch (e) {
-      alert("Szinkronizálási hiba: " + e.message);
+      showToast("Szinkronizálási hiba: " + e.message, "error");
     }
   } else {
     // Demo mód (nincs beállítva backend URL, vagy nincs aktív leltár) —
@@ -1426,14 +1491,14 @@ function renderJoinForm(body) {
 async function joinLeltarWithCode(code) {
   try {
     const result = await apiGet({ action: "join", code: code });
-    if (!result.found) { alert("Nincs ilyen csatlakozási kód."); return; }
-    if (!result.active) { alert(result.message || "Ez a leltár már nem aktív."); return; }
+    if (!result.found) { showToast("Nincs ilyen csatlakozási kód.", "warn"); return; }
+    if (!result.active) { showToast(result.message || "Ez a leltár már nem aktív.", "warn"); return; }
     activeLeltar = { leltar_id: result.leltar_id, code: code.toUpperCase(), tipus: result.tipus, raktar: result.raktar };
     renderLeltarScreen();
     el("leltarScreen").classList.remove("show");
     updateGateUI();
   } catch (e) {
-    alert("Hiba a csatlakozáskor: " + e.message);
+    showToast("Hiba a csatlakozáskor: " + e.message, "error");
   }
 }
 
@@ -1663,9 +1728,9 @@ function renderVerifyList(items) {
     <button id="verifyFinishBtn">Befejezem</button>
   `;
   items.forEach((it, i) => bindVerifyRow(i, it));
-  el("verifyFinishBtn").addEventListener("click", () => {
+  el("verifyFinishBtn").addEventListener("click", async () => {
     if (verifyDoneCount < items.length) {
-      if (!confirm(`Még ${items.length - verifyDoneCount} tétel nincs elmentve. Biztosan befejezed?`)) return;
+      if (!(await showConfirm(`Még ${items.length - verifyDoneCount} tétel nincs elmentve. Biztosan befejezed?`))) return;
     }
     el("verifyListBody").innerHTML = `<p class="placeholderNote">Köszönjük! Az ellenőrzés véget ért, becsukhatod ezt az oldalt.</p>`;
   });
@@ -1749,7 +1814,7 @@ async function saveVerifyRow(row, it, i) {
     }
     beep(880); haptic(20);
   } catch (e) {
-    alert("Hiba a mentéskor: " + e.message);
+    showToast("Hiba a mentéskor: " + e.message, "error");
     btn.textContent = "Mentés";
   }
   btn.disabled = false;
