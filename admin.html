@@ -540,14 +540,17 @@ async function loadActiveLeltarak() {
   activeLeltarakLoaded = true;
   const card = el("activeLeltarakCard");
   const body = el("activeLeltarakBody");
+  const startCard = el("startLeltarCard");
   try {
     const data = await apiGet({ action: "active_leltarak" });
     const list = data.leltarak || [];
     if (!list.length) {
       card.style.display = "none";
+      startCard.style.display = "block";
       return;
     }
     card.style.display = "block";
+    startCard.style.display = "none";
     body.innerHTML = list.map(l => `
       <div class="activeLeltarCard">
         <div id="qrWrap-${escapeHtml(l.leltar_id)}" class="qrBox">
@@ -560,37 +563,21 @@ async function loadActiveLeltarak() {
           <div class="metaLine">Indította: ${escapeHtml(l.inditotta)} · Típus: ${escapeHtml(l.tipus)} · Raktár: ${escapeHtml(l.raktar)}</div>
           ${l.tipus === "termektipus" && l.termektipusok && l.termektipusok.length ? `<div class="metaLine">Kiválasztott terméktípusok: ${l.termektipusok.map(escapeHtml).join(", ")}</div>` : ""}
           <div class="metaLine">Csatlakozási kód: <b>${escapeHtml(l.csatlakozasi_kod)}</b></div>
-          <div class="row" style="margin-top:10px; gap:8px;">
-            <button class="btn" data-progress="${escapeHtml(l.leltar_id)}">Eddig beolvasott adatok</button>
-            <button class="btn" data-report="${escapeHtml(l.leltar_id)}">Eltérés-riport megnyitása</button>
-          </div>
-          <div id="progressWrap-${escapeHtml(l.leltar_id)}" style="margin-top:12px; display:none;"></div>
         </div>
       </div>
     `).join("");
     list.forEach(l => renderQrInto(`qrWrap-${l.leltar_id}`, buildJoinUrl(l.csatlakozasi_kod)));
-    body.querySelectorAll("button[data-progress]").forEach(btn => {
-      btn.addEventListener("click", () => toggleProgress(btn.dataset.progress));
-    });
-    body.querySelectorAll("button[data-report]").forEach(btn => {
-      btn.addEventListener("click", () => openReport(btn.dataset.report, el("reportContainer"), { showActions: true }));
-    });
+    // A haladás és az eltérés-riport mostantól automatikusan megnyílik —
+    // nincs szükség külön gombra. Ha már nyitva van (pl. az automatikus
+    // frissítés hívta újra ezt a függvényt), nem nyitjuk meg újra
+    // (elveszne a görgetési pozíció) — csak akkor, ha még nincs nyitva
+    // EHHEZ a leltárhoz.
+    if (list[0] && (!currentOpenReport || currentOpenReport.leltarId !== list[0].leltar_id)) {
+      openReport(list[0].leltar_id, el("reportContainer"), { showActions: true });
+    }
   } catch (e) {
     card.style.display = "block";
     body.innerHTML = `<p class="emptyNote">Hiba: ${escapeHtml(e.message)}</p>`;
-  }
-}
-
-async function toggleProgress(leltarId) {
-  const wrap = el("progressWrap-" + leltarId);
-  if (wrap.style.display === "block") { wrap.style.display = "none"; return; }
-  wrap.style.display = "block";
-  wrap.innerHTML = `<div class="inlineLoading"><div class="spinner small"></div>Betöltés…</div>`;
-  try {
-    const data = await apiGet({ action: "progress", leltar_id: leltarId });
-    wrap.innerHTML = renderProgressHtml(data.progress || []);
-  } catch (e) {
-    wrap.innerHTML = `<p class="emptyNote">Hiba: ${escapeHtml(e.message)}</p>`;
   }
 }
 
@@ -623,7 +610,7 @@ async function openReport(leltarId, container, opts) {
 }
 
 function renderFullReport(container, report, opts) {
-  const { leltar, diff, osszesito, szektor_felelosok, progress } = report;
+  const { leltar, diff, osszesito, szektor_felelosok, progress, torolt_ismeretlen } = report;
   const isOpen = leltar.statusz === "folyamatban";
   const showActions = !!opts.showActions && isOpen;
 
@@ -697,6 +684,17 @@ function renderFullReport(container, report, opts) {
         ${diff.map(r => renderDiffRowHtml(r, showActions, isOpen)).join("") || `<p class="emptyNote">Nincs tétel.</p>`}
       </div>
     </div>
+
+    ${(!isOpen && torolt_ismeretlen && torolt_ismeretlen.length) ? `
+    <div class="card">
+      <div class="cardTitle">Ismeretlen törölt tételek</div>
+      ${torolt_ismeretlen.map(t => `
+        <div class="felelosRow">
+          <span><b>${escapeHtml(t.nev || "Ismeretlen termék")}</b> — ${escapeHtml(t.vonalkod)} · ${t.mennyiseg_torolve} db törölve</span>
+          <span class="meta">${escapeHtml(t.felhasznalo)}, ${escapeHtml(formatDateTime(t.idobelyeg))}</span>
+        </div>
+      `).join("")}
+    </div>` : ""}
   `;
 
   // Soronkénti eseménykezelők (szem-gomb, checkbox, rendszer-adat
@@ -802,15 +800,15 @@ function renderDiffRowHtml(r, showCheckbox, isOpen) {
   const itemNotesHtml = `<div id="${rowId}-notes-list">${(r.tetel_megjegyzesek || []).map(n =>
     `<div class="recountNote">💬 ${escapeHtml(n.felhasznalo)}, ${escapeHtml(formatDateTime(n.idobelyeg))}: ${escapeHtml(n.megjegyzes)}</div>`
   ).join("")}</div>`;
+  const unknownDeleteBtn = (showCheckbox && r.ismeretlen_tobblet)
+    ? `<button class="btn danger" style="font-size:11px; padding:4px 10px; margin-left:8px; vertical-align:middle;" data-delete-unknown="${escapeHtml(r.vonalkod)}">Törlés</button>`
+    : "";
   const unknownSurplusPanel = (showCheckbox && r.ismeretlen_tobblet) ? `
     <div style="margin-top:8px; gap:6px; display:flex; flex-direction:column; padding:10px;
       background:var(--panel-2); border:1px solid var(--line); border-radius:8px;">
       <input type="text" placeholder="Megjegyzés ehhez a tételhez"
         id="${rowId}-itemnote" style="font-size:12px; padding:8px 10px;">
-      <div class="row" style="gap:6px;">
-        <button class="btn" style="font-size:12px; padding:7px 10px; flex:1;" data-add-note="${escapeHtml(r.vonalkod)}">Megjegyzés hozzáadása</button>
-        <button class="btn danger" style="font-size:12px; padding:7px 10px; flex:0 0 auto;" data-delete-unknown="${escapeHtml(r.vonalkod)}">Törlés</button>
-      </div>
+      <button class="btn" style="font-size:12px; padding:7px 10px;" data-add-note="${escapeHtml(r.vonalkod)}">Megjegyzés hozzáadása</button>
     </div>` : "";
   const refreshBtn = (showCheckbox && !r.ismeretlen_tobblet) ? `
     <button class="btn" style="font-size:11px; padding:5px 10px; margin-top:8px;" data-refresh-toggle="${escapeHtml(r.vonalkod)}">
@@ -834,7 +832,7 @@ function renderDiffRowHtml(r, showCheckbox, isOpen) {
     <div class="diffRow" id="diffrow-${escapeHtml(r.vonalkod)}-row">
       ${showCheckbox && r.elteres !== 0 ? `<input type="checkbox" class="diffSelect" value="${escapeHtml(r.vonalkod)}">` : (showCheckbox ? `<span style="width:18px;"></span>` : "")}
       <div class="info">
-        <b>${escapeHtml(r.nev || (r.ismeretlen_termek ? "Ismeretlen termék" : r.vonalkod))}</b>
+        <b>${escapeHtml(r.nev || (r.ismeretlen_termek ? "Ismeretlen termék" : r.vonalkod))}</b>${unknownDeleteBtn}
         ${r.ismeretlen_tobblet ? `<span class="permPill" style="background:#4a3a17; color:var(--warn);">⚠ ISMERETLEN TÖBBLET${r.ismeretlen_termek ? " — nincs a törzsben" : " — nem volt ebben a leltárban"}</span>` : ""}
         <span>Vonalkód: ${escapeHtml(r.vonalkod)} · Saját cikkszám: ${escapeHtml(r.sajat_cikkszam || "—")} · Gyártói cikkszám: ${escapeHtml(r.gyartoi_cikkszam || "—")}</span>
         <span class="qtyLine">Rendszer: ${mask(r.rendszer_mennyiseg + " db")}</span>
