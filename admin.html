@@ -284,7 +284,7 @@
         <input type="text" id="newUserEmail" placeholder="pl. nev@ceg.hu">
       </div>
       <label style="display:flex; align-items:center; gap:8px; font-size:13px; margin-bottom:12px;">
-        <input type="checkbox" id="newUserCanManage"> Hozzáadhat új felhasználót
+        <input type="checkbox" id="newUserCanManage"> Hozzáadhat, vagy törölhet felhasználókat
       </label>
       <button class="btn primary" id="addUserBtn">Hozzáadás</button>
     </div>
@@ -587,7 +587,7 @@ async function loadActiveLeltarak() {
     // (elveszne a görgetési pozíció) — csak akkor, ha még nincs nyitva
     // EHHEZ a leltárhoz.
     if (list[0] && (!currentOpenReport || currentOpenReport.leltarId !== list[0].leltar_id)) {
-      openReport(list[0].leltar_id, el("reportContainer"), { showActions: true });
+      openReport(list[0].leltar_id, el("reportContainer"), { showActions: true }, true);
     }
   } catch (e) {
     card.style.display = "block";
@@ -597,7 +597,12 @@ async function loadActiveLeltarak() {
 
 function renderProgressHtml(progress) {
   if (!progress.length) return `<p class="emptyNote">Még nincs egyetlen beolvasás sem ebben a leltárban.</p>`;
-  return progress.map(p => `
+  const sorted = [...progress].sort((a, b) => {
+    const na = parseInt(a.szektor, 10), nb = parseInt(b.szektor, 10);
+    if (!isNaN(na) && !isNaN(nb) && na !== nb) return na - nb;
+    return String(a.szektor).localeCompare(String(b.szektor), "hu");
+  });
+  return sorted.map(p => `
     <div class="progressRow">
       <span><b>${escapeHtml(p.szektor)}. szektor</b> — ${p.tetel_fajta} féle tétel, ${p.db_osszesen} db összesen</span>
       <span class="meta">${escapeHtml(formatDateTime(p.utolso_beolvasas))}</span>
@@ -608,12 +613,16 @@ function renderProgressHtml(progress) {
 /* =========================================================================
    TELJES RIPORT (élő vagy korábbi leltárhoz egyaránt)
    ========================================================================= */
-let currentOpenReport = null; // { leltarId, container, opts } — a poll-alapú automatikus frissítéshez
+let currentOpenReport = null; // { leltarId, container, opts } — a poll-alapú automatikus frissítéshez (CSAK a futó leltárra)
 
-async function openReport(leltarId, container, opts) {
+async function openReport(leltarId, container, opts, trackForPolling) {
   container.innerHTML = `<div class="card"><div class="inlineLoading"><div class="spinner"></div>Riport betöltése…</div></div>`;
   container.scrollIntoView({ behavior: "smooth" });
-  currentOpenReport = { leltarId, container, opts: opts || {} };
+  // A currentOpenReport-ot CSAK akkor állítjuk be, ha ez a futó leltár
+  // riportja (trackForPolling=true) — egy korábbi (lezárt) leltár
+  // megnézése NEM írhatja felül, különben az automatikus frissítés
+  // összekeveredne, és feleslegesen újratöltené a futó leltár riportját.
+  if (trackForPolling) currentOpenReport = { leltarId, container, opts: opts || {} };
   try {
     const report = await apiGet({ action: "full_report", leltar_id: leltarId });
     if (report.error) { container.innerHTML = `<div class="card"><p class="emptyNote">Hiba: ${escapeHtml(report.error)}</p></div>`; return; }
@@ -624,14 +633,14 @@ async function openReport(leltarId, container, opts) {
 }
 
 function renderFullReport(container, report, opts) {
-  const { leltar, diff, osszesito, szektor_felelosok, progress, torolt_ismeretlen } = report;
+  const { leltar, diff, osszesito, szektor_felelosok, progress, torolt_ismeretlen, szektor_konfliktusok } = report;
   const isOpen = leltar.statusz === "folyamatban";
   const showActions = !!opts.showActions && isOpen;
 
   const felelosHtml = [
     ...szektor_felelosok.beolvasasok.map(f => ({ ...f, tipus: "beolvasás" })),
     ...szektor_felelosok.ujraszamolasok.map(f => ({ ...f, tipus: "újraszámolás" })),
-  ].map(f => `
+  ].sort((a, b) => String(a.felhasznalo).localeCompare(String(b.felhasznalo), "hu")).map(f => `
     <div class="felelosRow">
       <span>${f.szektor ? escapeHtml(f.szektor) + ". szektor — " : ""}${escapeHtml(f.felhasznalo)} (${f.tipus})</span>
       <span class="meta">${f.tetel_fajta} féle tétel</span>
@@ -642,10 +651,33 @@ function renderFullReport(container, report, opts) {
     ? `<div class="metaLine" style="margin-bottom:14px;">Kiválasztott terméktípusok: ${leltar.termektipusok.map(escapeHtml).join(", ")}</div>`
     : "";
 
+  const conflictsHtml = (szektor_konfliktusok && szektor_konfliktusok.length) ? `
+    <div class="card">
+      <div class="cardTitle">⚠ Szektor-ütközések</div>
+      <div class="metaLine" style="margin-bottom:12px;">Ugyanazt a szektort több felhasználó is beolvasta.${showActions ? " Válaszd ki, melyiket vegyük figyelembe — a másik ki lesz zárva a számításból." : ""}</div>
+      ${szektor_konfliktusok.map(c => `
+        <div style="margin-bottom:14px; padding-bottom:14px; border-bottom:1px solid var(--line);">
+          <div style="font-weight:700; margin-bottom:8px;">${escapeHtml(c.szektor)}. szektor</div>
+          ${c.jeloltek.map(j => `
+            <div class="row" style="justify-content:space-between; align-items:center; padding:9px 12px; margin-bottom:6px;
+              background:var(--panel-2); border-radius:8px; border:1px solid ${c.valasztott === j.felhasznalo ? "var(--accent)" : "var(--line)"};">
+              <span>${escapeHtml(j.felhasznalo)} — ${j.tetel_fajta} féle tétel, ${j.db_osszesen} db</span>
+              ${c.valasztott === j.felhasznalo
+                ? `<span class="permPill">kiválasztva</span>`
+                : (showActions ? `<button class="btn" style="font-size:11px; padding:6px 10px;" data-resolve-sector="${escapeHtml(c.szektor)}" data-resolve-user="${escapeHtml(j.felhasznalo)}">Ezt válasszd</button>` : `<span class="meta">kizárva</span>`)}
+            </div>
+          `).join("")}
+        </div>
+      `).join("")}
+    </div>` : "";
+
   container.innerHTML = `
     <div class="card">
-      <div class="cardTitle">${isOpen ? "Leltár állapota" : "Lezárt leltár"}</div>
-      <div class="metaLine" style="font-size:16px; font-weight:700; color:var(--text); margin-bottom:4px;">
+      <div class="row" style="justify-content:space-between; align-items:flex-start;">
+        <div class="cardTitle" style="margin-bottom:0;">${isOpen ? "Leltár állapota" : "Lezárt leltár"}</div>
+        ${showActions ? `<button class="btn danger" id="closeLeltarActionBtn" data-leltar="${escapeHtml(leltar.leltar_id)}" style="font-size:12px; padding:8px 14px;">Leltár lezárása</button>` : ""}
+      </div>
+      <div class="metaLine" style="font-size:16px; font-weight:700; color:var(--text); margin-bottom:4px; margin-top:8px;">
         Leltár indítva: ${escapeHtml(formatDateTime(leltar.inditva))}
       </div>
       ${!isOpen ? `<div class="metaLine" style="margin-bottom:4px;">Leltár vége: ${escapeHtml(formatDateTime(leltar.lezarva))}</div>` : ""}
@@ -686,13 +718,14 @@ function renderFullReport(container, report, opts) {
       ${felelosHtml}
     </div>
 
+    ${conflictsHtml}
+
     <div class="card" id="verifyQrCard" style="display:none;"></div>
 
     <div class="card">
       <div class="cardTitle">Eltérés-riport, tételesen</div>
       ${showActions ? `<div class="row" style="margin-bottom:14px; gap:8px;">
         <button class="btn primary" id="createVerifyBtn">Kiválasztottak ellenőrzése (új QR)</button>
-        <button class="btn danger" id="closeLeltarActionBtn" data-leltar="${escapeHtml(leltar.leltar_id)}">Leltár lezárása</button>
       </div>` : ""}
       <div id="diffListWrap">
         ${diff.map(r => renderDiffRowHtml(r, showActions, isOpen)).join("") || `<p class="emptyNote">Nincs tétel.</p>`}
@@ -722,6 +755,35 @@ function renderFullReport(container, report, opts) {
   if (showActions) {
     el("createVerifyBtn").addEventListener("click", () => createVerificationRoundForSelected(leltar.leltar_id));
     el("closeLeltarActionBtn").addEventListener("click", () => closeLeltarAction(leltar.leltar_id));
+    container.querySelectorAll("[data-resolve-sector]").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        const szektor = btn.dataset.resolveSector;
+        const felhasznalo = btn.dataset.resolveUser;
+        btn.disabled = true;
+        btn.textContent = "Mentés…";
+        try {
+          const result = await apiPost({
+            action: "resolve_sector_conflict",
+            leltar_id: leltar.leltar_id,
+            szektor: szektor,
+            valasztott_felhasznalo: felhasznalo,
+          });
+          if (result.error) {
+            showToast("Hiba: " + result.error, "error");
+            btn.disabled = false;
+            btn.textContent = "Ezt válasszd";
+          } else {
+            showToast(`${szektor}. szektor: ${felhasznalo} adatai lettek kiválasztva.`, "success");
+            const keepTracking = !!(currentOpenReport && currentOpenReport.container === container);
+            openReport(leltar.leltar_id, container, opts, keepTracking);
+          }
+        } catch (e) {
+          showToast("Hiba: " + e.message, "error");
+          btn.disabled = false;
+          btn.textContent = "Ezt válasszd";
+        }
+      });
+    });
   }
 }
 
@@ -1007,14 +1069,29 @@ function bindDiffRowRefreshButtons(wrapEl, leltarId, targetContainer) {
 let selectedDiffBarcodes = new Set();
 
 // A nyitott riportot csendben frissíti, DE csak akkor, ha a felhasználó
-// épp nem ír valamelyik beviteli mezőbe (hogy ne szakítsuk félbe egy
-// éppen folyamatban lévő korrekció/megjegyzés beírását).
+// épp nem ír valamelyik beviteli mezőbe, ÉS nincs nyitva egy
+// korrekció/megjegyzés-panel, ÉS nincs kint egy ellenőrzési QR-kód —
+// ezeket mind elveszítenénk egy teljes újrarajzolással, mert csak
+// kliens-oldali állapotként léteznek, nem a szerver válaszában.
 function isTypingInReport_() {
   const a = document.activeElement;
   return !!(a && a.closest && a.closest("#diffListWrap") && (a.tagName === "INPUT" || a.tagName === "TEXTAREA"));
 }
+function isReportBusy_() {
+  if (isTypingInReport_()) return true;
+  const qrCard = document.getElementById("verifyQrCard");
+  if (qrCard && qrCard.style.display !== "none" && qrCard.innerHTML.trim()) return true;
+  const wrap = document.getElementById("diffListWrap");
+  if (wrap) {
+    const openForms = wrap.querySelectorAll('[id$="-form"]');
+    for (const f of openForms) {
+      if (f.style.display === "flex") return true;
+    }
+  }
+  return false;
+}
 async function refreshOpenReportSilently_() {
-  if (!currentOpenReport || isTypingInReport_()) return;
+  if (!currentOpenReport || isReportBusy_()) return;
   try {
     const report = await apiGet({ action: "full_report", leltar_id: currentOpenReport.leltarId });
     if (report.error || !currentOpenReport) return;
