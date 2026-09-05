@@ -213,6 +213,40 @@
 </div>
 
 
+<div id="keszletInfoModal" style="display:none; position:fixed; inset:0; z-index:1700; background:rgba(0,0,0,0.65);
+  align-items:center; justify-content:center; padding:20px;">
+  <div style="background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:24px; max-width:480px; width:100%; max-height:85vh; overflow-y:auto;">
+    <div style="font-size:15px; font-weight:700; margin-bottom:16px;">Mit vár a "Készlet frissítése"?</div>
+
+    <div style="font-size:13px; margin-bottom:14px;">
+      <b>1. Export a Laurelből (LKR)</b><br>
+      <span style="color:var(--text-dim);">Készletsorok → Betölt → Acéltigris minden készlet → Lista nézet → Exportál</span>
+    </div>
+
+    <div style="font-size:13px; margin-bottom:14px;">
+      <b>2. Mentés helye (Google Drive)</b><br>
+      <span style="color:var(--text-dim);">Acéltigris Team\Bence\Laurel_Nyers_Exportok\Keszlet_Exportok</span>
+    </div>
+
+    <div style="font-size:13px; margin-bottom:6px;">
+      <b>3. Kötelező oszlopok a fejlécben</b>
+    </div>
+    <ul style="margin:0 0 10px 18px; padding:0; font-size:13px; color:var(--text-dim);">
+      <li>Cikkszám</li>
+      <li>Kód</li>
+      <li>Aktuális mennyiség</li>
+      <li>Valós besz. áras készlet érték</li>
+    </ul>
+    <div style="font-size:12px; color:var(--accent); margin-bottom:16px;">
+      Az oszlopok SORRENDJE nem számít — a rendszer a fejléc pontos szövege alapján keresi meg őket, nem a helyük szerint. Csak az számít, hogy pontosan ez a négy elnevezés szerepeljen valahol a fejlécben.
+    </div>
+
+    <div class="row" style="justify-content:flex-end;">
+      <button class="btn primary" id="keszletInfoCloseBtn">Rendben</button>
+    </div>
+  </div>
+</div>
+
 <div id="confirmModalOverlay" style="display:none; position:fixed; inset:0; z-index:1600; background:rgba(0,0,0,0.6);
   align-items:center; justify-content:center; padding:20px;">
   <div style="background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:24px; max-width:400px; width:100%;">
@@ -268,9 +302,12 @@
         <label><input type="radio" name="leltarTipus" value="termektipus"> Vakleltár terméktípus szerint</label>
       </div>
       <div id="productTypeList" style="display:none;"></div>
-      <div class="row" style="gap:8px; flex-wrap:wrap;">
+      <div class="row" style="gap:8px; flex-wrap:wrap; align-items:center;">
         <button class="btn primary" id="startLeltarBtn">Leltár indítása</button>
         <button class="btn" id="refreshAndStartLeltarBtn">Készlet frissítése</button>
+        <button id="keszletInfoBtn" aria-label="Export-információ" style="width:32px; height:32px; border-radius:50%;
+          border:1px solid var(--line); background:var(--panel-2); color:var(--text-dim); font-weight:700;
+          font-size:13px; cursor:pointer; flex:0 0 auto;">ⓘ</button>
       </div>
       <div id="startLeltarMsg" style="margin-top:10px; font-size:13px; color:var(--text-dim);"></div>
     </div>
@@ -622,6 +659,8 @@ async function runStartLeltarFlow_(btn, doRefreshFirst) {
 
 el("startLeltarBtn").addEventListener("click", () => runStartLeltarFlow_(el("startLeltarBtn"), false));
 el("refreshAndStartLeltarBtn").addEventListener("click", () => runStartLeltarFlow_(el("refreshAndStartLeltarBtn"), true));
+el("keszletInfoBtn").addEventListener("click", () => { el("keszletInfoModal").style.display = "flex"; });
+el("keszletInfoCloseBtn").addEventListener("click", () => { el("keszletInfoModal").style.display = "none"; });
 
 /* =========================================================================
    FUTÓ LELTÁR KÁRTYA
