@@ -740,7 +740,18 @@ function renderFullReport(container, report, opts) {
           </div>
           ${p.beolvasott.length ? `<div style="font-size:14px; font-weight:700; margin-top:6px;">Összesen beolvasva: ${beolvasottTetelOsszesen} féle termék, ${beolvasottDbOsszesen} db</div>` : ""}
           ${beolvasottSzektorok.length ? `<div style="font-size:13px; margin-top:6px;"><b>Beolvasta:</b> ${beolvasottSzektorok.map(s => escapeHtml(s) + ". szektor").join(", ")}</div>` : ""}
-          ${p.ujraszamoltTermekek.length ? `<div style="font-size:13px; margin-top:4px;"><b>Újraszámolta:</b> ${p.ujraszamoltTermekek.map(t => `${escapeHtml(t.nev || t.vonalkod)} (${t.mennyiseg} db)`).join(", ")}</div>` : ""}
+          ${p.ujraszamoltTermekek.length ? `
+          <div style="font-size:13px; margin-top:6px;">
+            <b>Újraszámolta:</b>
+            <div style="margin-top:4px; display:flex; flex-direction:column; gap:3px;">
+              ${p.ujraszamoltTermekek.map(t => `
+                <div style="font-size:12px; line-height:1.35;">
+                  ${escapeHtml(t.nev || "Ismeretlen termék")}
+                  <span style="color:var(--text-dim);"> — ${escapeHtml(t.cikkszam || "—")} · ${escapeHtml(t.vonalkod)} · ${t.mennyiseg} db</span>
+                </div>
+              `).join("")}
+            </div>
+          </div>` : ""}
         </div>
       `;
     }).join("") || `<p class="emptyNote">Nincs adat.</p>`;
