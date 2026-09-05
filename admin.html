@@ -199,11 +199,16 @@
 
 <div id="authGateOverlay">
   <div id="authGateBox">
-    <div class="icon" style="color:#06231a;">🔒</div>
-    <h2>Leltár admin — bejelentkezés</h2>
-    <p>Csak az engedélyezett e-mail címekkel lehet belépni. Ha nincs még hozzáférésed, kérj meghívást egy adminisztrátortól.</p>
-    <div id="googleSignInBtn"></div>
-    <div id="authGateError"></div>
+    <div id="authGateInitialLoading" style="padding:20px 0;">
+      <div class="spinner"></div>
+    </div>
+    <div id="authGateContent" style="display:none;">
+      <div class="icon" style="color:#06231a;">🔒</div>
+      <h2>Leltár admin — bejelentkezés</h2>
+      <p>Csak az engedélyezett e-mail címekkel lehet belépni. Ha nincs még hozzáférésed, kérj meghívást egy adminisztrátortól.</p>
+      <div id="googleSignInBtn"></div>
+      <div id="authGateError"></div>
+    </div>
   </div>
 </div>
 
@@ -265,7 +270,7 @@
       <div id="productTypeList" style="display:none;"></div>
       <div class="row" style="gap:8px; flex-wrap:wrap;">
         <button class="btn primary" id="startLeltarBtn">Leltár indítása</button>
-        <button class="btn" id="refreshAndStartLeltarBtn">Készlet frissítése és leltár indítása</button>
+        <button class="btn" id="refreshAndStartLeltarBtn">Készlet frissítése</button>
       </div>
       <div id="startLeltarMsg" style="margin-top:10px; font-size:13px; color:var(--text-dim);"></div>
     </div>
@@ -539,17 +544,32 @@ async function runStartLeltarFlow_(btn, doRefreshFirst) {
   el("startLeltarMsg").textContent = "";
 
   if (doRefreshFirst) {
-    btn.textContent = "Készlet frissítése… (ez eltarthat egy percig)";
+    // Mivel a szerver egyetlen, blokkoló hívással dolgozza fel a fájlt
+    // (nincs valódi köztes állapot, amit lekérdezhetnénk), egy
+    // fokozatosan (lassulva) növekvő, becsült %-os jelzőt mutatunk —
+    // ez jobb visszajelzés, mint egy statikus "eltarthat egy percig"
+    // szöveg, még ha nem is pontos százalék.
+    let fakePct = 0;
+    btn.textContent = `Készlet frissítése… ${fakePct}%`;
+    const pctTimer = setInterval(() => {
+      if (fakePct < 92) {
+        fakePct += Math.max(1, Math.round((92 - fakePct) * 0.06));
+        btn.textContent = `Készlet frissítése… ${fakePct}%`;
+      }
+    }, 400);
     try {
       const refreshResult = await apiPost({ action: "keszlet_azonnali_frissites" });
+      clearInterval(pctTimer);
       if (refreshResult.error) {
         showToast("Hiba a készlet frissítésekor: " + refreshResult.error, "error");
         btn.disabled = false;
         btn.textContent = originalLabel;
         return;
       }
+      btn.textContent = "Készlet frissítése… 100%";
       showToast(`Készlet frissítve (${refreshResult.sorok_szama} sor, ${refreshResult.fajlnev}).`, "success");
     } catch (e) {
+      clearInterval(pctTimer);
       showToast("Hiba a készlet frissítésekor: " + e.message, "error");
       btn.disabled = false;
       btn.textContent = originalLabel;
@@ -1392,6 +1412,10 @@ async function renderQrInto(wrapId, text) {
    ========================================================================= */
 function showAuthError(msg) {
   clearTokenStorage_();
+  const initial = el("authGateInitialLoading");
+  const content = el("authGateContent");
+  if (initial) initial.style.display = "none";
+  if (content) content.style.display = "block";
   const box = el("authGateError");
   if (box) { box.textContent = msg; box.style.display = "block"; }
   const overlay = el("authGateOverlay");
@@ -1512,8 +1536,21 @@ function showLoginLoading_(loading) {
   }
 }
 
+// A kezdeti, oldalbetöltéskori csendes munkamenet-visszaállítás alatt
+// EZT használjuk — csak egy semleges spinner látszik, a "bejelentkezés"
+// cím/szöveg/gomb NEM jelenik meg, hogy ne villanjon fel feleslegesen
+// minden egyes oldal-frissítésnél, ha úgyis sikerül csendben visszaállni.
+function showInitialCheckLoading_(loading) {
+  const initial = el("authGateInitialLoading");
+  const content = el("authGateContent");
+  if (!initial || !content) return;
+  initial.style.display = loading ? "block" : "none";
+  content.style.display = loading ? "none" : "block";
+}
+
 window.addEventListener("load", async () => {
   if (typeof google === "undefined" || !google.accounts) {
+    showInitialCheckLoading_(false);
     showAuthError("A Google bejelentkezési szolgáltatás nem tudott betölteni. Ellenőrizd az internetkapcsolatot, és töltsd újra az oldalt.");
     return;
   }
@@ -1525,23 +1562,24 @@ window.addEventListener("load", async () => {
   });
   google.accounts.id.renderButton(el("googleSignInBtn"), { theme: "filled_black", size: "large", shape: "pill", text: "signin_with", width: 280 });
 
-  showLoginLoading_(true);
+  showInitialCheckLoading_(true);
 
   // ELSŐKÉNT a korábban elmentett munkamenetet próbáljuk visszaállítani
   // — ez megbízhatóbb, mint a Google saját "csendes" bejelentkezése,
   // ami nem működik konzisztensen minden böngészőben (pl. iOS Safari-n
-  // gyakran nem enged silent prompt-ot).
+  // gyakran nem enged silent prompt-ot). Amíg ez fut, a felhasználó
+  // csak egy semleges töltő-jelzést lát, nem a bejelentkezési szöveget.
   const restored = await trySilentSessionRestore_();
-  if (restored) { showLoginLoading_(false); return; }
+  if (restored) { return; } // onLoginVerified_ már elrejtette az egész kaput
 
-  // Ha nincs (érvényes) mentett munkamenet, még megpróbáljuk a Google
-  // saját csendes bejelentkezését is — ha ez sem sikerül, a sima
-  // gombos bejelentkezés marad.
-  google.accounts.id.prompt((notification) => {
-    if (notification.isNotDisplayed() || notification.isSkippedMoment() || notification.isDismissedMoment()) {
-      showLoginLoading_(false);
-    }
-  });
+  // Nem sikerült csendben visszaállni — most már mutassuk a tényleges
+  // bejelentkezési felületet (gombbal).
+  showInitialCheckLoading_(false);
+
+  // Emellett még megpróbáljuk a Google saját csendes bejelentkezését is
+  // — ha ez sikerül, a handleGoogleCredential elrejti a kaput; ha nem,
+  // a felhasználó ott látja és használhatja a gombot.
+  google.accounts.id.prompt();
 });
 
 /* =========================================================================
