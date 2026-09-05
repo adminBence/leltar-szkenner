@@ -702,12 +702,20 @@ function renderFullReport(container, report, opts) {
     ...szektor_felelosok.ujraszamolasok.map(f => ({ ...f, tipus: "újraszámolás" })),
   ].forEach(f => {
     if (!personMap[f.felhasznalo]) {
-      personMap[f.felhasznalo] = { felhasznalo: f.felhasznalo, beolvasott: [], ujraszamolt: [], utolsoDate: null, utolsoSzektor: null };
+      personMap[f.felhasznalo] = { felhasznalo: f.felhasznalo, beolvasott: [], ujraszamolt: [], ujraszamoltTermekek: [], utolsoDate: null, utolsoSzektor: null };
     }
     const p = personMap[f.felhasznalo];
     if (f.tipus === "beolvasás") p.beolvasott.push(f); else p.ujraszamolt.push(f);
     const d = parseBqTimestamp_(f.utolso);
     if (d && (!p.utolsoDate || d > p.utolsoDate)) { p.utolsoDate = d; p.utolsoSzektor = f.szektor; }
+  });
+  // Az újraszámolt TERMÉKEK (nem szektorok) hozzárendelése személyenként —
+  // ezt mutatjuk a kártyán az "Újraszámolta:" sorban.
+  (szektor_felelosok.ujraszamolt_termekek || []).forEach(t => {
+    if (!personMap[t.felhasznalo]) {
+      personMap[t.felhasznalo] = { felhasznalo: t.felhasznalo, beolvasott: [], ujraszamolt: [], ujraszamoltTermekek: [], utolsoDate: null, utolsoSzektor: null };
+    }
+    personMap[t.felhasznalo].ujraszamoltTermekek.push(t);
   });
 
   const ACTIVE_THRESHOLD_MS = 90 * 1000;
@@ -719,7 +727,6 @@ function renderFullReport(container, report, opts) {
     .map(p => {
       const isLive = p.utolsoDate && (nowMs - p.utolsoDate.getTime()) < ACTIVE_THRESHOLD_MS;
       const beolvasottSzektorok = [...new Set(p.beolvasott.map(f => f.szektor))].sort(sortSzektorSzam);
-      const ujraszamoltSzektorok = [...new Set(p.ujraszamolt.map(f => f.szektor))].sort(sortSzektorSzam);
       const beolvasottDbOsszesen = p.beolvasott.reduce((sum, f) => sum + (f.db_osszesen || 0), 0);
       const beolvasottTetelOsszesen = p.beolvasott.reduce((sum, f) => sum + (f.tetel_fajta || 0), 0);
       return `
@@ -733,7 +740,7 @@ function renderFullReport(container, report, opts) {
           </div>
           ${p.beolvasott.length ? `<div style="font-size:14px; font-weight:700; margin-top:6px;">Összesen beolvasva: ${beolvasottTetelOsszesen} féle termék, ${beolvasottDbOsszesen} db</div>` : ""}
           ${beolvasottSzektorok.length ? `<div style="font-size:13px; margin-top:6px;"><b>Beolvasta:</b> ${beolvasottSzektorok.map(s => escapeHtml(s) + ". szektor").join(", ")}</div>` : ""}
-          ${ujraszamoltSzektorok.length ? `<div style="font-size:13px; margin-top:4px;"><b>Újraszámolta:</b> ${ujraszamoltSzektorok.map(s => escapeHtml(s) + ". szektor").join(", ")}</div>` : ""}
+          ${p.ujraszamoltTermekek.length ? `<div style="font-size:13px; margin-top:4px;"><b>Újraszámolta:</b> ${p.ujraszamoltTermekek.map(t => `${escapeHtml(t.nev || t.vonalkod)} (${t.mennyiseg} db)`).join(", ")}</div>` : ""}
         </div>
       `;
     }).join("") || `<p class="emptyNote">Nincs adat.</p>`;
