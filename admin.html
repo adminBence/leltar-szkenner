@@ -297,6 +297,7 @@
 
     <div class="card" id="startLeltarCard">
       <div class="cardTitle">Új leltár indítása</div>
+      <div id="keszletFrissessegLine" style="font-size:12px; color:var(--text-dim); margin-bottom:12px;"></div>
       <div class="typeChoice">
         <label><input type="radio" name="leltarTipus" value="teljes" checked> Teljes vakleltár</label>
         <label><input type="radio" name="leltarTipus" value="termektipus"> Vakleltár terméktípus szerint</label>
@@ -389,6 +390,14 @@ function loadTokenFromStorage_() {
   } catch (e) { return null; }
 }
 let activeLeltarakLoaded = false;
+let keszletFrissessegLoaded = false;
+async function loadKeszletFrissesseg_() {
+  try {
+    const data = await apiGet({ action: "get_keszlet_frissesseg" });
+    const line = el("keszletFrissessegLine");
+    if (line) line.textContent = data.friss_datum ? `Készlet frissítve: ${data.friss_datum}` : "";
+  } catch (e) { /* nem kritikus, ha ez nem sikerül */ }
+}
 let historyLoaded = false;
 let usersLoaded = false;
 
@@ -605,6 +614,8 @@ async function runStartLeltarFlow_(btn, doRefreshFirst) {
       }
       btn.textContent = "Készlet frissítése… 100%";
       showToast(`Készlet frissítve (${refreshResult.sorok_szama} sor, ${refreshResult.fajlnev}).`, "success");
+      keszletFrissessegLoaded = false;
+      loadKeszletFrissesseg_();
     } catch (e) {
       clearInterval(pctTimer);
       showToast("Hiba a készlet frissítésekor: " + e.message, "error");
@@ -676,6 +687,7 @@ async function loadActiveLeltarak() {
     if (!list.length) {
       card.style.display = "none";
       startCard.style.display = "block";
+      if (!keszletFrissessegLoaded) { keszletFrissessegLoaded = true; loadKeszletFrissesseg_(); }
       return;
     }
     card.style.display = "block";
