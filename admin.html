@@ -483,12 +483,16 @@ document.querySelectorAll('input[name="leltarTipus"]').forEach(r => {
   });
 });
 
-function showConfirm(message) {
+function showConfirm(message, opts) {
+  opts = opts || {};
   return new Promise(resolve => {
     const modal = el("confirmModalOverlay");
+    const yesBtn = el("confirmModalYesBtn");
     el("confirmModalMessage").textContent = message;
+    yesBtn.textContent = opts.yesLabel || "Igen, törlöm";
+    yesBtn.className = "btn " + (opts.positive ? "primary" : "danger");
     modal.style.display = "flex";
-    el("confirmModalYesBtn").onclick = () => { modal.style.display = "none"; resolve(true); };
+    yesBtn.onclick = () => { modal.style.display = "none"; resolve(true); };
     el("confirmModalNoBtn").onclick = () => { modal.style.display = "none"; resolve(false); };
   });
 }
@@ -876,7 +880,7 @@ function renderFullReport(container, report, opts) {
         const felhasznalo = btn.dataset.resolveUser;
         const kezdeteMs = btn.dataset.resolveKezdete ? Number(btn.dataset.resolveKezdete) : null;
         const vegeMs = btn.dataset.resolveVege ? Number(btn.dataset.resolveVege) : null;
-        if (!(await showConfirm(`Biztosan ${felhasznalo} adatait választod a(z) ${szektor}. szektorhoz? A másik(ak) beolvasásai ki lesznek zárva a számításból.`))) return;
+        if (!(await showConfirm(`Biztosan ${felhasznalo} adatait választod a(z) ${szektor}. szektorhoz? A másik(ak) beolvasásai ki lesznek zárva a számításból.`, { yesLabel: "Kiválasztom", positive: true }))) return;
         btn.disabled = true;
         btn.textContent = "Mentés…";
         try {
@@ -974,9 +978,7 @@ function renderDiffRowHtml(r, showCheckbox, isOpen) {
   const others = (r.masik_raktar || []).map(o => `${escapeHtml(o.raktar)}: ${mask(o.mennyiseg + " db")}`).join(" · ");
   const sectorChips = (r.szektorok || []).map(s => {
     if (s.forras === "ujraszamolas") {
-      return s.szektor
-        ? `<span>${escapeHtml(s.szektor)}. szektor — újraszámolva: ${mask(s.mennyiseg + " db")}</span>`
-        : `<span>Újraszámolva: ${mask(s.mennyiseg + " db")}</span>`;
+      return `<span>Újraszámolva: ${mask(s.mennyiseg + " db")}</span>`;
     }
     return `<span>${escapeHtml(s.szektor)}. szektor: ${mask(s.mennyiseg + " db")}</span>`;
   }).join("");
