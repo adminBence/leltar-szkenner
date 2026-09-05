@@ -742,29 +742,33 @@ function renderFullReport(container, report, opts) {
     <div class="card">
       <div class="cardTitle">⚠ Szektor-ütközések</div>
       ${szektor_konfliktusok.map(c => {
-        if (c.mind_egyezik) {
+        const csoportok = c.csoportok || [];
+        if (c.mind_egyezik || csoportok.length <= 1) {
           return `
             <div style="margin-bottom:14px; padding-bottom:14px; border-bottom:1px solid var(--line);">
               <div style="font-weight:700; margin-bottom:6px;">${escapeHtml(c.szektor)}. szektor</div>
               <div style="color:var(--accent); font-size:13px;">✓ Többször is beolvasták, de mindegyik beolvasás egyezik — nincs teendő.</div>
             </div>`;
         }
-        const elteresekHtml = c.elteresek.length ? `
+        const elteresek = c.elteresek || [];
+        const elteresekHtml = elteresek.length ? `
           <div style="margin-top:10px; margin-bottom:10px; padding:10px; background:var(--panel-2); border-radius:8px;">
             <div style="font-size:12px; color:var(--text-dim); margin-bottom:6px;">Eltérések a csoportok között:</div>
-            ${c.elteresek.map(e => `
+            ${elteresek.map(e => `
               <div style="font-size:13px; margin-bottom:4px;">
                 <b>${escapeHtml(e.nev || e.vonalkod)}</b> —
-                ${e.csoport_ertekek.map((v, i) => `${i + 1}. csoport: ${v} db`).join(" · ")}
+                ${(e.csoport_ertekek || []).map((v, i) => `${i + 1}. csoport: ${v} db`).join(" · ")}
               </div>
             `).join("")}
           </div>` : "";
         return `
           <div style="margin-bottom:14px; padding-bottom:14px; border-bottom:1px solid var(--line);">
-            <div style="font-weight:700; margin-bottom:8px;">${escapeHtml(c.szektor)}. szektor — ${c.csoportok.length} eltérő beolvasás-csoport</div>
-            ${c.csoportok.map((g, gi) => {
-              const rep = g.sessionek[0];
-              const nevek = [...new Set(g.sessionek.map(s => s.felhasznalo))].map(escapeHtml).join(", ");
+            <div style="font-weight:700; margin-bottom:8px;">${escapeHtml(c.szektor)}. szektor — ${csoportok.length} eltérő beolvasás-csoport</div>
+            ${csoportok.map((g, gi) => {
+              const sessionek = g.sessionek || [];
+              if (!sessionek.length) return "";
+              const rep = sessionek[0];
+              const nevek = [...new Set(sessionek.map(s => s.felhasznalo))].map(escapeHtml).join(", ");
               return `
                 <div class="row" style="justify-content:space-between; align-items:center; padding:9px 12px; margin-bottom:6px;
                   background:var(--panel-2); border-radius:8px; border:1px solid ${g.valasztott ? "var(--accent)" : "var(--line)"};">
