@@ -395,7 +395,14 @@ async function loadKeszletFrissesseg_() {
   try {
     const data = await apiGet({ action: "get_keszlet_frissesseg" });
     const line = el("keszletFrissessegLine");
-    if (line) line.textContent = data.friss_datum ? `Készlet frissítve: ${data.friss_datum}` : "";
+    if (!line) return;
+    if (data.friss_idobelyeg) {
+      line.textContent = `Készlet frissítve: ${formatDateTime(data.friss_idobelyeg)}`;
+    } else if (data.friss_datum) {
+      line.textContent = `Készlet frissítve: ${data.friss_datum}`;
+    } else {
+      line.textContent = "";
+    }
   } catch (e) { /* nem kritikus, ha ez nem sikerül */ }
 }
 let historyLoaded = false;
@@ -556,7 +563,7 @@ function showStartLeltarModal(frissDatum, items) {
     const titleEl = el("negStockTitle");
     const subtitleEl = el("negStockSubtitle");
 
-    titleEl.textContent = frissDatum ? `Készlet frissítve: ${escapeHtml(frissDatum)}. Elindítod a leltárat?` : "Elindítod a leltárat?";
+    titleEl.textContent = frissDatum ? `Készlet frissítve: ${formatDateTime(frissDatum)}. Elindítod a leltárat?` : "Elindítod a leltárat?";
 
     if (items && items.length) {
       subtitleEl.style.display = "block";
@@ -634,7 +641,7 @@ async function runStartLeltarFlow_(btn, doRefreshFirst) {
       tipus: tipus,
       termektipusok: Array.from(selectedProductTypes),
     });
-    frissDatum = negCheck.friss_datum || null;
+    frissDatum = negCheck.friss_idobelyeg || negCheck.friss_datum || null;
     negativeItems = negCheck.items || [];
   } catch (e) {
     console.error("Negatív készlet ellenőrzési hiba (nem blokkoló):", e);
