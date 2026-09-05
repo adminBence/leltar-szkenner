@@ -1300,7 +1300,7 @@ function buildVerifyUrl(kod) {
 }
 
 async function closeLeltarAction(leltarId) {
-  if (!(await showConfirm("Biztosan lezárod a leltárat? Ezután már nem lehet több beolvasást/ellenőrzést hozzáadni."))) return;
+  if (!(await showConfirm("Biztosan lezárod a leltárat? Ezután már nem lehet több beolvasást/ellenőrzést hozzáadni.", { yesLabel: "Leltár lezárása" }))) return;
   try {
     const result = await apiPost({ action: "close_leltar", leltar_id: leltarId });
     if (result.error) { showToast("Hiba: " + result.error, "error"); return; }
