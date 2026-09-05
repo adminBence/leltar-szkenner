@@ -222,12 +222,12 @@
 <div id="negStockModal" style="display:none; position:fixed; inset:0; z-index:1500; background:rgba(0,0,0,0.6);
   align-items:center; justify-content:center; padding:20px;">
   <div style="background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:24px; max-width:480px; width:100%;">
-    <div style="font-size:15px; font-weight:700; margin-bottom:6px;">Van olyan termék, aminek negatív a készlete.</div>
-    <div style="font-size:13px; color:var(--text-dim); margin-bottom:16px;">Ennek ellenére elindítod a leltárat?</div>
+    <div id="negStockTitle" style="font-size:15px; font-weight:700; margin-bottom:6px;">Elindítod a leltárat?</div>
+    <div id="negStockSubtitle" style="font-size:13px; color:var(--text-dim); margin-bottom:16px; display:none;"></div>
     <div id="negStockDetails" style="display:none; max-height:240px; overflow-y:auto; margin-bottom:16px;
       font-size:12px; background:var(--panel-2); border:1px solid var(--line); border-radius:8px; padding:10px;"></div>
     <div class="row" style="gap:8px;">
-      <button class="btn" id="negStockDetailsBtn">Részletek</button>
+      <button class="btn" id="negStockDetailsBtn" style="display:none;">Részletek</button>
       <button class="btn" id="negStockNoBtn">Nem</button>
       <button class="btn primary" id="negStockYesBtn">Igen</button>
     </div>
@@ -263,7 +263,10 @@
         <label><input type="radio" name="leltarTipus" value="termektipus"> Vakleltár terméktípus szerint</label>
       </div>
       <div id="productTypeList" style="display:none;"></div>
-      <button class="btn primary" id="startLeltarBtn">Leltár indítása</button>
+      <div class="row" style="gap:8px; flex-wrap:wrap;">
+        <button class="btn primary" id="startLeltarBtn">Leltár indítása</button>
+        <button class="btn" id="refreshAndStartLeltarBtn">Készlet frissítése és leltár indítása</button>
+      </div>
       <div id="startLeltarMsg" style="margin-top:10px; font-size:13px; color:var(--text-dim);"></div>
     </div>
 
@@ -490,50 +493,86 @@ function showConfirm(message) {
   });
 }
 
-function showNegativeStockModal(items) {
+function showStartLeltarModal(frissDatum, items) {
   return new Promise(resolve => {
     const modal = el("negStockModal");
     const detailsWrap = el("negStockDetails");
-    detailsWrap.style.display = "none";
-    detailsWrap.innerHTML = items.map(it => `
-      <div style="padding:6px 0; border-bottom:1px solid var(--line);">
-        <b>${escapeHtml(it.nev || it.vonalkod)}</b><br>
-        <span style="color:var(--text-dim);">Cikkszám: ${escapeHtml(it.cikkszam || "—")} · Vonalkód: ${escapeHtml(it.vonalkod)} · Mennyiség: ${it.mennyiseg} db</span>
-      </div>`).join("");
-    modal.style.display = "flex";
+    const detailsBtn = el("negStockDetailsBtn");
+    const titleEl = el("negStockTitle");
+    const subtitleEl = el("negStockSubtitle");
 
-    el("negStockDetailsBtn").onclick = () => {
-      detailsWrap.style.display = detailsWrap.style.display === "block" ? "none" : "block";
-    };
+    titleEl.textContent = frissDatum ? `Készlet frissítve: ${escapeHtml(frissDatum)}. Elindítod a leltárat?` : "Elindítod a leltárat?";
+
+    if (items && items.length) {
+      subtitleEl.style.display = "block";
+      subtitleEl.textContent = "Figyelem: van olyan termék, aminek negatív a készlete.";
+      detailsBtn.style.display = "inline-block";
+      detailsWrap.style.display = "none";
+      detailsWrap.innerHTML = items.map(it => `
+        <div style="padding:6px 0; border-bottom:1px solid var(--line);">
+          <b>${escapeHtml(it.nev || it.vonalkod)}</b><br>
+          <span style="color:var(--text-dim);">Cikkszám: ${escapeHtml(it.cikkszam || "—")} · Vonalkód: ${escapeHtml(it.vonalkod)} · Mennyiség: ${it.mennyiseg} db</span>
+        </div>`).join("");
+      detailsBtn.onclick = () => {
+        detailsWrap.style.display = detailsWrap.style.display === "block" ? "none" : "block";
+      };
+    } else {
+      subtitleEl.style.display = "none";
+      detailsBtn.style.display = "none";
+      detailsWrap.style.display = "none";
+    }
+
+    modal.style.display = "flex";
     el("negStockYesBtn").onclick = () => { modal.style.display = "none"; resolve(true); };
     el("negStockNoBtn").onclick = () => { modal.style.display = "none"; resolve(false); };
   });
 }
 
-el("startLeltarBtn").addEventListener("click", async () => {
+async function runStartLeltarFlow_(btn, doRefreshFirst) {
   const tipus = document.querySelector('input[name="leltarTipus"]:checked').value;
-
-  const btn = el("startLeltarBtn");
+  const originalLabel = btn.textContent;
   btn.disabled = true;
-  btn.textContent = "Ellenőrzés…";
   el("startLeltarMsg").textContent = "";
 
+  if (doRefreshFirst) {
+    btn.textContent = "Készlet frissítése… (ez eltarthat egy percig)";
+    try {
+      const refreshResult = await apiPost({ action: "keszlet_azonnali_frissites" });
+      if (refreshResult.error) {
+        showToast("Hiba a készlet frissítésekor: " + refreshResult.error, "error");
+        btn.disabled = false;
+        btn.textContent = originalLabel;
+        return;
+      }
+      showToast(`Készlet frissítve (${refreshResult.sorok_szama} sor, ${refreshResult.fajlnev}).`, "success");
+    } catch (e) {
+      showToast("Hiba a készlet frissítésekor: " + e.message, "error");
+      btn.disabled = false;
+      btn.textContent = originalLabel;
+      return;
+    }
+  }
+
+  btn.textContent = "Ellenőrzés…";
+  let frissDatum = null;
+  let negativeItems = [];
   try {
     const negCheck = await apiPost({
       action: "check_negative_stock",
       tipus: tipus,
       termektipusok: Array.from(selectedProductTypes),
     });
-    if (negCheck.items && negCheck.items.length) {
-      const proceed = await showNegativeStockModal(negCheck.items);
-      if (!proceed) {
-        btn.disabled = false;
-        btn.textContent = "Leltár indítása";
-        return;
-      }
-    }
+    frissDatum = negCheck.friss_datum || null;
+    negativeItems = negCheck.items || [];
   } catch (e) {
     console.error("Negatív készlet ellenőrzési hiba (nem blokkoló):", e);
+  }
+
+  const proceed = await showStartLeltarModal(frissDatum, negativeItems);
+  if (!proceed) {
+    btn.disabled = false;
+    btn.textContent = originalLabel;
+    return;
   }
 
   btn.textContent = "Indítás…";
@@ -554,8 +593,11 @@ el("startLeltarBtn").addEventListener("click", async () => {
     el("startLeltarMsg").textContent = "Hiba: " + e.message;
   }
   btn.disabled = false;
-  btn.textContent = "Leltár indítása";
-});
+  btn.textContent = originalLabel;
+}
+
+el("startLeltarBtn").addEventListener("click", () => runStartLeltarFlow_(el("startLeltarBtn"), false));
+el("refreshAndStartLeltarBtn").addEventListener("click", () => runStartLeltarFlow_(el("refreshAndStartLeltarBtn"), true));
 
 /* =========================================================================
    FUTÓ LELTÁR KÁRTYA
@@ -699,21 +741,45 @@ function renderFullReport(container, report, opts) {
   const conflictsHtml = (szektor_konfliktusok && szektor_konfliktusok.length) ? `
     <div class="card">
       <div class="cardTitle">⚠ Szektor-ütközések</div>
-      <div class="metaLine" style="margin-bottom:12px;">Ugyanazt a szektort több felhasználó is beolvasta.${showActions ? " Válaszd ki, melyiket vegyük figyelembe — a másik ki lesz zárva a számításból." : ""}</div>
-      ${szektor_konfliktusok.map(c => `
-        <div style="margin-bottom:14px; padding-bottom:14px; border-bottom:1px solid var(--line);">
-          <div style="font-weight:700; margin-bottom:8px;">${escapeHtml(c.szektor)}. szektor</div>
-          ${c.jeloltek.map(j => `
-            <div class="row" style="justify-content:space-between; align-items:center; padding:9px 12px; margin-bottom:6px;
-              background:var(--panel-2); border-radius:8px; border:1px solid ${c.valasztott === j.felhasznalo ? "var(--accent)" : "var(--line)"};">
-              <span>${escapeHtml(j.felhasznalo)} — ${j.tetel_fajta} féle tétel, ${j.db_osszesen} db</span>
-              ${c.valasztott === j.felhasznalo
-                ? `<span class="permPill">kiválasztva</span>`
-                : (showActions ? `<button class="btn" style="font-size:11px; padding:6px 10px;" data-resolve-sector="${escapeHtml(c.szektor)}" data-resolve-user="${escapeHtml(j.felhasznalo)}">Ezt választom</button>` : `<span class="meta">kizárva</span>`)}
-            </div>
-          `).join("")}
-        </div>
-      `).join("")}
+      ${szektor_konfliktusok.map(c => {
+        if (c.mind_egyezik) {
+          return `
+            <div style="margin-bottom:14px; padding-bottom:14px; border-bottom:1px solid var(--line);">
+              <div style="font-weight:700; margin-bottom:6px;">${escapeHtml(c.szektor)}. szektor</div>
+              <div style="color:var(--accent); font-size:13px;">✓ Többször is beolvasták, de mindegyik beolvasás egyezik — nincs teendő.</div>
+            </div>`;
+        }
+        const elteresekHtml = c.elteresek.length ? `
+          <div style="margin-top:10px; margin-bottom:10px; padding:10px; background:var(--panel-2); border-radius:8px;">
+            <div style="font-size:12px; color:var(--text-dim); margin-bottom:6px;">Eltérések a csoportok között:</div>
+            ${c.elteresek.map(e => `
+              <div style="font-size:13px; margin-bottom:4px;">
+                <b>${escapeHtml(e.nev || e.vonalkod)}</b> —
+                ${e.csoport_ertekek.map((v, i) => `${i + 1}. csoport: ${v} db`).join(" · ")}
+              </div>
+            `).join("")}
+          </div>` : "";
+        return `
+          <div style="margin-bottom:14px; padding-bottom:14px; border-bottom:1px solid var(--line);">
+            <div style="font-weight:700; margin-bottom:8px;">${escapeHtml(c.szektor)}. szektor — ${c.csoportok.length} eltérő beolvasás-csoport</div>
+            ${c.csoportok.map((g, gi) => {
+              const rep = g.sessionek[0];
+              const nevek = [...new Set(g.sessionek.map(s => s.felhasznalo))].map(escapeHtml).join(", ");
+              return `
+                <div class="row" style="justify-content:space-between; align-items:center; padding:9px 12px; margin-bottom:6px;
+                  background:var(--panel-2); border-radius:8px; border:1px solid ${g.valasztott ? "var(--accent)" : "var(--line)"};">
+                  <span>${gi + 1}. csoport — ${nevek} (${escapeHtml(formatDateTime(rep.kezdete))}) — ${rep.tetel_fajta} féle tétel, ${rep.db_osszesen} db</span>
+                  ${g.valasztott
+                    ? `<span class="permPill">kiválasztva</span>`
+                    : (showActions ? `<button class="btn" style="font-size:11px; padding:6px 10px;"
+                        data-resolve-sector="${escapeHtml(c.szektor)}" data-resolve-user="${escapeHtml(rep.felhasznalo)}"
+                        data-resolve-kezdete="${rep.kezdete_ms || ""}"
+                        data-resolve-vege="${(() => { const d = parseBqTimestamp_(rep.vege); return d ? d.getTime() : ""; })()}">Ezt választom</button>` : `<span class="meta">kizárva</span>`)}
+                </div>`;
+            }).join("")}
+            ${elteresekHtml}
+          </div>`;
+      }).join("")}
     </div>` : "";
 
   container.innerHTML = `
@@ -804,7 +870,9 @@ function renderFullReport(container, report, opts) {
       btn.addEventListener("click", async () => {
         const szektor = btn.dataset.resolveSector;
         const felhasznalo = btn.dataset.resolveUser;
-        if (!(await showConfirm(`Biztosan ${felhasznalo} adatait választod a(z) ${szektor}. szektorhoz? A másik felhasználó beolvasásai ki lesznek zárva a számításból.`))) return;
+        const kezdeteMs = btn.dataset.resolveKezdete ? Number(btn.dataset.resolveKezdete) : null;
+        const vegeMs = btn.dataset.resolveVege ? Number(btn.dataset.resolveVege) : null;
+        if (!(await showConfirm(`Biztosan ${felhasznalo} adatait választod a(z) ${szektor}. szektorhoz? A másik(ak) beolvasásai ki lesznek zárva a számításból.`))) return;
         btn.disabled = true;
         btn.textContent = "Mentés…";
         try {
@@ -813,6 +881,8 @@ function renderFullReport(container, report, opts) {
             leltar_id: leltar.leltar_id,
             szektor: szektor,
             valasztott_felhasznalo: felhasznalo,
+            session_kezdete_ms: kezdeteMs,
+            session_vege_ms: vegeMs,
           });
           if (result.error) {
             showToast("Hiba: " + result.error, "error");
