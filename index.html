@@ -691,7 +691,7 @@ async function startCamera() {
   }
 }
 
-const APP_VERSION = "v50";
+const APP_VERSION = "v51";
 let frameCount = 0, detectCount = 0;
 function debugLog(msg) {
   // A felületen csak a verziószám látszik (lásd lent) — a részletes
@@ -1775,14 +1775,12 @@ function bindVerifyRow(i, it) {
 }
 
 function verifyRowHtml(it, i) {
-  const szektorText = it.szektor ? `Szektor: <b>${escapeHtml(it.szektor)}</b>` : `<span style="color:var(--warn);">Korábban nem lett beolvasva egyik szektorban sem</span>`;
   return `
     <div class="verifyItemRow" id="verifyRow-${i}">
       <div class="vName">${escapeHtml(it.nev || it.vonalkod)}</div>
       <div class="vMeta">
         Vonalkód: ${escapeHtml(it.vonalkod)} · Saját cikkszám: ${escapeHtml(it.sajat_cikkszam || "—")}<br>
-        Gyártói cikkszám: ${escapeHtml(it.gyartoi_cikkszam || "—")}<br>
-        ${szektorText}
+        Gyártói cikkszám: ${escapeHtml(it.gyartoi_cikkszam || "—")}
       </div>
       <div class="vRow" id="verifyRowInput-${i}">
         <button class="vMinus" aria-label="Csökkentés">–</button>
