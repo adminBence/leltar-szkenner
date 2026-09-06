@@ -192,6 +192,68 @@
   #signOutBtn{background:none; border:none; color:var(--text-dim); font-size:11px;
     text-decoration:underline; padding:2px; margin-left:6px;}
 
+  /* =========================================================================
+     MOBIL OPTIMALIZÁCIÓ — csak keskeny képernyőn (≤640px) lép életbe, az
+     asztali megjelenést fentebb egyáltalán nem érinti. A cél: minden
+     ugyanúgy elérhető maradjon, de jobban olvasható/érinthető legyen.
+     ========================================================================= */
+  @media (max-width: 640px) {
+    #app{padding:0 12px 50px;}
+
+    /* Fejléc: a cím és a bejelentkezett-felhasználó sor essen egymás alá,
+       ne szoruljanak össze egy sorban. */
+    header{flex-direction:column; align-items:flex-start; gap:8px; padding:16px 0 14px;}
+    header h1{font-size:19px;}
+    #signedInAs{font-size:12px;}
+
+    /* Fülek: nagyobb érintési terület, és ha nem férnek ki, vízszintesen
+       görgethetők legyenek egy sorban maradva (nem törnek soronként). */
+    nav{flex-wrap:nowrap; overflow-x:auto; -webkit-overflow-scrolling:touch;
+      gap:4px; padding-bottom:2px;}
+    nav button{padding:12px 10px; margin-right:6px; font-size:13px; white-space:nowrap; flex:0 0 auto;}
+
+    .card{padding:16px;}
+
+    /* Mezők: legalább 16px betűméret, különben iOS automatikusan
+       ránagyítana beviteli mező érintésekor. */
+    input[type=text], input:not([type]){font-size:16px; padding:12px 14px;}
+
+    /* Gombok: nagyobb érintési terület, és soraik inkább törjenek új
+       sorba, mint hogy összepréselődjenek. */
+    .btn{padding:12px 16px; font-size:15px; min-height:44px;}
+    .row{flex-wrap:wrap;}
+    .row > .btn{flex:1 1 auto;}
+
+    /* Futó leltár kártya: a QR-kód kerüljön a szöveg fölé, középre. */
+    .activeLeltarCard{flex-direction:column; align-items:center; text-align:center; gap:14px;}
+    .activeLeltarCard .info{width:100%; min-width:0; text-align:left;}
+    .activeLeltarCard .codeValue{text-align:center;}
+
+    /* Összesítő dobozok (Hiány/Többlet/Összesen): egy oszlopba, hogy a
+       számok ne szoruljanak össze. */
+    .summaryGrid{grid-template-columns:1fr;}
+    .summarySection .sectionStat{font-size:20px;}
+
+    /* Eltérés-riport sorai: a checkbox és a szöveg között kicsit több
+       hely, a mennyiség-mezők és gombok teljes szélességben. */
+    .diffRow{padding:14px;}
+    .diffRow .info b{font-size:15px;}
+    .diffRow .info span{font-size:12px;}
+    #diffListWrap input[type=text]{font-size:16px;}
+
+    /* Sor-elrendezésű listák (felelős, előzmény, felhasználó sorok):
+       ha nem fér ki egy sorba, törjön inkább alá, mint hogy levágja. */
+    .felelosRow, .historyRow, .userRow, .progressRow{flex-wrap:wrap; gap:6px;}
+
+    /* Modalok: kicsit kevesebb belső margó, hogy kis képernyőn is
+       kényelmesen elférjenek, a gombsoraik pedig törhessenek. */
+    #confirmModalOverlay > div, #negStockModal > div, #keszletInfoModal > div{padding:20px 16px;}
+
+    /* Terméktípus-választó chip-ek: kicsit nagyobb érintési felület. */
+    #productTypeList label{padding:10px 14px; font-size:14px;}
+    .typeChoice label{padding:14px 16px;}
+  }
+
 </style>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
