@@ -127,6 +127,7 @@
   .userRow{display:flex; align-items:center; justify-content:space-between; gap:10px;
     padding:12px 14px; background:var(--panel-2); border:1px solid var(--line); border-radius:10px; margin-bottom:8px;}
   .userRow .meta{font-size:11px; color:var(--text-dim); margin-top:2px;}
+  .permPill{font-size:10px; padding:2px 8px; border-radius:999px; background:var(--panel-2); color:var(--text-dim); font-weight:700; border:1px solid var(--line);}
   .userRow .permPill{font-size:10px; padding:2px 8px; border-radius:999px; background:var(--accent-dim); color:var(--accent); font-weight:700;}
 
   /* ---------- Előzmények ---------- */
@@ -356,10 +357,7 @@
     <div class="card" id="activeLeltarakCard" style="display:none;">
       <div class="row" style="justify-content:space-between; align-items:center;">
         <div class="cardTitle" style="margin-bottom:0;">Futó leltár</div>
-        <div id="eloNezetBar" style="font-size:11px; color:var(--text-dim); display:flex; align-items:center; gap:8px;">
-          <span id="eloNezetStatus">Élő nézet: ellenőrzés…</span>
-          <button id="eloNezetAtveszBtn" class="btn" style="font-size:10px; padding:5px 12px; display:none;">Átveszem</button>
-        </div>
+        <span id="eloNezetPill" class="permPill" style="cursor:pointer; font-size:11px;">Élő nézet: ellenőrzés…</span>
       </div>
       <div id="activeLeltarakBody"></div>
     </div>
@@ -507,41 +505,55 @@ async function checkEloNezetAllapot_() {
       showToast(`${b.felhasznalo} felhasználó (${b.eszkoz_nev || "másik eszköz"}) átvette az élő nézetet.`, "warn");
     }
 
-    const statusEl = el("eloNezetStatus");
-    const btnEl = el("eloNezetAtveszBtn");
-    if (statusEl) {
+    const pill = el("eloNezetPill");
+    if (pill) {
       if (isLiveViewHolder_) {
-        statusEl.textContent = "🟢 Élő nézet: nálad";
-        statusEl.style.color = "var(--accent)";
+        pill.textContent = "🟢 Élő nézet: nálad (kattints a kikapcsoláshoz)";
+        pill.style.background = "var(--accent-dim)";
+        pill.style.color = "var(--accent)";
+        pill.style.borderColor = "var(--accent)";
       } else if (b) {
-        statusEl.textContent = `⚪ Élő nézet: ${b.felhasznalo} (${b.eszkoz_nev || "másik eszköz"})`;
-        statusEl.style.color = "var(--text-dim)";
+        pill.textContent = `⚪ Élő nézet: ${b.felhasznalo} (${b.eszkoz_nev || "másik eszköz"})`;
+        pill.style.background = "var(--panel-2)";
+        pill.style.color = "var(--text-dim)";
+        pill.style.borderColor = "var(--line)";
       } else {
-        statusEl.textContent = "⚪ Élő nézet: senkinél";
-        statusEl.style.color = "var(--text-dim)";
+        pill.textContent = "⚪ Élő nézet: kikapcsolva (kattints a bekapcsoláshoz)";
+        pill.style.background = "var(--panel-2)";
+        pill.style.color = "var(--text-dim)";
+        pill.style.borderColor = "var(--line)";
       }
     }
-    if (btnEl) btnEl.style.display = isLiveViewHolder_ ? "none" : "inline-block";
   } catch (e) { /* nem kritikus, legközelebb újra próbálja */ }
 }
 
-async function atveszEloNezet_() {
-  const btn = el("eloNezetAtveszBtn");
-  if (btn) { btn.disabled = true; btn.textContent = "Átvétel…"; }
+async function toggleEloNezet_() {
+  const pill = el("eloNezetPill");
+  if (pill) pill.style.opacity = "0.6";
   try {
-    const result = await apiPost({ action: "atvesz_elo_nezet", eszkoz_azonosito: myDeviceId_, eszkoz_nev: myDeviceLabel_ });
-    if (result.error) {
-      showToast("Hiba: " + result.error, "error");
+    if (isLiveViewHolder_) {
+      const result = await apiPost({ action: "kikapcsol_elo_nezet" });
+      if (result.error) {
+        showToast("Hiba: " + result.error, "error");
+      } else {
+        isLiveViewHolder_ = false;
+        showToast("Kikapcsoltad az élő nézetet ezen az eszközön.", "success");
+      }
     } else {
-      isLiveViewHolder_ = true;
-      showToast("Átvetted az élő nézetet ezen az eszközön.", "success");
-      loadActiveLeltarak();
-      if (currentOpenReport) refreshOpenReportSilently_();
+      const result = await apiPost({ action: "atvesz_elo_nezet", eszkoz_azonosito: myDeviceId_, eszkoz_nev: myDeviceLabel_ });
+      if (result.error) {
+        showToast("Hiba: " + result.error, "error");
+      } else {
+        isLiveViewHolder_ = true;
+        showToast("Átvetted az élő nézetet ezen az eszközön.", "success");
+        loadActiveLeltarak();
+        if (currentOpenReport) refreshOpenReportSilently_();
+      }
     }
   } catch (e) {
     showToast("Hiba: " + e.message, "error");
   }
-  if (btn) { btn.disabled = false; btn.textContent = "Átveszem"; }
+  if (pill) pill.style.opacity = "1";
   checkEloNezetAllapot_();
 }
 
@@ -866,7 +878,7 @@ async function runStartLeltarFlow_(btn, doRefreshFirst) {
 
 el("startLeltarBtn").addEventListener("click", () => runStartLeltarFlow_(el("startLeltarBtn"), false));
 el("refreshAndStartLeltarBtn").addEventListener("click", () => runStartLeltarFlow_(el("refreshAndStartLeltarBtn"), true));
-el("eloNezetAtveszBtn").addEventListener("click", atveszEloNezet_);
+el("eloNezetPill").addEventListener("click", toggleEloNezet_);
 el("keszletInfoBtn").addEventListener("click", () => { el("keszletInfoModal").style.display = "flex"; });
 el("keszletInfoCloseBtn").addEventListener("click", () => { el("keszletInfoModal").style.display = "none"; });
 
