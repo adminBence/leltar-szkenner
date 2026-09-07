@@ -342,7 +342,13 @@
       <h1>Leltár admin</h1>
       <div class="sub">Új leltár, korábbi leltárak és felhasználókezelés</div>
     </div>
-    <div id="signedInAs"></div>
+    <div style="text-align:right;">
+      <div id="signedInAs"></div>
+      <div id="eloNezetBar" style="font-size:11px; color:var(--text-dim); margin-top:6px; display:flex; align-items:center; gap:8px; justify-content:flex-end;">
+        <span id="eloNezetStatus">Élő nézet: ellenőrzés…</span>
+        <button id="eloNezetAtveszBtn" class="btn" style="font-size:10px; padding:4px 10px; display:none;">Átveszem</button>
+      </div>
+    </div>
   </header>
 
   <nav>
@@ -454,6 +460,91 @@ function loadTokenFromStorage_() {
 }
 let activeLeltarakLoaded = false;
 let lastActiveLeltarakSig_ = null;
+
+/* =========================================================================
+   ÉLŐ NÉZET BIRTOKLÁSA — mivel minden nyitva tartott admin-munkamenet
+   saját, rendszeres háttér-frissítést futtatna, TÖBB egyidejűleg nyitott
+   eszköz/lap halmozottan terhelné a szervert (időnkénti túlterheléshez
+   vezetve). Ehelyett egyszerre csak EGY eszköz "birtokolja" az élő
+   (25 mp-es) frissítést — a többi csak egyszer tölt be adatot, és
+   csendben figyeli, ki a birtokos, amíg át nem veszi valaki.
+   ========================================================================= */
+function getOrCreateDeviceId_() {
+  try {
+    let id = localStorage.getItem("leltarDeviceId");
+    if (!id) {
+      id = "d-" + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+      localStorage.setItem("leltarDeviceId", id);
+    }
+    return id;
+  } catch (e) {
+    return "d-" + Math.random().toString(36).slice(2, 10);
+  }
+}
+function getDeviceLabel_() {
+  const ua = navigator.userAgent || "";
+  const tipus = /Mobi|Android|iPhone|iPad/i.test(ua) ? "mobil" : "asztali gép";
+  let bongeszo = "böngésző";
+  if (/Chrome/i.test(ua) && !/Edg|OPR/i.test(ua)) bongeszo = "Chrome";
+  else if (/Safari/i.test(ua) && !/Chrome/i.test(ua)) bongeszo = "Safari";
+  else if (/Firefox/i.test(ua)) bongeszo = "Firefox";
+  else if (/Edg/i.test(ua)) bongeszo = "Edge";
+  return `${bongeszo}, ${tipus}`;
+}
+const myDeviceId_ = getOrCreateDeviceId_();
+const myDeviceLabel_ = getDeviceLabel_();
+let isLiveViewHolder_ = false;
+
+async function checkEloNezetAllapot_() {
+  try {
+    const data = await apiGet({ action: "get_elo_nezet_allapot" });
+    const b = data.birtokos;
+    const wasHolder = isLiveViewHolder_;
+    isLiveViewHolder_ = !!(b && b.eszkoz_azonosito === myDeviceId_);
+
+    if (wasHolder && !isLiveViewHolder_ && b) {
+      // Valaki más vette át tőlünk — értesítjük a felhasználót.
+      showToast(`${b.felhasznalo} felhasználó (${b.eszkoz_nev || "másik eszköz"}) átvette az élő nézetet.`, "warn");
+    }
+
+    const statusEl = el("eloNezetStatus");
+    const btnEl = el("eloNezetAtveszBtn");
+    if (statusEl) {
+      if (isLiveViewHolder_) {
+        statusEl.textContent = "🟢 Élő nézet: nálad";
+        statusEl.style.color = "var(--accent)";
+      } else if (b) {
+        statusEl.textContent = `⚪ Élő nézet: ${b.felhasznalo} (${b.eszkoz_nev || "másik eszköz"})`;
+        statusEl.style.color = "var(--text-dim)";
+      } else {
+        statusEl.textContent = "⚪ Élő nézet: senkinél";
+        statusEl.style.color = "var(--text-dim)";
+      }
+    }
+    if (btnEl) btnEl.style.display = isLiveViewHolder_ ? "none" : "inline-block";
+  } catch (e) { /* nem kritikus, legközelebb újra próbálja */ }
+}
+
+async function atveszEloNezet_() {
+  const btn = el("eloNezetAtveszBtn");
+  if (btn) { btn.disabled = true; btn.textContent = "Átvétel…"; }
+  try {
+    const result = await apiPost({ action: "atvesz_elo_nezet", eszkoz_azonosito: myDeviceId_, eszkoz_nev: myDeviceLabel_ });
+    if (result.error) {
+      showToast("Hiba: " + result.error, "error");
+    } else {
+      isLiveViewHolder_ = true;
+      showToast("Átvetted az élő nézetet ezen az eszközön.", "success");
+      loadActiveLeltarak();
+      if (currentOpenReport) refreshOpenReportSilently_();
+    }
+  } catch (e) {
+    showToast("Hiba: " + e.message, "error");
+  }
+  if (btn) { btn.disabled = false; btn.textContent = "Átveszem"; }
+  checkEloNezetAllapot_();
+}
+
 let keszletFrissessegLoaded = false;
 async function loadKeszletFrissesseg_() {
   try {
@@ -487,24 +578,43 @@ async function parseApiResponse_(res) {
     // vagy párhuzamos kérések esetén Google-oldali hibaoldal) — ez
     // ilyenkor egy "Unexpected token '<'..." hibát dobna, ami nem
     // mond semmit a felhasználónak. Ehelyett egy érthető üzenetet adunk.
-    throw new Error("A szerver váratlan választ adott (nem JSON-t) — valószínűleg túlterhelt vagy időtúllépés történt, esetleg párhuzamos kérés miatt. Próbáld újra pár másodperc múlva.");
+    throw new Error("A szerver váratlan választ adott (nem JSON-t) — valószínűleg túlterhelt vagy időtúllépés történt, esetleg párhuzamos kérés miatt.");
   }
+}
+function sleep_(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
+
+// Ha a szerver átmenetileg túlterhelt (pl. mert több eszközön is nyitva
+// van az admin felület, és mindegyik a saját 15 másodperces
+// háttér-frissítését futtatja), ez automatikusan újrapróbálja a
+// kérést — így a felhasználónak nem kell kézzel újra kattintania egy
+// egyszerű, magától is megoldódó átmeneti hiba miatt.
+async function fetchWithRetry_(url, options, maxRetries) {
+  maxRetries = maxRetries === undefined ? 2 : maxRetries;
+  let lastErr;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const res = await fetch(url, options);
+      return await parseApiResponse_(res);
+    } catch (e) {
+      lastErr = e;
+      if (attempt < maxRetries) await sleep_(1200 * (attempt + 1));
+    }
+  }
+  throw lastErr;
 }
 async function apiGet(params) {
   const qs = Object.entries({ ...params, key: APPS_SCRIPT_KEY, id_token: googleIdToken || "" })
     .map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join("&");
-  const res = await fetch(`${APPS_SCRIPT_URL}?${qs}`);
-  const data = await parseApiResponse_(res);
+  const data = await fetchWithRetry_(`${APPS_SCRIPT_URL}?${qs}`);
   if (data.authRequired) { showAuthError(data.error); throw new Error(data.error); }
   return data;
 }
 async function apiPost(body) {
-  const res = await fetch(APPS_SCRIPT_URL, {
+  const data = await fetchWithRetry_(APPS_SCRIPT_URL, {
     method: "POST",
     headers: { "Content-Type": "text/plain;charset=utf-8" },
     body: JSON.stringify({ ...body, key: APPS_SCRIPT_KEY, id_token: googleIdToken || "" }),
   });
-  const data = await parseApiResponse_(res);
   if (data.authRequired) { showAuthError(data.error); throw new Error(data.error); }
   return data;
 }
@@ -756,6 +866,7 @@ async function runStartLeltarFlow_(btn, doRefreshFirst) {
 
 el("startLeltarBtn").addEventListener("click", () => runStartLeltarFlow_(el("startLeltarBtn"), false));
 el("refreshAndStartLeltarBtn").addEventListener("click", () => runStartLeltarFlow_(el("refreshAndStartLeltarBtn"), true));
+el("eloNezetAtveszBtn").addEventListener("click", atveszEloNezet_);
 el("keszletInfoBtn").addEventListener("click", () => { el("keszletInfoModal").style.display = "flex"; });
 el("keszletInfoCloseBtn").addEventListener("click", () => { el("keszletInfoModal").style.display = "none"; });
 
@@ -1598,18 +1709,27 @@ function updateReportLiveInPlace_(leltarId, container, report, opts) {
 }
 
 // Automatikus, csendes frissítés (nincs manuális gomb) — csak azt
-// frissíti, ami épp látszik a képernyőn.
+// frissíti, ami épp látszik a képernyőn. A NEHÉZ (aktív leltár +
+// riport) frissítést csak az "élő nézet" aktuális birtokosa futtatja —
+// a többi eszköz csak azt az egy, olcsó lekérdezést futtatja, ami
+// megmondja, ki a birtokos éppen. Így akárhány eszközön/lapon van
+// nyitva a felület, a terhelés nem halmozódik fel.
 setInterval(() => {
   // Aktív görgetés közben (és röviddel utána) semmit sem frissítünk —
   // ez okozta mobilon a "villódzó, eltűnő adat" és a QR-kód
   // kifehéredésének érzetét, mert a DOM-frissítés versenyzett a
   // böngésző saját görgetés-renderelésével.
   if (Date.now() - lastScrollActivityMs_ < 800) return;
+
+  checkEloNezetAllapot_();
+
   const activePanel = document.querySelector(".panel.active");
   if (!activePanel) return;
   if (activePanel.id === "panel-leltar") {
-    loadActiveLeltarak();
-    if (currentOpenReport) refreshOpenReportSilently_();
+    if (isLiveViewHolder_) {
+      loadActiveLeltarak();
+      if (currentOpenReport) refreshOpenReportSilently_();
+    }
   } else if (activePanel.id === "panel-history") {
     loadHistory(true);
   } else if (activePanel.id === "panel-users") {
@@ -1801,6 +1921,7 @@ function onLoginVerified_() {
   // Csak MOST, sikeres bejelentkezés után indul el az app tényleges
   // adatlekérése.
   loadActiveLeltarak();
+  checkEloNezetAllapot_();
 }
 
 async function handleGoogleCredential(response) {
