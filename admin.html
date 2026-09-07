@@ -631,6 +631,8 @@ function showStartLeltarModal(frissDatum, items) {
 
     if (items && items.length) {
       subtitleEl.style.display = "block";
+      subtitleEl.style.color = "var(--danger)";
+      subtitleEl.style.fontWeight = "700";
       subtitleEl.textContent = "Figyelem: van olyan termék, aminek negatív a készlete.";
       detailsBtn.style.display = "inline-block";
       detailsWrap.style.display = "none";
@@ -638,6 +640,7 @@ function showStartLeltarModal(frissDatum, items) {
         <div style="padding:6px 0; border-bottom:1px solid var(--line);">
           <b>${escapeHtml(it.nev || it.vonalkod)}</b><br>
           <span style="color:var(--text-dim);">Cikkszám: ${escapeHtml(it.cikkszam || "—")} · Vonalkód: ${escapeHtml(it.vonalkod)} · Mennyiség: ${it.mennyiseg} db</span>
+          ${it.nem_veglegesitett_szallitolevel ? `<br><span style="color:var(--warn); font-size:12px;">⚠ Nem véglegesített szállítólevélen szerepel — szám(ok): ${escapeHtml(it.nem_veglegesitett_szallitolevel.szamok || "ismeretlen")}</span>` : ""}
         </div>`).join("");
       detailsBtn.onclick = () => {
         detailsWrap.style.display = detailsWrap.style.display === "block" ? "none" : "block";
@@ -758,7 +761,7 @@ async function loadActiveLeltarak() {
     if (!list.length) {
       card.style.display = "none";
       startCard.style.display = "block";
-      if (!keszletFrissessegLoaded) { keszletFrissessegLoaded = true; loadKeszletFrissesseg_(); }
+      loadKeszletFrissesseg_();
       return;
     }
     card.style.display = "block";
@@ -1483,16 +1486,30 @@ function updateReportLiveInPlace_(leltarId, container, report, opts) {
     el("summaryErtekAbsz").textContent = formatFtSigned(osszesito.elteres_ertek_netto);
   }
 
-  const progressWrap = container.querySelector("#progressWrap");
-  if (progressWrap) progressWrap.innerHTML = renderProgressHtml(progress);
+  // Csak akkor rajzoljuk újra a haladást/ütközéseket, ha a mögöttes
+  // adat TÉNYLEGESEN változott — enélkül minden 15 másodperces körben
+  // feleslegesen újraépítenénk ugyanazt. A "Ki mit csinált" részt
+  // viszont MINDIG frissítjük: ott egy időalapú "éppen szkennel"
+  // jelző van, aminek magától el kell tűnnie inaktivitás után, akkor
+  // is, ha az alapadat közben nem változott.
+  const progressSig = JSON.stringify(progress);
+  if (container._progressSig !== progressSig) {
+    container._progressSig = progressSig;
+    const progressWrap = container.querySelector("#progressWrap");
+    if (progressWrap) progressWrap.innerHTML = renderProgressHtml(progress);
+  }
 
   const felelosWrap = container.querySelector("#felelosWrap");
   if (felelosWrap) felelosWrap.innerHTML = buildFelelosHtml_(szektor_felelosok);
 
-  const conflictsWrap = container.querySelector("#conflictsWrap");
-  if (conflictsWrap) {
-    conflictsWrap.innerHTML = buildConflictsHtml_(szektor_konfliktusok, showActions);
-    bindConflictButtons_(conflictsWrap, leltarId, container, opts);
+  const conflictsSig = JSON.stringify(szektor_konfliktusok);
+  if (container._conflictsSig !== conflictsSig) {
+    container._conflictsSig = conflictsSig;
+    const conflictsWrap = container.querySelector("#conflictsWrap");
+    if (conflictsWrap) {
+      conflictsWrap.innerHTML = buildConflictsHtml_(szektor_konfliktusok, showActions);
+      bindConflictButtons_(conflictsWrap, leltarId, container, opts);
+    }
   }
 
   const wrap = container.querySelector("#diffListWrap");
