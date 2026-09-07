@@ -161,7 +161,7 @@
   @keyframes toastIn{from{opacity:0; transform:translateY(12px);} to{opacity:1; transform:translateY(0);}}
 
   .liveDot{width:8px; height:8px; border-radius:50%; background:var(--accent); display:inline-block; animation:pulseLive 1.2s infinite;}
-  @keyframes pulseLive{0%,100%{opacity:1; box-shadow:0 0 0 0 rgba(62,207,142,0.5);} 50%{opacity:0.6; box-shadow:0 0 0 4px rgba(62,207,142,0);}}
+  @keyframes pulseLive{0%,100%{opacity:1;} 50%{opacity:0.5;}}
 
   /* ---------- Általános betöltés-jelző (spinner) ---------- */
   .spinner{width:26px; height:26px; border:3px solid var(--line); border-top-color:var(--accent);
@@ -1024,8 +1024,12 @@ function renderFullReport(container, report, opts) {
         <button class="btn primary" id="createVerifyBtn">Kiválasztottak ellenőrzése (új QR)</button>
       </div>` : ""}
       <div id="diffListWrap">
-        ${diff.map(r => renderDiffRowHtml(r, showActions, isOpen)).join("") || `<p class="emptyNote">Nincs tétel.</p>`}
+        ${diff.slice(0, DIFF_PAGE_SIZE_).map(r => renderDiffRowHtml(r, showActions, isOpen)).join("") || `<p class="emptyNote">Nincs tétel.</p>`}
       </div>
+      ${diff.length > DIFF_PAGE_SIZE_ ? `
+      <div class="row" style="justify-content:center; margin-top:10px;" id="diffLoadMoreWrap">
+        <button class="btn" id="diffLoadMoreBtn">Továbbiak betöltése (${diff.length - DIFF_PAGE_SIZE_} hátra)</button>
+      </div>` : ""}
     </div>
 
     ${(!isOpen && torolt_ismeretlen && torolt_ismeretlen.length) ? `
@@ -1048,10 +1052,50 @@ function renderFullReport(container, report, opts) {
     bindDiffRowEvents(rowEl, leltar.leltar_id, container, showActions, isOpen);
   });
 
+  // A teljes tétel-listát és azt, hogy eddig hányat renderelünk le
+  // ténylegesen, a konténeren tároljuk — ez kell a "Továbbiak
+  // betöltése" gombhoz és az élő (poll-alapú) frissítéshez is, hogy
+  // csak a MÁR renderelt tartományt frissítsük, ne az egész (akár
+  // több ezres) listát egyszerre.
+  container._diffFullData = diff;
+  container._diffRenderedCount = Math.min(diff.length, DIFF_PAGE_SIZE_);
+  const loadMoreBtn = container.querySelector("#diffLoadMoreBtn");
+  if (loadMoreBtn) {
+    loadMoreBtn.addEventListener("click", () => loadMoreDiffRows_(container, leltar.leltar_id, showActions, isOpen));
+  }
+
   if (showActions) {
     el("createVerifyBtn").addEventListener("click", () => createVerificationRoundForSelected(leltar.leltar_id));
     el("closeLeltarActionBtn").addEventListener("click", () => closeLeltarAction(leltar.leltar_id));
     bindConflictButtons_(container, leltar.leltar_id, container, opts);
+  }
+}
+
+// Egy nagy (akár több ezer tételes) leltárnál a teljes listát egyszerre
+// megjeleníteni nagyon lassítja a mobil böngészőt (görgetés is akadozik)
+// — ezért csak DIFF_PAGE_SIZE_ tételt renderelünk kezdetben, a többit
+// csak igény szerint, adagokban.
+const DIFF_PAGE_SIZE_ = 150;
+
+function loadMoreDiffRows_(container, leltarId, showActions, isOpen) {
+  const wrap = container.querySelector("#diffListWrap");
+  const fullData = container._diffFullData || [];
+  const renderedCount = container._diffRenderedCount || 0;
+  const nextBatch = fullData.slice(renderedCount, renderedCount + DIFF_PAGE_SIZE_);
+  if (!wrap || !nextBatch.length) return;
+  wrap.insertAdjacentHTML("beforeend", nextBatch.map(r => renderDiffRowHtml(r, showActions, isOpen)).join(""));
+  nextBatch.forEach(r => {
+    const rowEl = document.getElementById("diffrow-" + r.vonalkod + "-row");
+    if (rowEl) bindDiffRowEvents(rowEl, leltarId, container, showActions, isOpen);
+  });
+  container._diffRenderedCount = renderedCount + nextBatch.length;
+
+  const loadMoreWrap = container.querySelector("#diffLoadMoreWrap");
+  if (container._diffRenderedCount >= fullData.length) {
+    if (loadMoreWrap) loadMoreWrap.remove();
+  } else if (loadMoreWrap) {
+    const btn = loadMoreWrap.querySelector("#diffLoadMoreBtn");
+    if (btn) btn.textContent = `Továbbiak betöltése (${fullData.length - container._diffRenderedCount} hátra)`;
   }
 }
 
@@ -1453,8 +1497,17 @@ function updateReportLiveInPlace_(leltarId, container, report, opts) {
 
   const wrap = container.querySelector("#diffListWrap");
   if (!wrap) return;
+
+  // A friss, teljes listát mindig eltároljuk (ezt használja majd a
+  // "Továbbiak betöltése" gomb) — de az élő frissítés csak a MÁR
+  // ténylegesen renderelt tartományt vizsgálja/rajzolja újra, hogy egy
+  // több ezer tételes leltárnál is gyors maradjon a pollozás.
+  container._diffFullData = diff;
+  const renderedCount = container._diffRenderedCount || diff.length;
+  const windowData = diff.slice(0, renderedCount);
+
   const stillPresent = new Set();
-  diff.forEach(r => {
+  windowData.forEach(r => {
     const rowId = "diffrow-" + r.vonalkod + "-row";
     stillPresent.add(rowId);
     const sig = rowSignature_(r);
@@ -1466,18 +1519,31 @@ function updateReportLiveInPlace_(leltarId, container, report, opts) {
         if (updated) bindDiffRowEvents(updated, leltarId, container, showActions, isOpen);
       }
     } else {
-      // Új tétel a listában (pl. időközben beolvasott, korábban nem
-      // szereplő "ismeretlen többlet") — hozzáfűzzük a lista végére.
+      // Új tétel a renderelt tartományon belül (pl. időközben
+      // beolvasott, korábban nem szereplő "ismeretlen többlet") —
+      // hozzáfűzzük a lista végére.
       wrap.insertAdjacentHTML("beforeend", renderDiffRowHtml(r, showActions, isOpen));
       const added = document.getElementById(rowId);
       if (added) bindDiffRowEvents(added, leltarId, container, showActions, isOpen);
     }
   });
-  // Amik már nincsenek a friss listában (pl. törölt ismeretlen többlet
-  // egy másik eszközről) — eltávolítjuk.
+  // Amik már nincsenek a friss (renderelt tartományba eső) listában
+  // (pl. törölt ismeretlen többlet egy másik eszközről) — eltávolítjuk.
   wrap.querySelectorAll(".diffRow[id]").forEach(rowEl => {
     if (!stillPresent.has(rowEl.id)) rowEl.remove();
   });
+
+  // A "Továbbiak betöltése" gomb szövegét is frissítjük, ha a hátralévő
+  // tételek száma időközben változott (pl. törlés miatt).
+  const loadMoreWrap = container.querySelector("#diffLoadMoreWrap");
+  if (loadMoreWrap) {
+    if (renderedCount >= diff.length) {
+      loadMoreWrap.remove();
+    } else {
+      const btn = loadMoreWrap.querySelector("#diffLoadMoreBtn");
+      if (btn) btn.textContent = `Továbbiak betöltése (${diff.length - renderedCount} hátra)`;
+    }
+  }
 }
 
 // Automatikus, csendes frissítés (nincs manuális gomb) — csak azt
