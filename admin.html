@@ -340,7 +340,7 @@
   <header>
     <div>
       <h1>Leltár admin</h1>
-      <div class="sub">Szektorok, leltár-indítás és eltérés-riport</div>
+      <div class="sub">Új leltár, korábbi leltárak és felhasználókezelés</div>
     </div>
     <div id="signedInAs"></div>
   </header>
@@ -1148,8 +1148,15 @@ function bindConflictButtons_(wrapEl, leltarId, container, opts) {
             groupRow.style.border = "1px solid var(--accent)";
             btn.outerHTML = `<span class="permPill">kiválasztva</span>`;
           }
-          const keepTracking = !!(currentOpenReport && currentOpenReport.container === container);
-          openReport(leltarId, container, opts, keepTracking);
+          // Célzott, könnyű frissítés a TELJES riport-újratöltése
+          // helyett — ez nem törli a görgetési pozíciót, és nem
+          // érződik zavaró "az egész oldal újratöltődik" élménynek,
+          // miközben a döntés által érintett diff-értékeket mégis
+          // frissen mutatja.
+          try {
+            const fresh = await apiGet({ action: "full_report", leltar_id: leltarId });
+            if (!fresh.error) updateReportLiveInPlace_(leltarId, container, fresh, opts);
+          } catch (e) { /* a következő automatikus pollozás úgyis behozza */ }
         }
       } catch (e) {
         showToast("Hiba: " + e.message, "error");
@@ -1660,7 +1667,17 @@ async function closeLeltarAction(leltarId) {
   try {
     const result = await apiPost({ action: "close_leltar", leltar_id: leltarId });
     if (result.error) { showToast("Hiba: " + result.error, "error"); return; }
-    renderFullReport(el("reportContainer"), result.report, { showActions: false });
+    if (result.report) {
+      renderFullReport(el("reportContainer"), result.report, { showActions: false });
+    } else {
+      // A leltár lezárása MEGTÖRTÉNT, csak a részletes riport
+      // összeállítása hasalt el (pl. átmeneti hiba) — ez nem hagyhatja
+      // a felhasználót hibaüzenettel/összeomlással, hiszen a lezárás
+      // maga sikeres volt.
+      showToast("A leltár lezárva. A részletes riport betöltése nem sikerült — nézd meg a \"Korábbi leltárak\" fülön.", "warn");
+      el("reportContainer").innerHTML = "";
+      currentOpenReport = null;
+    }
     loadActiveLeltarak();
   } catch (e) {
     showToast("Hiba a lezáráskor: " + e.message, "error");
