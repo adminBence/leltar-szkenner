@@ -478,11 +478,23 @@ let usersLoaded = false;
 // automatikusan megnyíljon és csatlakozzon a leltárhoz.
 const SCANNER_URL = "https://adminbence.github.io/leltar-szkenner/";
 
+async function parseApiResponse_(res) {
+  const text = await res.text();
+  try {
+    return JSON.parse(text);
+  } catch (e) {
+    // A szerver nem JSON-t adott vissza (pl. túlterhelés, időtúllépés,
+    // vagy párhuzamos kérések esetén Google-oldali hibaoldal) — ez
+    // ilyenkor egy "Unexpected token '<'..." hibát dobna, ami nem
+    // mond semmit a felhasználónak. Ehelyett egy érthető üzenetet adunk.
+    throw new Error("A szerver váratlan választ adott (nem JSON-t) — valószínűleg túlterhelt vagy időtúllépés történt, esetleg párhuzamos kérés miatt. Próbáld újra pár másodperc múlva.");
+  }
+}
 async function apiGet(params) {
   const qs = Object.entries({ ...params, key: APPS_SCRIPT_KEY, id_token: googleIdToken || "" })
     .map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join("&");
   const res = await fetch(`${APPS_SCRIPT_URL}?${qs}`);
-  const data = await res.json();
+  const data = await parseApiResponse_(res);
   if (data.authRequired) { showAuthError(data.error); throw new Error(data.error); }
   return data;
 }
@@ -492,7 +504,7 @@ async function apiPost(body) {
     headers: { "Content-Type": "text/plain;charset=utf-8" },
     body: JSON.stringify({ ...body, key: APPS_SCRIPT_KEY, id_token: googleIdToken || "" }),
   });
-  const data = await res.json();
+  const data = await parseApiResponse_(res);
   if (data.authRequired) { showAuthError(data.error); throw new Error(data.error); }
   return data;
 }
@@ -1127,6 +1139,15 @@ function bindConflictButtons_(wrapEl, leltarId, container, opts) {
           btn.textContent = "Ezt választom";
         } else {
           showToast(`${szektor}. szektor: ${felhasznalo} adatai lettek kiválasztva.`, "success");
+          // Azonnal, helyben is megjelenítjük a kiválasztást — nem
+          // várunk a szerver-lekérdezésre a vizuális visszajelzéshez
+          // (ha az időközben elhasalna, pl. túlterhelés miatt, a
+          // felhasználó akkor is lássa, hogy a választása megtörtént).
+          const groupRow = btn.closest(".row");
+          if (groupRow) {
+            groupRow.style.border = "1px solid var(--accent)";
+            btn.outerHTML = `<span class="permPill">kiválasztva</span>`;
+          }
           const keepTracking = !!(currentOpenReport && currentOpenReport.container === container);
           openReport(leltarId, container, opts, keepTracking);
         }
@@ -1434,15 +1455,21 @@ let selectedDiffBarcodes = new Set();
 
 // A nyitott riportot csendben frissíti, DE csak akkor, ha a felhasználó
 // épp nem ír valamelyik beviteli mezőbe, ÉS nincs nyitva egy
-// korrekció/megjegyzés-panel, ÉS nincs kint egy ellenőrzési QR-kód —
-// ezeket mind elveszítenénk egy teljes újrarajzolással, mert csak
-// kliens-oldali állapotként léteznek, nem a szerver válaszában.
+// korrekció/megjegyzés-panel, ÉS nincs kint egy ellenőrzési QR-kód, ÉS
+// épp nem görget aktívan — ezeket mind elveszítenénk/megzavarnánk egy
+// DOM-frissítéssel, mert csak kliens-oldali állapotként léteznek, vagy
+// mert a görgetés közbeni DOM-változtatás vizuális villódzást/akadást
+// okoz mobilon (a felhasználó ezt "eltűnő adatként" érzékeli).
+let lastScrollActivityMs_ = 0;
+window.addEventListener("scroll", () => { lastScrollActivityMs_ = Date.now(); }, { passive: true });
+
 function isTypingInReport_() {
   const a = document.activeElement;
   return !!(a && a.closest && a.closest("#diffListWrap") && (a.tagName === "INPUT" || a.tagName === "TEXTAREA"));
 }
 function isReportBusy_() {
   if (isTypingInReport_()) return true;
+  if (Date.now() - lastScrollActivityMs_ < 800) return true; // aktív görgetés közben ne zavarjunk bele
   const qrCard = document.getElementById("verifyQrCard");
   if (qrCard && qrCard.style.display !== "none" && qrCard.innerHTML.trim()) return true;
   const wrap = document.getElementById("diffListWrap");
@@ -1566,6 +1593,11 @@ function updateReportLiveInPlace_(leltarId, container, report, opts) {
 // Automatikus, csendes frissítés (nincs manuális gomb) — csak azt
 // frissíti, ami épp látszik a képernyőn.
 setInterval(() => {
+  // Aktív görgetés közben (és röviddel utána) semmit sem frissítünk —
+  // ez okozta mobilon a "villódzó, eltűnő adat" és a QR-kód
+  // kifehéredésének érzetét, mert a DOM-frissítés versenyzett a
+  // böngésző saját görgetés-renderelésével.
+  if (Date.now() - lastScrollActivityMs_ < 800) return;
   const activePanel = document.querySelector(".panel.active");
   if (!activePanel) return;
   if (activePanel.id === "panel-leltar") {
