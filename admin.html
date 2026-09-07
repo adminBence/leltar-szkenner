@@ -342,13 +342,7 @@
       <h1>Leltár admin</h1>
       <div class="sub">Új leltár, korábbi leltárak és felhasználókezelés</div>
     </div>
-    <div style="text-align:right;">
-      <div id="signedInAs"></div>
-      <div id="eloNezetBar" style="font-size:11px; color:var(--text-dim); margin-top:6px; display:flex; align-items:center; gap:8px; justify-content:flex-end;">
-        <span id="eloNezetStatus">Élő nézet: ellenőrzés…</span>
-        <button id="eloNezetAtveszBtn" class="btn" style="font-size:10px; padding:4px 10px; display:none;">Átveszem</button>
-      </div>
-    </div>
+    <div id="signedInAs"></div>
   </header>
 
   <nav>
@@ -360,7 +354,13 @@
   <!-- LELTÁR -->
   <div class="panel active" id="panel-leltar">
     <div class="card" id="activeLeltarakCard" style="display:none;">
-      <div class="cardTitle">Futó leltár</div>
+      <div class="row" style="justify-content:space-between; align-items:center;">
+        <div class="cardTitle" style="margin-bottom:0;">Futó leltár</div>
+        <div id="eloNezetBar" style="font-size:11px; color:var(--text-dim); display:flex; align-items:center; gap:8px;">
+          <span id="eloNezetStatus">Élő nézet: ellenőrzés…</span>
+          <button id="eloNezetAtveszBtn" class="btn" style="font-size:10px; padding:5px 12px; display:none;">Átveszem</button>
+        </div>
+      </div>
       <div id="activeLeltarakBody"></div>
     </div>
 
