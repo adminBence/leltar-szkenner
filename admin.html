@@ -624,7 +624,14 @@ async function apiGet(params) {
   const qs = Object.entries({ ...params, key: APPS_SCRIPT_KEY, id_token: googleIdToken || "" })
     .map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join("&");
   const data = await fetchWithRetry_(`${APPS_SCRIPT_URL}?${qs}`);
-  if (data.authRequired) { showAuthError(data.error); throw new Error(data.error); }
+  if (data.authRequired) {
+    // FONTOS: ha a szerver jelezte, hogy a hiba csak ÁTMENETI (pl. a
+    // BigQuery átmenetileg túlterhelt volt a jogosultság-ellenőrzés
+    // közben), NEM jelentkeztetjük ki a felhasználót — a bejelentkezése
+    // valójában érvényes maradt, csak a mostani kérés hasalt el.
+    if (!data.transient) showAuthError(data.error);
+    throw new Error(data.error);
+  }
   return data;
 }
 async function apiPost(body) {
@@ -633,7 +640,10 @@ async function apiPost(body) {
     headers: { "Content-Type": "text/plain;charset=utf-8" },
     body: JSON.stringify({ ...body, key: APPS_SCRIPT_KEY, id_token: googleIdToken || "" }),
   });
-  if (data.authRequired) { showAuthError(data.error); throw new Error(data.error); }
+  if (data.authRequired) {
+    if (!data.transient) showAuthError(data.error);
+    throw new Error(data.error);
+  }
   return data;
 }
 
