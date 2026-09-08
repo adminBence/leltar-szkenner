@@ -1815,9 +1815,19 @@ function buildVerifyUrl(kod) {
 
 async function closeLeltarAction(leltarId) {
   if (!(await showConfirm("Biztosan lezárod a leltárat? Ezután már nem lehet több beolvasást/ellenőrzést hozzáadni.", { yesLabel: "Leltár lezárása" }))) return;
+  const btn = el("closeLeltarActionBtn");
+  const originalLabel = btn ? btn.textContent : "";
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = `<span class="spinner" style="width:12px; height:12px; border-width:2px; display:inline-block; vertical-align:middle; margin-right:6px;"></span>Lezárás folyamatban…`;
+  }
   try {
     const result = await apiPost({ action: "close_leltar", leltar_id: leltarId });
-    if (result.error) { showToast("Hiba: " + result.error, "error"); return; }
+    if (result.error) {
+      showToast("Hiba: " + result.error, "error");
+      if (btn) { btn.disabled = false; btn.textContent = originalLabel; }
+      return;
+    }
     if (result.report) {
       renderFullReport(el("reportContainer"), result.report, { showActions: false });
     } else {
@@ -1832,6 +1842,7 @@ async function closeLeltarAction(leltarId) {
     loadActiveLeltarak();
   } catch (e) {
     showToast("Hiba a lezáráskor: " + e.message, "error");
+    if (btn && document.body.contains(btn)) { btn.disabled = false; btn.textContent = originalLabel; }
   }
 }
 
