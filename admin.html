@@ -1961,13 +1961,23 @@ async function handleGoogleCredential(response) {
   showLoginLoading_(true);
   try {
     const result = await apiPost({ action: "verify_login" });
-    if (result.error) { googleIdToken = null; showLoginLoading_(false); return; }
+    if (result.error) {
+      googleIdToken = null;
+      showLoginLoading_(false);
+      showAuthError(result.error);
+      return;
+    }
     saveTokenToStorage_(response.credential, payload);
     onLoginVerified_();
     showLoginLoading_(false);
   } catch (e) {
     googleIdToken = null;
     showLoginLoading_(false);
+    // Ha idáig jutottunk, a showAuthError-t az apiPost már meghívta
+    // "authRequired" esetén — de bebiztosítjuk, hogy MINDIG lásson a
+    // felhasználó valamilyen érthető üzenetet, sose egy néma,
+    // magyarázat nélküli visszaugrást a bejelentkezés-gombhoz.
+    showAuthError(e.message || "Hiba történt a bejelentkezés ellenőrzésekor. Próbáld újra.");
   }
 }
 
