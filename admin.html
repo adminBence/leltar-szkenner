@@ -399,7 +399,10 @@
   <!-- KORÁBBI LELTÁRAK -->
   <div class="panel" id="panel-history">
     <div class="card">
-      <div class="cardTitle">Korábbi leltárak</div>
+      <div class="row" style="justify-content:space-between; align-items:center;">
+        <div class="cardTitle" style="margin-bottom:0;">Korábbi leltárak</div>
+        <button class="btn danger" id="deleteAllHistoryBtn" style="display:none; font-size:12px; padding:6px 12px;">Mindent töröl</button>
+      </div>
       <div id="historyList"><div class="inlineLoading"><div class="spinner small"></div>Betöltés…</div></div>
     </div>
     <div id="historyReportContainer"></div>
@@ -1835,31 +1838,95 @@ async function closeLeltarAction(leltarId) {
 /* =========================================================================
    KORÁBBI LELTÁRAK
    ========================================================================= */
+const SUPER_ADMIN_EMAIL_ = "admin@aceltigris.hu";
+function isSuperAdmin_() {
+  return (googleUserEmail || "").toLowerCase() === SUPER_ADMIN_EMAIL_;
+}
+
 async function loadHistory(silent) {
   historyLoaded = true;
   const wrap = el("historyList");
+  const deleteAllBtn = el("deleteAllHistoryBtn");
+  if (deleteAllBtn) deleteAllBtn.style.display = isSuperAdmin_() ? "inline-block" : "none";
   if (!silent) wrap.innerHTML = `<div class="inlineLoading"><div class="spinner small"></div>Betöltés…</div>`;
   try {
     const data = await apiGet({ action: "history" });
     const list = data.leltarak || [];
-    if (!list.length) { wrap.innerHTML = `<p class="emptyNote">Még nincs egyetlen leltár sem.</p>`; return; }
+    if (!list.length) {
+      wrap.innerHTML = `<p class="emptyNote">Még nincs egyetlen leltár sem.</p>`;
+      if (deleteAllBtn) deleteAllBtn.style.display = "none";
+      return;
+    }
+    const showDelete = isSuperAdmin_();
     wrap.innerHTML = list.map(l => `
       <div class="historyRow" data-leltar="${escapeHtml(l.leltar_id)}">
         <div>
           <b>${escapeHtml(formatDateTime(l.inditva))}</b>
           <div class="meta">Indította: ${escapeHtml(l.inditotta)} · Típus: ${escapeHtml(l.tipus)} · Raktár: ${escapeHtml(l.raktar)}</div>
         </div>
-        <span class="statusPill ${l.statusz === "folyamatban" ? "folyamatban" : "lezart"}">${l.statusz === "folyamatban" ? "Folyamatban" : "Lezárva"}</span>
+        <div class="row" style="gap:8px; align-items:center;">
+          <span class="statusPill ${l.statusz === "folyamatban" ? "folyamatban" : "lezart"}">${l.statusz === "folyamatban" ? "Folyamatban" : "Lezárva"}</span>
+          ${showDelete ? `<button class="btn danger" data-delete-leltar="${escapeHtml(l.leltar_id)}" style="font-size:11px; padding:5px 10px;">Törlés</button>` : ""}
+        </div>
       </div>
     `).join("");
     wrap.querySelectorAll(".historyRow").forEach(row => {
-      row.addEventListener("click", () => {
+      row.addEventListener("click", (ev) => {
+        if (ev.target.closest("[data-delete-leltar]")) return;
         openReport(row.dataset.leltar, el("historyReportContainer"), { showActions: row.querySelector(".folyamatban") !== null });
+      });
+    });
+    wrap.querySelectorAll("[data-delete-leltar]").forEach(btn => {
+      btn.addEventListener("click", async (ev) => {
+        ev.stopPropagation();
+        const leltarId = btn.dataset.deleteLeltar;
+        if (!(await showConfirm("Biztosan véglegesen törlöd ezt a leltárat és az összes hozzá tartozó adatot? Ez nem vonható vissza.", { yesLabel: "Igen, törlöm" }))) return;
+        btn.disabled = true;
+        btn.textContent = "Törlés…";
+        try {
+          const result = await apiPost({ action: "delete_leltar", leltar_id: leltarId });
+          if (result.error) {
+            showToast("Hiba: " + result.error, "error");
+            btn.disabled = false;
+            btn.textContent = "Törlés";
+          } else {
+            showToast("Leltár törölve.", "success");
+            el("historyReportContainer").innerHTML = "";
+            loadHistory();
+          }
+        } catch (e) {
+          showToast("Hiba: " + e.message, "error");
+          btn.disabled = false;
+          btn.textContent = "Törlés";
+        }
       });
     });
   } catch (e) {
     wrap.innerHTML = `<p class="emptyNote">Hiba: ${escapeHtml(e.message)}</p>`;
   }
+}
+
+if (el("deleteAllHistoryBtn")) {
+  el("deleteAllHistoryBtn").addEventListener("click", async () => {
+    if (!(await showConfirm("Biztosan véglegesen törlöd AZ ÖSSZES korábbi leltárat és a hozzájuk tartozó adatot? Ez nem vonható vissza.", { yesLabel: "Igen, mindent törlök" }))) return;
+    const btn = el("deleteAllHistoryBtn");
+    btn.disabled = true;
+    btn.textContent = "Törlés…";
+    try {
+      const result = await apiPost({ action: "delete_all_leltarak_admin" });
+      if (result.error) {
+        showToast("Hiba: " + result.error, "error");
+      } else {
+        showToast("Az összes korábbi leltár törölve.", "success");
+        el("historyReportContainer").innerHTML = "";
+        loadHistory();
+      }
+    } catch (e) {
+      showToast("Hiba: " + e.message, "error");
+    }
+    btn.disabled = false;
+    btn.textContent = "Mindent töröl";
+  });
 }
 
 // A loadActiveLeltarak() indítását lásd lent — csak sikeres
