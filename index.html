@@ -175,6 +175,9 @@
     align-items:center; justify-content:center; padding:24px;}
   #nameGateOverlay.hide{display:none;}
   #nameGateBox{width:100%; max-width:340px; text-align:center;}
+  .spinner{width:26px; height:26px; margin:0 auto; border:3px solid var(--line); border-top-color:var(--accent);
+    border-radius:50%; animation:spin .7s linear infinite;}
+  @keyframes spin{to{transform:rotate(360deg);}}
   .nameGateTitle{font-size:19px; font-weight:700; margin-bottom:8px;}
   .nameGateNote{color:var(--text-dim); font-size:13px; line-height:1.5; margin-bottom:20px;}
   #nameGateInput{width:100%; background:var(--panel-2); border:1px solid var(--line); border-radius:10px;
@@ -362,10 +365,13 @@
 
 <div id="nameGateOverlay">
   <div id="nameGateBox">
-    <div class="nameGateTitle">Mielőtt elkezdenéd</div>
-    <p class="nameGateNote">Add meg a neved — ez fog megjelenni a beolvasott tételeknél és az ellenőrzéseknél, hogy tudjuk, ki mit csinált.</p>
-    <input id="nameGateInput" placeholder="A neved" autocomplete="name">
-    <button id="nameGateBtn" class="bigBtn">Tovább</button>
+    <div id="nameGateChecking" style="display:none; padding:10px 0;"><div class="spinner"></div></div>
+    <div id="nameGateForm">
+      <div class="nameGateTitle">Mielőtt elkezdenéd</div>
+      <p class="nameGateNote">Add meg a neved — ez fog megjelenni a beolvasott tételeknél és az ellenőrzéseknél, hogy tudjuk, ki mit csinált.</p>
+      <input id="nameGateInput" placeholder="A neved" autocomplete="name">
+      <button id="nameGateBtn" class="bigBtn">Tovább</button>
+    </div>
   </div>
 </div>
 
@@ -668,9 +674,18 @@ async function lookupProduct(barcode) {
   if (APPS_SCRIPT_URL) {
     try {
       const data = await apiGet({ action: "lookup", barcode: barcode });
-      if (data && !data.error) return { found: !!data.name, name: data.name || null };
+      if (data && data.error) {
+        // Ez egy VALÓDI szerver-válasz hibaüzenettel — eddig ez is
+        // csendben "ismeretlen"-re esett volna vissza, ezért most
+        // láthatóvá tesszük, mi történt pontosan.
+        debugLog("lookupProduct szerver-hiba: " + data.error);
+        showToast("Termékkeresési hiba: " + data.error, "error");
+      } else if (data) {
+        return { found: !!data.name, name: data.name || null };
+      }
     } catch (e) {
       debugLog("lookupProduct hiba, demo listára esik vissza: " + e.message);
+      showToast("Termékkeresési hiba (hálózat): " + e.message, "error");
     }
   }
   // --- DEMO MÓD (nincs beállítva backend, vagy hiba történt) ---
@@ -728,7 +743,7 @@ async function startCamera() {
   }
 }
 
-const APP_VERSION = "v52";
+const APP_VERSION = "v54";
 let frameCount = 0, detectCount = 0;
 function debugLog(msg) {
   // A felületen csak a verziószám látszik (lásd lent) — a részletes
@@ -1411,6 +1426,31 @@ function escapeHtml(str) {
 }
 
 /* =========================================================================
+   NÉV MEGJEGYZÉSE ESZKÖZÖNKÉNT/LELTÁRANKÉNT — ha ugyanezzel az eszközzel
+   korábban már megadtuk a nevet EHHEZ a leltárhoz (akár sima
+   beolvasáshoz, akár egy újraszámolási/ellenőrzési körhöz), nem kell
+   újra megkérdezni. A join/join_verification lekérdezések olvasás-
+   jellegűek (nincs mellékhatásuk), ezért nyugodtan lekérdezhetők
+   "előzetesen" is, mielőtt eldöntenénk, kell-e névbekérés.
+   ========================================================================= */
+function getSavedNames_() {
+  try { return JSON.parse(localStorage.getItem("leltarNevek") || "{}"); }
+  catch (e) { return {}; }
+}
+function getSavedNameForLeltar_(leltarId) {
+  if (!leltarId) return null;
+  return getSavedNames_()[leltarId] || null;
+}
+function saveNameForLeltar_(leltarId, name) {
+  if (!leltarId || !name) return;
+  try {
+    const map = getSavedNames_();
+    map[leltarId] = name;
+    localStorage.setItem("leltarNevek", JSON.stringify(map));
+  } catch (e) { /* nem kritikus, ha ez nem sikerül */ }
+}
+
+/* =========================================================================
    INDÍTÁS
    ========================================================================= */
 document.getElementById("debugBar").textContent = APP_VERSION;
@@ -1423,33 +1463,90 @@ el("startBtn").addEventListener("click", () => {
 renderList();
 updateGateUI();
 
-/* ---------- Kötelező névmegadás ---------- */
+let pendingJoinCode_ = null;
+let pendingVerifyCode_ = null;
+
+async function initStartup_() {
+  const params = new URLSearchParams(window.location.search);
+  const verifyCodeFromUrl = params.get("verify");
+  const joinCodeFromUrl = params.get("join");
+
+  // Ha a linkben join/verify kód van, egy pillanatra semleges töltést
+  // mutatunk a névbekérő űrlap helyett, amíg eldől, hogy ehhez a
+  // leltárhoz van-e már mentett név ezen az eszközön — enélkül minden
+  // alkalommal felvillanna a névbekérő űrlap, még akkor is, ha aztán
+  // rögtön el is tüntetnénk.
+  if (verifyCodeFromUrl || joinCodeFromUrl) {
+    el("nameGateForm").style.display = "none";
+    el("nameGateChecking").style.display = "block";
+  }
+
+  if (verifyCodeFromUrl) {
+    let leltarId = null;
+    try {
+      const peek = await apiGet({ action: "join_verification", code: verifyCodeFromUrl });
+      if (peek && peek.found) leltarId = peek.leltar_id;
+    } catch (e) { /* hiba esetén sima névbekérős úton folytatjuk */ }
+    const savedName = getSavedNameForLeltar_(leltarId);
+    if (savedName) {
+      userEmail = savedName;
+      el("nameGateOverlay").classList.add("hide");
+      openVerifyMode(verifyCodeFromUrl);
+      window.history.replaceState({}, "", window.location.pathname);
+      return;
+    }
+    pendingVerifyCode_ = verifyCodeFromUrl;
+    el("nameGateChecking").style.display = "none";
+    el("nameGateForm").style.display = "block";
+    return;
+  }
+
+  if (joinCodeFromUrl) {
+    let leltarId = null;
+    try {
+      const peek = await apiGet({ action: "join", code: joinCodeFromUrl });
+      if (peek && peek.found && peek.active) leltarId = peek.leltar_id;
+    } catch (e) { /* hiba esetén sima névbekérős úton folytatjuk */ }
+    const savedName = getSavedNameForLeltar_(leltarId);
+    if (savedName) {
+      userEmail = savedName;
+      el("nameGateOverlay").classList.add("hide");
+      joinLeltarWithCode(joinCodeFromUrl);
+      window.history.replaceState({}, "", window.location.pathname);
+      return;
+    }
+    pendingJoinCode_ = joinCodeFromUrl;
+    el("nameGateChecking").style.display = "none";
+    el("nameGateForm").style.display = "block";
+  }
+}
+initStartup_();
+
+/* ---------- Kötelező névmegadás (csak akkor, ha ehhez a leltárhoz még nincs mentett név ezen az eszközön) ---------- */
 el("nameGateBtn").addEventListener("click", () => {
   const name = el("nameGateInput").value.trim();
   if (!name) { el("nameGateInput").focus(); return; }
   userEmail = name;
   el("nameGateOverlay").classList.add("hide");
 
-  const params = new URLSearchParams(window.location.search);
-  const verifyCodeFromUrl = params.get("verify");
-  const joinCodeFromUrl = params.get("join");
-
   // Ha a linkben ?verify=KÓD van, ez egy ELLENŐRZÉSI kör QR-je — teljesen
   // más módba kapcsolunk (nincs kamera, nincs szektor, csak egy checklist).
-  if (verifyCodeFromUrl) {
-    openVerifyMode(verifyCodeFromUrl);
+  if (pendingVerifyCode_) {
+    const code = pendingVerifyCode_;
+    pendingVerifyCode_ = null;
+    openVerifyMode(code);
     window.history.replaceState({}, "", window.location.pathname);
     return;
   }
 
   // Ha a linkben van ?join=KÓD paraméter (a QR-kódból jövünk), automatikusan
   // csatlakozunk — nem kell külön megnyitni a menüt és beírni a kódot.
-  if (joinCodeFromUrl) {
-    joinLeltarWithCode(joinCodeFromUrl);
-    // A paraméter eltüntetése a címsorból, hogy egy véletlen frissítés
-    // ne csatlakoztasson újra automatikusan, ha időközben leváltál.
-    const cleanUrl = window.location.pathname;
-    window.history.replaceState({}, "", cleanUrl);
+  if (pendingJoinCode_) {
+    const code = pendingJoinCode_;
+    pendingJoinCode_ = null;
+    joinLeltarWithCode(code);
+    window.history.replaceState({}, "", window.location.pathname);
+    return;
   }
 });
 el("nameGateInput").addEventListener("keydown", (e) => {
@@ -1553,22 +1650,14 @@ function renderLeltarScreen() {
   renderJoinForm(body);
 }
 
-/* ---------- Nincs csatlakozva: kód beírása vagy QR beolvasása ---------- */
+/* ---------- Nincs csatlakozva: kizárólag QR-kód beolvasásával lehet ---------- */
 function renderJoinForm(body) {
   body.innerHTML = `
     <div class="leltarSectionTitle">Csatlakozás futó leltárhoz</div>
-    <p class="placeholderNote">Az admin felületen indított leltárhoz tudsz csatlakozni —
-    kérd el tőle a csatlakozási kódot, vagy olvasd be a kivetített QR-kódot.</p>
-    <div class="joinRow">
-      <input id="joinCodeInput" placeholder="pl. AB12CD" maxlength="6">
-      <button id="joinCodeBtn">Csatlakozás</button>
-    </div>
+    <p class="placeholderNote">Az admin felületen indított leltárhoz a kivetített/kiküldött
+    QR-kód beolvasásával tudsz csatlakozni.</p>
     <button class="secondaryBtn" id="joinQrBtn">📷 QR-kód beolvasása</button>
   `;
-  el("joinCodeBtn").addEventListener("click", () => {
-    const code = el("joinCodeInput").value.trim();
-    if (code) joinLeltarWithCode(code);
-  });
   el("joinQrBtn").addEventListener("click", openJoinScanner);
 }
 
@@ -1578,6 +1667,7 @@ async function joinLeltarWithCode(code) {
     if (!result.found) { showToast("Nincs ilyen csatlakozási kód.", "warn"); return; }
     if (!result.active) { showToast(result.message || "Ez a leltár már nem aktív.", "warn"); return; }
     activeLeltar = { leltar_id: result.leltar_id, code: code.toUpperCase(), tipus: result.tipus, raktar: result.raktar };
+    saveNameForLeltar_(result.leltar_id, userEmail);
     renderLeltarScreen();
     el("leltarScreen").classList.remove("show");
     updateGateUI();
@@ -1791,6 +1881,7 @@ async function openVerifyMode(kod) {
     }
     verifyKorId = data.kor_id;
     verifyLeltarId = data.leltar_id;
+    saveNameForLeltar_(data.leltar_id, userEmail);
     renderVerifyList(data.items || []);
   } catch (e) {
     body.innerHTML = `<p class="placeholderNote">Hiba: ${escapeHtml(e.message)}</p>`;
