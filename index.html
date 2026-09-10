@@ -779,7 +779,7 @@ async function startCamera() {
   }
 }
 
-const APP_VERSION = "v60";
+const APP_VERSION = "v61";
 let frameCount = 0, detectCount = 0;
 function debugLog(msg) {
   // A felületen csak a verziószám látszik (lásd lent) — a részletes
@@ -1140,13 +1140,11 @@ function renderHitCard() {
   }
   el("hitCheckedNote").innerHTML = checkedNoteHtml(pendingHit.checked);
   hitCard.classList.add("show");
-  // Csak akkor visszük a fókuszt a mennyiség-mezőbe (és jelöljük ki a
-  // tartalmát), ha ez egy ÚJ tétel megjelenítése — ha a felhasználó
-  // épp gépel ugyanennél a tételnél, a select() elrontaná a bevitelt.
-  if (!(wasSameItem && userIsTyping)) {
-    el("qtyInput").focus();
-    el("qtyInput").select();
-  }
+  // MEGJEGYZÉS: itt SZÁNDÉKOSAN nincs automatikus qtyInput.focus() —
+  // mobilon minden egyes beolvasásnál felhozná a billentyűzetet, ami
+  // eltakarja a kamera képét és megszakítja a folyamatos szkennelést.
+  // Ha a felhasználó módosítani akarja a mennyiséget, egyszerűen
+  // rákoppint a mezőre vagy a +/- gombokra.
 }
 
 function commitPending() {
@@ -1207,9 +1205,12 @@ function commitPending() {
   btn.addEventListener("pointerup", stop);
   btn.addEventListener("pointerleave", stop);
   btn.addEventListener("pointercancel", stop);
-  // Biztonsági háló: ha valamiért elveszne a felengedés-esemény (pl.
-  // váltás másik appra menet közben), ne ragadjon "nyomva" állapotban.
-  window.addEventListener("blur", stop);
+  // Biztonsági háló: ha az oldal háttérbe kerül (pl. váltás másik
+  // appra menet közben), ne ragadjon "nyomva" állapotban.
+  // FONTOS: a window "blur" eseményét NEM használjuk erre — mobilon a
+  // mennyiség-mező automatikus fókuszálása (ami felhozza a
+  // billentyűzetet) is blur-t vált ki az ablakon, ami emiatt azonnal
+  // kikapcsolta volna a szkennelést a gomb nyomva tartása közben is.
   document.addEventListener("visibilitychange", () => { if (document.hidden) stop(); });
 })();
 
