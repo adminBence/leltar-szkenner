@@ -243,30 +243,28 @@
   /* ---------- Lista-panel: a legutolsó tétel mindig látszik egy vékony
      sávban; kinyitva viszont NEM tolja el a többi tartalmat, hanem
      fölé úszik egy teljes, görgethető, bezárható rétegként. ---------- */
-  #listPanel{flex:0 0 auto; background:var(--panel); border-top:1px solid var(--line);
-    display:flex; flex-direction:column;}
-  #listPanel.empty{display:none;}
-  #listPanel.bump{animation: toggleBump .28s ease;}
-  @keyframes toggleBump{35%{transform:scale(1.015);}}
+  /* A lista-panel ALAPÁLLAPOTBAN teljesen rejtett (nem foglal helyet),
+     csak kinyitva jelenik meg, a képernyő fölé úszva. A megnyitó link
+     a tartva-szkennelés gomb alatt, apró sorban található. */
+  #listPanel{display:none; background:var(--panel); flex-direction:column;}
+  #listPanel.expanded{display:flex; position:fixed; left:0; right:0; top:0;
+    bottom:calc(92px + env(safe-area-inset-bottom));
+    z-index:60; box-shadow:0 -8px 32px rgba(0,0,0,0.5);}
 
-  #latestRow{flex:0 0 auto; cursor:pointer;}
+  #list{flex:1 1 auto; overflow-y:auto; -webkit-overflow-scrolling:touch;
+    border-top:1px solid var(--line);}
 
-  #listToggle{flex:0 0 auto; width:100%; text-align:center; color:var(--text);
-    display:none; padding:12px 16px; font-size:13px; font-weight:700; cursor:pointer;
-    background:var(--panel-2);}
+  /* Apró, diszkrét sor a gomb alatt — csak akkor látszik, ha van
+     legalább egy beolvasott tétel. */
+  #listToggle{display:none; width:100%; text-align:center; color:var(--text-dim);
+    padding:6px 12px 0; font-size:12px; font-weight:600; cursor:pointer;}
   #listToggle.show{display:block;}
-  #listToggle:active{background:var(--line);}
+  #listToggle:active{color:var(--text);}
 
-  #list{overflow-y:auto; max-height:0; transition:max-height .22s ease; -webkit-overflow-scrolling:touch;}
-
-  /* Kinyitva: a lista a képernyő fölé úszik (a fejléc alatt, a
-     tartva-szkennelés sáv fölött), így a gomb és a kamera helye nem
-     mozdul el. */
-  #listPanel.expanded{position:fixed; left:0; right:0; top:0;
-    bottom:calc(72px + env(safe-area-inset-bottom));
-    z-index:60; border-top:none; box-shadow:0 -8px 32px rgba(0,0,0,0.5);}
-  #listPanel.expanded #list{max-height:none; flex:1 1 auto; border-top:1px solid var(--line);}
-  #listPanel.expanded #listToggle{order:-1; padding:14px 16px; font-size:14px;
+  /* Kinyitott állapotban a záró-sáv a lista TETEJÉN jelenik meg,
+     jól látható, koppintható sávként. */
+  #listPanel.expanded #listToggle{display:block; order:-1; padding:14px 16px;
+    font-size:14px; font-weight:700; color:var(--text);
     border-bottom:1px solid var(--line); background:var(--panel-2);}
 
   .rowItem{display:flex; align-items:center; gap:10px; padding:10px 16px; border-bottom:1px solid var(--line);}
@@ -493,16 +491,13 @@
     </div>
   </div>
 
-  <div id="listPanel" class="empty">
-    <div id="latestRow"></div>
-    <div id="listToggle">
-      <span id="toggleLabel">Korábbi tételek</span>
-    </div>
+  <div id="listPanel">
     <div id="list"></div>
   </div>
 
   <div class="holdScanRow">
     <button id="holdScanBtn">📷 Tartsd lenyomva a beolvasáshoz</button>
+    <div id="listToggle"><span id="toggleLabel">Beolvasott tételek</span></div>
   </div>
 
   <div id="confirmOverlay">
@@ -780,7 +775,7 @@ async function startCamera() {
   }
 }
 
-const APP_VERSION = "v58";
+const APP_VERSION = "v59";
 let frameCount = 0, detectCount = 0;
 function debugLog(msg) {
   // A felületen csak a verziószám látszik (lásd lent) — a részletes
@@ -1427,59 +1422,39 @@ function renderList() {
   updatePendingCount();
 
   const panel = el("listPanel");
+  const toggle = el("listToggle");
+
   if (!items.length) {
-    panel.classList.add("empty");
-    el("latestRow").innerHTML = "";
     el("list").innerHTML = "";
-    el("listToggle").classList.remove("show");
-    lastRenderedCount = 0;
+    toggle.classList.remove("show");
     listExpanded = false;
     panel.classList.remove("expanded");
+    lastRenderedCount = 0;
     return;
   }
-  panel.classList.remove("empty");
-  panel.classList.toggle("expanded", listExpanded);
 
-  // ALAPNÉZETBEN a panel CSAK egy fix magasságú gombsáv ("Beolvasott
-  // tételek") — így sosem tolja fel a rögzítő panelt/kamerát,
-  // függetlenül attól, hány tételt olvastál be. A tényleges lista
-  // (a legutolsó tétellel együtt) csak akkor jelenik meg, ha
-  // rákoppintasz, és akkor is a képernyő fölé úszva.
-  const toggle = el("listToggle");
+  // A megnyitó link a tartva-szkennelés gomb ALATT, apró sorban —
+  // sosem foglal érdemi helyet, így nem tolja fel a rögzítő panelt
+  // vagy a kamerát, bármennyi tételt is olvastál be. Maga a lista
+  // csak kinyitva jelenik meg, a képernyő fölé úszva.
   toggle.classList.add("show");
   el("toggleLabel").textContent = listExpanded
     ? "✕ Bezárás — vissza a szkenneléshez"
     : `📋 Beolvasott tételek (${items.length})`;
 
+  panel.classList.toggle("expanded", listExpanded);
+
   if (listExpanded) {
-    // Kinyitva a TELJES lista látszik (a legutolsó tétellel együtt) —
-    // a latestRow-t itt nem használjuk külön, hogy ne duplázódjon.
-    el("latestRow").innerHTML = "";
     el("list").innerHTML = items.map(rowItemHtml).join("");
     bindRowEvents(el("list"));
   } else {
-    el("latestRow").innerHTML = "";
     el("list").innerHTML = "";
   }
 
-  // Bump animáció, ha új tétel érkezett.
-  if (items.length > lastRenderedCount) {
-    panel.classList.remove("bump");
-    void panel.offsetWidth;
-    panel.classList.add("bump");
-  }
   lastRenderedCount = items.length;
 }
 
 el("listToggle").addEventListener("click", () => {
-  listExpanded = !listExpanded;
-  renderList();
-});
-
-// A legutolsó, mindig látható tételre bárhova koppintva is nyit/csuk —
-// kivéve, ha épp a mennyiség-gombokat vagy a törlést érintjük.
-el("latestRow").addEventListener("click", (e) => {
-  if (e.target.closest(".qtyEdit, .delBtn")) return;
   listExpanded = !listExpanded;
   renderList();
 });
