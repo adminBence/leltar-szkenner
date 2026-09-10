@@ -779,7 +779,7 @@ async function startCamera() {
   }
 }
 
-const APP_VERSION = "v61";
+const APP_VERSION = "v62";
 let frameCount = 0, detectCount = 0;
 function debugLog(msg) {
   // A felületen csak a verziószám látszik (lásd lent) — a részletes
@@ -1037,58 +1037,72 @@ async function acceptCode(barcode) {
 
   const existing = scanned.find(s => s.barcode === barcode && s.sector === currentSector);
 
-  // A kártyát (és benne a mennyiség-mezőt) AZONNAL megjelenítjük, még
-  // mielőtt megjönne a terméknév a szerverről — így a mennyiség
-  // beírása nem várat a hálózati válaszra. Ha már ismerjük a terméket
-  // (korábban ebben a szektorban beolvastuk), rögtön a valós nevet
-  // mutatjuk; ha nem, egy "keresés…" jelzést, amit a válasz megérkezve
-  // frissítünk.
+  // KRITIKUS: a tételt AZONNAL, MÁR MOST rögzítjük a listába — még
+  // mielőtt megjönne a terméknév a szerverről. Korábban a rögzítés a
+  // hálózati válaszra várt, ezért ha a felhasználó gyorsan olvasta be
+  // a következőt, a még "Keresés…" állapotú tétel elveszhetett.
+  // Mostantól a beolvasás pillanatában (a villanással egy időben)
+  // bekerül a listába, a nevét pedig utólag pótoljuk, amikor
+  // megérkezik. Így beolvasott vonalkód SOSEM veszhet el.
+  if (existing) {
+    existing.qty += 1;
+    existing.ts = Date.now();
+  } else {
+    scanned.unshift({
+      barcode: barcode,
+      name: "Keresés…",
+      qty: 1,
+      sector: currentSector,
+      ts: Date.now(),
+      checked: null,
+    });
+  }
+  renderList();
+
+  // A kártya innentől CSAK a mennyiség módosítására szolgál — a tétel
+  // már rögzítve van. Ha itt módosítod a mennyiséget, az felülírja a
+  // most rögzített értéket (lásd commitPending).
+  const current = scanned.find(s => s.barcode === barcode && s.sector === currentSector);
   pendingHit = {
     barcode,
-    name: existing ? existing.name : "Keresés…",
-    found: existing ? true : null,
-    qty: existing ? existing.qty + 1 : 1,
+    name: current ? current.name : "Keresés…",
+    found: (current && current.name && current.name !== "Keresés…") ? true : null,
+    qty: current ? current.qty : 1,
     existing: !!existing,
-    checked: (existing && existing.checked) || null,
+    checked: (current && current.checked) || null,
+    alreadyCommitted: true,
   };
   renderHitCard();
 
   const result = await lookupProduct(barcode);
-  // Csak akkor frissítjük a kártyát a végleges adatokkal, ha időközben
-  // nem váltott a felhasználó másik kódra (pendingHit még ugyanerre a
-  // vonalkódra mutat).
+  const finalName = result.found ? result.name : "Ismeretlen vonalkód";
+
+  // A már rögzített tétel nevének/vonalkódjának utólagos pótlása a
+  // listában — függetlenül attól, hogy a felhasználó időközben
+  // továbblépett-e egy másik termékre.
+  let updated = false;
+  scanned.forEach(s => {
+    const matches = (s.barcode === barcode) ||
+      (result.matchedBarcode && s.barcode === result.matchedBarcode);
+    if (matches && (s.name === "Keresés…" || !s.name)) {
+      s.name = finalName;
+      if (result.found && result.matchedBarcode) s.barcode = result.matchedBarcode;
+      if (result.checked) s.checked = result.checked;
+      updated = true;
+    }
+  });
+  if (updated) renderList();
+
+  // Ha még mindig ez a tétel van a kártyán, ott is frissítjük a nevet.
   if (pendingHit && pendingHit.barcode === barcode) {
-    pendingHit.name = result.found ? result.name : (existing ? existing.name : "Ismeretlen vonalkód");
+    pendingHit.name = finalName;
     pendingHit.found = result.found;
-    pendingHit.checked = result.checked || (existing && existing.checked) || null;
+    pendingHit.checked = result.checked || pendingHit.checked || null;
     if (result.found && result.matchedBarcode && result.matchedBarcode !== barcode) {
-      // A vonalkód UPC-A/EAN-13 alternatív alakban egyezett a
-      // cikktörzzsel (lásd upcEanAltForm_) — innentől ezt a
-      // (cikktörzsben ténylegesen szereplő) alakot használjuk, hogy a
-      // rögzített tétel helyesen illeszkedjen a riportokhoz is.
       pendingHit.barcode = result.matchedBarcode;
       lastAcceptedCode = result.matchedBarcode;
     }
     renderHitCard();
-  } else {
-    // A felhasználó időközben már továbblépett (gyorsan beolvasta a
-    // következő terméket), ezért ezt a tételt a "Keresés…" ideiglenes
-    // névvel véglegesítettük a listába. Most, hogy megjött a valódi
-    // név, UTÓLAG pótoljuk a listában — enélkül örökre "Keresés…"
-    // maradna a neve.
-    const finalName = result.found ? result.name : "Ismeretlen vonalkód";
-    let updated = false;
-    scanned.forEach(s => {
-      const matches = (s.barcode === barcode) ||
-        (result.matchedBarcode && s.barcode === result.matchedBarcode);
-      if (matches && (s.name === "Keresés…" || !s.name)) {
-        s.name = finalName;
-        if (result.found && result.matchedBarcode) s.barcode = result.matchedBarcode;
-        if (result.checked) s.checked = result.checked;
-        updated = true;
-      }
-    });
-    if (updated) renderList();
   }
 }
 
@@ -1149,14 +1163,12 @@ function renderHitCard() {
 
 function commitPending() {
   if (!pendingHit) return;
-  // FONTOS: a mennyiséget a pendingHit SAJÁT állapotából vesszük, és
-  // csak akkor a beviteli mezőből, ha a mező TÉNYLEG ehhez a tételhez
-  // tartozik (a kártyán épp ez a vonalkód látszik). Korábban mindig a
-  // megosztott qtyInput mezőt olvastuk — ha közben egy késleltetett
-  // termék-lekérdezés válasza újrarajzolta a kártyát (ami felülírja a
-  // mezőt), vagy gyors egymásutánban olvastál be, a mező értéke már
-  // nem ehhez a tételhez tartozott, és rossz/kimaradó rögzítés lett
-  // belőle.
+  // MEGJEGYZÉS: az új működésben a tétel MÁR rögzítve van a listában
+  // (lásd acceptCode) — ez a függvény innentől csak a MENNYISÉGET
+  // véglegesíti, ha a felhasználó módosította a kártyán. A mennyiséget
+  // a pendingHit saját állapotából vesszük, és csak akkor a beviteli
+  // mezőből, ha a mező TÉNYLEG ehhez a tételhez tartozik (a kártyán
+  // épp ez a vonalkód látszik).
   let qty = pendingHit.qty;
   if (el("hitBarcode").textContent === pendingHit.barcode) {
     const fromInput = parseInt(el("qtyInput").value || "", 10);
@@ -1173,7 +1185,11 @@ function commitPending() {
     existing.qty = qty;
     existing.ts = Date.now();
     if (committedChecked) existing.checked = committedChecked;
+    if (committedName && committedName !== "Keresés…") existing.name = committedName;
   } else {
+    // Ide normál esetben nem jutunk (a tétel már rögzítve lett a
+    // beolvasáskor), de biztonsági hálóként megtartjuk — pl. ha a
+    // vonalkód-alak időközben megváltozott a termék-lekérdezés miatt.
     scanned.unshift({
       barcode: committedBarcode,
       name: committedName,
