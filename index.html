@@ -251,9 +251,11 @@
 
   #latestRow{flex:0 0 auto; cursor:pointer;}
 
-  #listToggle{flex:0 0 auto; width:100%; text-align:center; color:var(--text-dim);
-    display:none; padding:2px 16px 8px; font-size:12px; font-weight:600;}
+  #listToggle{flex:0 0 auto; width:100%; text-align:center; color:var(--text);
+    display:none; padding:12px 16px; font-size:13px; font-weight:700; cursor:pointer;
+    background:var(--panel-2);}
   #listToggle.show{display:block;}
+  #listToggle:active{background:var(--line);}
 
   #list{overflow-y:auto; max-height:0; transition:max-height .22s ease; -webkit-overflow-scrolling:touch;}
 
@@ -778,7 +780,7 @@ async function startCamera() {
   }
 }
 
-const APP_VERSION = "v57";
+const APP_VERSION = "v58";
 let frameCount = 0, detectCount = 0;
 function debugLog(msg) {
   // A felületen csak a verziószám látszik (lásd lent) — a részletes
@@ -1431,29 +1433,34 @@ function renderList() {
     el("list").innerHTML = "";
     el("listToggle").classList.remove("show");
     lastRenderedCount = 0;
+    listExpanded = false;
+    panel.classList.remove("expanded");
     return;
   }
   panel.classList.remove("empty");
   panel.classList.toggle("expanded", listExpanded);
 
-  // A legutolsó tétel — ugyanolyan, teljesen szerkeszthető sor, mint a
-  // lenyitható listában bármelyik másik, plusz egy nyíl jelzi, hogy
-  // rákoppintva ki-/becsukható a korábbiak listája.
-  const latest = items[0];
-  el("latestRow").innerHTML = rowItemHtml(latest);
-  bindRowEvents(el("latestRow"));
-
-  // Csak akkor mutatjuk a lenyitó fület, ha van mit lenyitni.
+  // ALAPNÉZETBEN a panel CSAK egy fix magasságú gombsáv ("Beolvasott
+  // tételek") — így sosem tolja fel a rögzítő panelt/kamerát,
+  // függetlenül attól, hány tételt olvastál be. A tényleges lista
+  // (a legutolsó tétellel együtt) csak akkor jelenik meg, ha
+  // rákoppintasz, és akkor is a képernyő fölé úszva.
   const toggle = el("listToggle");
-  toggle.classList.toggle("show", items.length > 1);
+  toggle.classList.add("show");
   el("toggleLabel").textContent = listExpanded
     ? "✕ Bezárás — vissza a szkenneléshez"
-    : `+${items.length - 1} korábbi tétel`;
+    : `📋 Beolvasott tételek (${items.length})`;
 
-  // Lenyitható lista: a korábbiak (a legutolsó már fent, a rögzített
-  // sorban látszik, itt nem ismételjük meg).
-  el("list").innerHTML = items.slice(1).map(rowItemHtml).join("");
-  bindRowEvents(el("list"));
+  if (listExpanded) {
+    // Kinyitva a TELJES lista látszik (a legutolsó tétellel együtt) —
+    // a latestRow-t itt nem használjuk külön, hogy ne duplázódjon.
+    el("latestRow").innerHTML = "";
+    el("list").innerHTML = items.map(rowItemHtml).join("");
+    bindRowEvents(el("list"));
+  } else {
+    el("latestRow").innerHTML = "";
+    el("list").innerHTML = "";
+  }
 
   // Bump animáció, ha új tétel érkezett.
   if (items.length > lastRenderedCount) {
