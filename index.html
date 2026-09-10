@@ -390,7 +390,7 @@
   <!-- Hamburgermenü -->
   <div id="menuOverlay">
     <div id="menuBox">
-      <button class="menuItem" data-screen="leltar">🔗 Csatlakozás leltárhoz</button>
+      <button class="menuItem" data-screen="leltar">📦 Leltár állapota</button>
       <button class="menuItem" data-screen="ellenorzes">🔍 Ellenőrzés</button>
       <button id="menuClose">Bezárás</button>
     </div>
@@ -452,9 +452,8 @@
       background:var(--accent); color:#06231a; z-index:5; display:none;">Kamera indítása</button>
     <div id="joinFirstHint" style="position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
       text-align:center; padding:0 24px; width:100%;">
-      <div style="color:var(--text-dim); font-size:14px; margin-bottom:16px;">
-        Csatlakozz egy futó leltárhoz a kezdéshez</div>
-      <button id="joinFirstBtn" class="bigBtn" style="max-width:220px; margin:0 auto;">🔗 Csatlakozás leltárhoz</button>
+      <div style="color:var(--text-dim); font-size:14px;">
+        Nyisd meg az admin által kiküldött QR-kódot a leltárhoz való csatlakozáshoz</div>
     </div>
     <button id="torchBtn" aria-label="Vaku">🔦</button>
     <div id="debugBar" style="position:absolute; top:6px; left:8px; font-size:9px;
@@ -670,7 +669,7 @@ function flashScreen() {
 /* =========================================================================
    TERMÉK KERESÉS
    ========================================================================= */
-async function lookupProduct(barcode) {
+async function lookupProductRaw_(barcode) {
   if (APPS_SCRIPT_URL) {
     try {
       const data = await apiGet({ action: "lookup", barcode: barcode });
@@ -681,7 +680,7 @@ async function lookupProduct(barcode) {
         debugLog("lookupProduct szerver-hiba: " + data.error);
         showToast("Termékkeresési hiba: " + data.error, "error");
       } else if (data) {
-        return { found: !!data.name, name: data.name || null };
+        return { found: !!data.name, name: data.name || null, checked: data.checked || null };
       }
     } catch (e) {
       debugLog("lookupProduct hiba, demo listára esik vissza: " + e.message);
@@ -689,8 +688,30 @@ async function lookupProduct(barcode) {
     }
   }
   // --- DEMO MÓD (nincs beállítva backend, vagy hiba történt) ---
-  if (DEMO_PRODUCTS[barcode]) return { found: true, name: DEMO_PRODUCTS[barcode] };
-  return { found: false, name: null };
+  if (DEMO_PRODUCTS[barcode]) return { found: true, name: DEMO_PRODUCTS[barcode], checked: null };
+  return { found: false, name: null, checked: null };
+}
+
+// UPC-A (12 jegyű) és EAN-13 (13 jegyű, vezető nullával kiegészítve)
+// UGYANAZT a fizikai vonalkódot jelenti — csak a felismerő motortól
+// függ (natív BarcodeDetector Androidon vs. ZXing-WASM iOS-en), hogy
+// melyik alakban adja vissza. Ez okozhatja, hogy ugyanaz a termék az
+// egyik eszközön ismertként, a másikon "ismeretlen"-ként jelenik meg.
+function upcEanAltForm_(barcode) {
+  if (/^\d{12}$/.test(barcode)) return "0" + barcode;       // UPC-A -> EAN-13
+  if (/^0\d{12}$/.test(barcode)) return barcode.slice(1);   // EAN-13 (vezető 0) -> UPC-A
+  return null;
+}
+
+async function lookupProduct(barcode) {
+  const primary = await lookupProductRaw_(barcode);
+  if (primary.found) return { ...primary, matchedBarcode: barcode };
+  const alt = upcEanAltForm_(barcode);
+  if (alt) {
+    const altResult = await lookupProductRaw_(alt);
+    if (altResult.found) return { ...altResult, matchedBarcode: alt };
+  }
+  return { ...primary, matchedBarcode: barcode };
 }
 
 /* =========================================================================
@@ -743,7 +764,7 @@ async function startCamera() {
   }
 }
 
-const APP_VERSION = "v54";
+const APP_VERSION = "v56";
 let frameCount = 0, detectCount = 0;
 function debugLog(msg) {
   // A felületen csak a verziószám látszik (lásd lent) — a részletes
@@ -920,6 +941,7 @@ async function fallbackScanLoop() {
           const results = await ZXingWASM.readBarcodesFromImageData(imageData, {
             tryHarder: true,
             maxSymbols: 1,
+            formats: ["EAN-13", "EAN-8", "UPC-A", "UPC-E", "Code128", "Code39", "ITF", "QRCode"],
           });
           if (results && results.length) {
             fallbackFound++;
@@ -1024,6 +1046,14 @@ async function acceptCode(barcode) {
     pendingHit.name = result.found ? result.name : (existing ? existing.name : "Ismeretlen vonalkód");
     pendingHit.found = result.found;
     pendingHit.checked = result.checked || (existing && existing.checked) || null;
+    if (result.found && result.matchedBarcode && result.matchedBarcode !== barcode) {
+      // A vonalkód UPC-A/EAN-13 alternatív alakban egyezett a
+      // cikktörzzsel (lásd upcEanAltForm_) — innentől ezt a
+      // (cikktörzsben ténylegesen szereplő) alakot használjuk, hogy a
+      // rögzített tétel helyesen illeszkedjen a riportokhoz is.
+      pendingHit.barcode = result.matchedBarcode;
+      lastAcceptedCode = result.matchedBarcode;
+    }
     renderHitCard();
   }
 }
@@ -1165,11 +1195,6 @@ function updateGateUI() {
     setTimeout(() => el("sectorModalInput").focus(), 50);
   }
 }
-
-el("joinFirstBtn").addEventListener("click", () => {
-  renderLeltarScreen();
-  el("leltarScreen").classList.add("show");
-});
 
 el("sectorModalOkBtn").addEventListener("click", () => {
   const val = el("sectorModalInput").value.trim();
@@ -1653,12 +1678,10 @@ function renderLeltarScreen() {
 /* ---------- Nincs csatlakozva: kizárólag QR-kód beolvasásával lehet ---------- */
 function renderJoinForm(body) {
   body.innerHTML = `
-    <div class="leltarSectionTitle">Csatlakozás futó leltárhoz</div>
-    <p class="placeholderNote">Az admin felületen indított leltárhoz a kivetített/kiküldött
-    QR-kód beolvasásával tudsz csatlakozni.</p>
-    <button class="secondaryBtn" id="joinQrBtn">📷 QR-kód beolvasása</button>
+    <div class="leltarSectionTitle">Nincs aktív leltár csatlakoztatva</div>
+    <p class="placeholderNote">A leltárhoz kizárólag az admin felületen kivetített/kiküldött
+    QR-kód megnyitásával lehet csatlakozni — nyisd meg azt a linket/kódot ezen az eszközön.</p>
   `;
-  el("joinQrBtn").addEventListener("click", openJoinScanner);
 }
 
 async function joinLeltarWithCode(code) {
