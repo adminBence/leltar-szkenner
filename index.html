@@ -710,19 +710,39 @@ async function lookupProductRaw_(barcode) {
 // UPC-A (12 jegyű) és EAN-13 (13 jegyű, vezető nullával kiegészítve)
 // UGYANAZT a fizikai vonalkódot jelenti — csak a felismerő motortól
 // függ (natív BarcodeDetector Androidon vs. ZXing-WASM iOS-en), hogy
-// melyik alakban adja vissza. Ez okozhatja, hogy ugyanaz a termék az
-// egyik eszközön ismertként, a másikon "ismeretlen"-ként jelenik meg.
-function upcEanAltForm_(barcode) {
-  if (/^\d{12}$/.test(barcode)) return "0" + barcode;       // UPC-A -> EAN-13
-  if (/^0\d{12}$/.test(barcode)) return barcode.slice(1);   // EAN-13 (vezető 0) -> UPC-A
-  return null;
+// melyik alakban adja vissza. Emellett a cikktörzsben is előfordulhat,
+// hogy vezető nullákkal vagy azok nélkül van tárolva. Ezért NEM csak
+// egyetlen alternatívát próbálunk, hanem az összes ésszerű variációt:
+// a vezető nullák levágásával és hozzáadásával kapott alakokat is.
+function barcodeVariants_(barcode) {
+  const b = String(barcode || "").trim();
+  if (!/^\d+$/.test(b)) return [];
+  const variants = new Set();
+
+  // Vezető nullák nélküli "mag" — ebből építjük a variációkat.
+  const core = b.replace(/^0+/, "");
+  if (!core) return [];
+
+  // A leggyakoribb hosszúságokra (12 = UPC-A, 13 = EAN-13, 14 = ITF-14)
+  // kiegészítjük vezető nullákkal, és a csupasz magot is hozzáadjuk.
+  [12, 13, 14].forEach(len => {
+    if (core.length <= len) variants.add(core.padStart(len, "0"));
+  });
+  variants.add(core);
+
+  // Az eredetit magát nem próbáljuk újra (azt a hívó már megtette).
+  variants.delete(b);
+  return Array.from(variants);
 }
 
 async function lookupProduct(barcode) {
   const primary = await lookupProductRaw_(barcode);
   if (primary.found) return { ...primary, matchedBarcode: barcode };
-  const alt = upcEanAltForm_(barcode);
-  if (alt) {
+
+  // Nem volt találat a beolvasott alakra — végigpróbáljuk a lehetséges
+  // variációkat (vezető nullákkal/anélkül), amíg egyik nem talál.
+  const variants = barcodeVariants_(barcode);
+  for (const alt of variants) {
     const altResult = await lookupProductRaw_(alt);
     if (altResult.found) return { ...altResult, matchedBarcode: alt };
   }
@@ -779,7 +799,7 @@ async function startCamera() {
   }
 }
 
-const APP_VERSION = "v62";
+const APP_VERSION = "v63";
 let frameCount = 0, detectCount = 0;
 function debugLog(msg) {
   // A felületen csak a verziószám látszik (lásd lent) — a részletes
