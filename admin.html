@@ -939,7 +939,6 @@ async function loadActiveLeltarak() {
             </div>
             <div class="metaLine">Indította: ${escapeHtml(l.inditotta)} · Típus: ${escapeHtml(l.tipus)} · Raktár: ${escapeHtml(l.raktar)}</div>
             ${l.tipus === "termektipus" && l.termektipusok && l.termektipusok.length ? `<div class="metaLine">Kiválasztott terméktípusok: ${l.termektipusok.map(escapeHtml).join(", ")}</div>` : ""}
-            <div class="metaLine">Csatlakozási kód: <b>${escapeHtml(l.csatlakozasi_kod)}</b></div>
           </div>
         </div>
       `).join("");
@@ -1420,6 +1419,25 @@ function renderDiffRowHtml(r, showCheckbox, isOpen) {
         id="${rowId}-itemnote" style="font-size:12px; padding:8px 10px;">
       <button class="btn" style="font-size:12px; padding:7px 10px;" data-add-note="${escapeHtml(r.vonalkod)}">Megjegyzés hozzáadása</button>
     </div>` : "";
+  const adminQtyPanel = showCheckbox ? `
+    <button class="btn" style="font-size:11px; padding:5px 10px; margin-top:8px;" data-qtymod-toggle="${escapeHtml(r.vonalkod)}">
+      ✏️ Számolt mennyiség módosítása
+    </button>
+    <div id="${rowId}-qtymod" style="display:none; margin-top:8px; gap:8px; flex-direction:column; padding:10px;
+      background:var(--panel-2); border:1px solid var(--line); border-radius:8px;">
+      <div style="font-size:11px; color:var(--text-dim);">
+        A módosítás naplózva lesz (ki, mikor, mire, miért) — a megjegyzés kötelező.
+      </div>
+      <div class="row" style="gap:8px;">
+        <input type="text" inputmode="numeric" pattern="[0-9]*" placeholder="Új mennyiség"
+          id="${rowId}-qtymod-value" value="${r.szamolt_mennyiseg}" style="font-size:13px; padding:8px 10px; flex:0 0 110px;">
+        <input type="text" placeholder="Indoklás (kötelező)"
+          id="${rowId}-qtymod-note" style="font-size:12px; padding:8px 10px; flex:1 1 auto;">
+      </div>
+      <button class="btn primary" style="font-size:12px; padding:7px 10px;" data-qtymod-save="${escapeHtml(r.vonalkod)}">
+        Mentés
+      </button>
+    </div>` : "";
   const refreshBtn = (showCheckbox && !r.ismeretlen_tobblet) ? `
     <button class="btn" style="font-size:11px; padding:5px 10px; margin-top:8px;" data-refresh-toggle="${escapeHtml(r.vonalkod)}">
       Készlet frissítve a Laurelben
@@ -1453,6 +1471,7 @@ function renderDiffRowHtml(r, showCheckbox, isOpen) {
         ${correctionNote}
         ${szallitolevelNote}
         ${itemNotesHtml}
+        ${adminQtyPanel}
         ${refreshBtn}
         ${unknownSurplusPanel}
       </div>
@@ -1480,6 +1499,48 @@ function bindDiffRowRefreshButtons(wrapEl, leltarId, targetContainer) {
       loadedEl.textContent = "Hiba: " + e.message;
     }
   }
+
+  wrapEl.querySelectorAll("[data-qtymod-toggle]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const barcode = btn.dataset.qtymodToggle;
+      const panel = document.getElementById("diffrow-" + barcode + "-qtymod");
+      panel.style.display = panel.style.display !== "flex" ? "flex" : "none";
+    });
+  });
+
+  wrapEl.querySelectorAll("[data-qtymod-save]").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const barcode = btn.dataset.qtymodSave;
+      const valueEl = document.getElementById("diffrow-" + barcode + "-qtymod-value");
+      const noteEl = document.getElementById("diffrow-" + barcode + "-qtymod-note");
+      const qty = parseInt(valueEl.value || "", 10);
+      const note = (noteEl.value || "").trim();
+      if (!isFinite(qty) || qty < 0) { showToast("Adj meg érvényes mennyiséget.", "warn"); valueEl.focus(); return; }
+      if (!note) { showToast("A módosításhoz kötelező indoklást írni.", "warn"); noteEl.focus(); return; }
+      if (!(await showConfirm(`Biztosan ${qty} db-ra módosítod a számolt mennyiséget? A módosítás naplózva lesz.`, { yesLabel: "Módosítom", positive: true }))) return;
+      btn.disabled = true;
+      btn.textContent = "Mentés…";
+      try {
+        const result = await apiPost({
+          action: "admin_modify_quantity",
+          leltar_id: leltarId,
+          vonalkod: barcode,
+          mennyiseg: qty,
+          megjegyzes: note,
+        });
+        if (result.error) {
+          showToast("Hiba: " + result.error, "error");
+        } else {
+          showToast("Mennyiség módosítva és naplózva.", "success");
+          refreshSingleDiffRow(leltarId, barcode, targetContainer);
+        }
+      } catch (e) {
+        showToast("Hiba: " + e.message, "error");
+      }
+      btn.disabled = false;
+      btn.textContent = "Mentés";
+    });
+  });
 
   wrapEl.querySelectorAll("[data-refresh-toggle]").forEach(btn => {
     btn.addEventListener("click", () => {
@@ -1828,14 +1889,20 @@ async function closeLeltarAction(leltarId) {
       if (btn) { btn.disabled = false; btn.textContent = originalLabel; }
       return;
     }
-    if (result.report) {
-      renderFullReport(el("reportContainer"), result.report, { showActions: false });
-    } else {
-      // A leltár lezárása MEGTÖRTÉNT, csak a részletes riport
-      // összeállítása hasalt el (pl. átmeneti hiba) — ez nem hagyhatja
-      // a felhasználót hibaüzenettel/összeomlással, hiszen a lezárás
-      // maga sikeres volt.
-      showToast("A leltár lezárva. A részletes riport betöltése nem sikerült — nézd meg a \"Korábbi leltárak\" fülön.", "warn");
+    showToast("A leltár lezárva.", "success");
+    // A riportot KÜLÖN töltjük be — a szerver a lezárási válaszban már
+    // nem számolja újra (ez jelentősen gyorsítja a lezárást). Ha ez a
+    // betöltés bármiért elhasalna, a lezárás akkor is megtörtént.
+    try {
+      const report = await apiGet({ action: "full_report", leltar_id: leltarId });
+      if (!report.error) {
+        renderFullReport(el("reportContainer"), report, { showActions: false });
+      } else {
+        el("reportContainer").innerHTML = "";
+        currentOpenReport = null;
+      }
+    } catch (e) {
+      showToast("A leltár lezárva, de a riport betöltése nem sikerült — nézd meg a \"Korábbi leltárak\" fülön.", "warn");
       el("reportContainer").innerHTML = "";
       currentOpenReport = null;
     }
@@ -2024,6 +2091,21 @@ function onLoginVerified_() {
     el("signedInAs").innerHTML = "";
     el("authGateOverlay").classList.remove("hide");
   });
+  // FONTOS: ha valaki egy MÁSIK Google-fiókkal jelentkezik be ugyanazon
+  // az eszközön, az előző felhasználó munkamenete alatt már megjelenített,
+  // tárolt HTML (pl. a "Korábbi leltárak" fülön az admin@aceltigris.hu-nak
+  // szánt törlés-gombok) egy pillanatra még látszódhatna, amíg újra le
+  // nem kérdeződik — ezt itt, minden sikeres bejelentkezés UTÁN,
+  // azonnal visszaállítjuk/eltüntetjük, hogy az ÚJ felhasználóhoz
+  // illő, friss nézet jöjjön be, mielőtt bármi régi látszódna. (A
+  // valódi jogosultság-ellenőrzés ettől függetlenül mindig a szerveren
+  // történik — ez csak a felületi villanást szünteti meg.)
+  historyLoaded = false;
+  el("historyList").innerHTML = `<div class="inlineLoading"><div class="spinner small"></div>Betöltés…</div>`;
+  el("historyReportContainer").innerHTML = "";
+  if (el("deleteAllHistoryBtn")) el("deleteAllHistoryBtn").style.display = "none";
+  const activePanelNow = document.querySelector(".panel.active");
+  if (activePanelNow && activePanelNow.id === "panel-history") loadHistory();
   // Csak MOST, sikeres bejelentkezés után indul el az app tényleges
   // adatlekérése.
   loadActiveLeltarak();
