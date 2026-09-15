@@ -1393,6 +1393,22 @@ function renderDiffRowHtml(r, showCheckbox, isOpen) {
     }
     return `<span>${escapeHtml(s.szektor)}. szektor: ${mask(s.mennyiseg + " db")}</span>`;
   }).join("");
+
+  // Beolvasási állapot — külön kiemelve, hogy egy pillantásra látszódjon,
+  // ha egy eltérő tételt EGYÁLTALÁN NEM olvastak be (ez a leggyakoribb
+  // oka a hiánynak), illetve ha be lett olvasva, akkor mely szektor(ok)ban.
+  const beolvasottSzektorok = [...new Set(
+    (r.szektorok || []).filter(s => s.forras !== "ujraszamolas" && s.szektor).map(s => s.szektor)
+  )].sort((a, b) => (parseInt(a, 10) || 0) - (parseInt(b, 10) || 0) || String(a).localeCompare(String(b), "hu"));
+
+  let scanStatusHtml = "";
+  if (r.elteres !== 0) {
+    if (!beolvasottSzektorok.length) {
+      scanStatusHtml = `<span class="recountNote" style="color:var(--danger); font-weight:600;">⚠ Nem lett beolvasva egyetlen szektorban sem</span>`;
+    } else {
+      scanStatusHtml = `<span class="recountNote">Beolvasva: ${beolvasottSzektorok.map(s => escapeHtml(s) + ". szektor").join(", ")}</span>`;
+    }
+  }
   const recountCount = (r.ujraszamolasok || []).length;
   const recountNote = recountCount
     ? `<div class="recountNote">Újraszámolva ${recountCount} alkalommal — utoljára: ${escapeHtml(formatDateTime(r.ujraszamolasok[r.ujraszamolasok.length - 1].idobelyeg))}, ${escapeHtml(r.ujraszamolasok[r.ujraszamolasok.length - 1].felhasznalo)}</div>`
@@ -1465,6 +1481,7 @@ function renderDiffRowHtml(r, showCheckbox, isOpen) {
         <span>Vonalkód: ${escapeHtml(r.vonalkod)} · Saját cikkszám: ${escapeHtml(r.sajat_cikkszam || "—")} · Gyártói cikkszám: ${escapeHtml(r.gyartoi_cikkszam || "—")}</span>
         <span class="qtyLine">Rendszer: ${mask(r.rendszer_mennyiseg + " db")}</span>
         <span class="qtyLine">Számolt: ${mask(r.szamolt_mennyiseg + " db")}</span>
+        ${scanStatusHtml}
         ${sectorChips ? `<div class="sectorBreakdown">${sectorChips}</div>` : ""}
         ${others ? `<span class="otherWarehouses">Más raktárak — ${others}</span>` : ""}
         ${recountNote}
