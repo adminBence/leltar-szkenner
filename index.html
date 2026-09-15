@@ -147,6 +147,10 @@
     color:#fff; font-size:18px; display:none; align-items:center; justify-content:center;
     line-height:1; padding:0;}
   #torchBtn.show{display:flex;}
+  #manualBtn{position:absolute; top:8px; right:56px; width:40px; height:40px; z-index:6;
+    border-radius:50%; border:1px solid rgba(255,255,255,0.3); background:rgba(0,0,0,0.5);
+    color:#fff; font-size:16px; display:flex; align-items:center; justify-content:center;
+    line-height:1; padding:0;}
   canvas#overlay{position:absolute; inset:0; width:100%; height:100%; pointer-events:none;}
 
   .guide{
@@ -472,6 +476,7 @@
       <div style="color:var(--text-dim); font-size:14px;">
         Nyisd meg az admin által kiküldött QR-kódot a leltárhoz való csatlakozáshoz</div>
     </div>
+    <button id="manualBtn" aria-label="Vonalkód beírása kézzel">⌨️</button>
     <button id="torchBtn" aria-label="Vaku">🔦</button>
     <div id="debugBar" style="position:absolute; top:6px; left:8px; font-size:9px;
       color:rgba(255,255,255,0.35); font-family:monospace; pointer-events:none; z-index:2;"></div>
@@ -523,6 +528,21 @@
       <input id="sectorModalInput" type="text" inputmode="numeric" pattern="[0-9]*" placeholder="pl. 12">
       <button id="sectorModalOkBtn" class="bigBtn">OK</button>
       <button id="finishAllBtn" class="secondaryBtn">Befejezem</button>
+    </div>
+  </div>
+
+  <!-- Vonalkód kézi beírása (ha a kamera nem tudja beolvasni) -->
+  <div id="manualModalOverlay" style="display:none; position:fixed; inset:0; z-index:1100;
+    background:rgba(0,0,0,0.7); align-items:center; justify-content:center; padding:24px;">
+    <div id="manualModalBox" style="width:100%; max-width:340px; text-align:center;
+      background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:22px;">
+      <div class="nameGateTitle">Vonalkód beírása</div>
+      <p class="nameGateNote">Ha a kamera nem tudja beolvasni a vonalkódot, itt beírhatod kézzel.</p>
+      <input id="manualInput" type="text" inputmode="numeric" pattern="[0-9]*" placeholder="pl. 032546839196"
+        style="width:100%; background:var(--panel-2); border:1px solid var(--line); border-radius:10px;
+        color:var(--text); font-size:18px; padding:12px; text-align:center; margin-bottom:12px;">
+      <button id="manualOkBtn" class="bigBtn">Beolvasás</button>
+      <button id="manualCancelBtn" class="secondaryBtn">Mégse</button>
     </div>
   </div>
 
@@ -768,7 +788,7 @@ async function startCamera() {
   }
 }
 
-const APP_VERSION = "v64";
+const APP_VERSION = "v65";
 let frameCount = 0, detectCount = 0;
 function debugLog(msg) {
   // A felületen csak a verziószám látszik (lásd lent) — a részletes
@@ -1277,6 +1297,33 @@ function updateGateUI() {
     setTimeout(() => el("sectorModalInput").focus(), 50);
   }
 }
+
+/* ---------- Vonalkód kézi beírása ---------- */
+function openManualEntry_() {
+  if (!currentSector) { showToast("Előbb add meg a szektort.", "warn"); return; }
+  el("manualInput").value = "";
+  el("manualModalOverlay").style.display = "flex";
+  setTimeout(() => el("manualInput").focus(), 50);
+}
+function closeManualEntry_() {
+  el("manualModalOverlay").style.display = "none";
+}
+function submitManualEntry_() {
+  const val = el("manualInput").value.trim();
+  if (!val) { el("manualInput").focus(); return; }
+  if (!/^\d+$/.test(val)) { showToast("A vonalkód csak számjegyeket tartalmazhat.", "warn"); return; }
+  closeManualEntry_();
+  // Ugyanazon az úton megy tovább, mint egy kamerával beolvasott kód —
+  // így a duplikáció-védelem, a termékkeresés és a rögzítés is
+  // pontosan ugyanúgy működik.
+  acceptCode(val);
+}
+el("manualBtn").addEventListener("click", openManualEntry_);
+el("manualOkBtn").addEventListener("click", submitManualEntry_);
+el("manualCancelBtn").addEventListener("click", closeManualEntry_);
+el("manualInput").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") { e.preventDefault(); submitManualEntry_(); }
+});
 
 el("sectorModalOkBtn").addEventListener("click", () => {
   const val = el("sectorModalInput").value.trim();
