@@ -1140,9 +1140,18 @@ function renderFullReport(container, report, opts) {
     return (r.szektorok && r.szektorok.length > 0) ||
            (r.ujraszamolasok && r.ujraszamolasok.length > 0);
   }
-  const elteresek = diff.filter(r => beolvastakE_(r) && r.elteres !== 0);
-  const rendben = diff.filter(r => beolvastakE_(r) && r.elteres === 0);
-  const hatravan = diff.filter(r => !beolvastakE_(r));
+  // LEZÁRT leltárnál nincs már "beolvasásra vár" — ami nem lett
+  // beolvasva, az VÉGLEGES hiány, tehát eltérés. Ezért lezárás után
+  // minden eltérő tétel az "Eltérések" szekcióba kerül, függetlenül
+  // attól, hogy beolvasták-e: a végleges riportban minden pontosan,
+  // egy helyen látszódjon.
+  const elteresek = isOpen
+    ? diff.filter(r => beolvastakE_(r) && r.elteres !== 0)
+    : diff.filter(r => r.elteres !== 0);
+  const rendben = isOpen
+    ? diff.filter(r => beolvastakE_(r) && r.elteres === 0)
+    : diff.filter(r => r.elteres === 0);
+  const hatravan = isOpen ? diff.filter(r => !beolvastakE_(r)) : [];
 
   const felelosHtml = buildFelelosHtml_(szektor_felelosok);
 
@@ -1203,6 +1212,13 @@ function renderFullReport(container, report, opts) {
 
     <div class="card" id="verifyQrCard" style="display:none;"></div>
 
+    <div class="card" id="reportSearchCard">
+      <div class="cardTitle">Keresés a tételek között</div>
+      <input type="text" id="reportSearchInput" placeholder="Vonalkód, cikkszám vagy terméknév…"
+        style="width:100%; font-size:14px; padding:10px 12px;">
+      <div id="reportSearchResults" style="margin-top:12px;"></div>
+    </div>
+
     <div class="card">
       <div class="cardTitle">Eltérések (beolvasva, de nem stimmel)</div>
       ${showActions ? `<div class="row" style="margin-bottom:14px; gap:8px;">
@@ -1239,13 +1255,8 @@ function renderFullReport(container, report, opts) {
     <div class="card">
       <div class="cardTitle">Rendben (${rendben.length} tétel)</div>
       <div class="metaLine" style="margin-bottom:10px;">Beolvasva, és a készletük pontosan egyezik.</div>
-      <div id="okListWrap" style="max-height:280px; overflow-y:auto;">
-        ${rendben.slice(0, PENDING_PAGE_SIZE_).map(r => `
-          <div style="padding:7px 10px; border-bottom:1px solid var(--line); font-size:12px;">
-            <b>${escapeHtml(r.nev || "Ismeretlen termék")}</b>
-            <span style="color:var(--text-dim);"> — ${escapeHtml(r.sajat_cikkszam || "—")} · ${escapeHtml(r.vonalkod)} · ${r.szamolt_mennyiseg} db</span>
-          </div>
-        `).join("")}
+      <div id="okListWrap" style="max-height:340px; overflow-y:auto;">
+        ${rendben.slice(0, PENDING_PAGE_SIZE_).map(r => okListRowHtml_(r)).join("")}
       </div>
       ${rendben.length > PENDING_PAGE_SIZE_ ? `
       <div class="row" style="justify-content:center; margin-top:10px;" id="okLoadMoreWrap">
@@ -1279,11 +1290,68 @@ function renderFullReport(container, report, opts) {
   // csak a MÁR renderelt tartományt frissítsük, ne az egész (akár
   // több ezres) listát egyszerre.
   container._diffFullData = elteresek;
+  container._groupSig = elteresek.length + "|" + rendben.length + "|" + hatravan.length;
   container._diffRenderedCount = Math.min(elteresek.length, DIFF_PAGE_SIZE_);
   container._pendingFullData = hatravan;
   container._pendingRenderedCount = Math.min(hatravan.length, PENDING_PAGE_SIZE_);
   container._okFullData = rendben;
   container._okRenderedCount = Math.min(rendben.length, PENDING_PAGE_SIZE_);
+  // KERESŐ: vonalkód / cikkszám / terméknév alapján bárhol a riportban —
+  // megmutatja, melyik szekcióba tartozik a tétel, és minden eddigi
+  // beavatkozást (beolvasások szektoronként, újraszámolások,
+  // admin-módosítások, korrekciók, megjegyzések) kilistáz.
+  const searchInput = container.querySelector("#reportSearchInput");
+  if (searchInput) {
+    const resultsEl = container.querySelector("#reportSearchResults");
+    const runSearch_ = () => {
+      const q = (searchInput.value || "").trim().toLowerCase();
+      if (!q) { resultsEl.innerHTML = ""; return; }
+      const qNorm = q.replace(/^0+/, "");
+      const hits = diff.filter(r => {
+        const vk = String(r.vonalkod || "").toLowerCase();
+        return vk.includes(q) ||
+          vk.replace(/^0+/, "").includes(qNorm) ||
+          String(r.sajat_cikkszam || "").toLowerCase().includes(q) ||
+          String(r.gyartoi_cikkszam || "").toLowerCase().includes(q) ||
+          String(r.nev || "").toLowerCase().includes(q);
+      }).slice(0, 25);
+      if (!hits.length) {
+        resultsEl.innerHTML = `<p class="emptyNote">Nincs találat erre: "${escapeHtml(searchInput.value)}"</p>`;
+        return;
+      }
+      resultsEl.innerHTML = hits.map(r => {
+        const beolvasva = (r.szektorok && r.szektorok.length) || (r.ujraszamolasok && r.ujraszamolasok.length);
+        let szekcio, szin;
+        if (!isOpen && r.elteres !== 0) { szekcio = "Eltérés"; szin = "var(--danger)"; }
+        else if (!beolvasva) { szekcio = "Beolvasásra vár"; szin = "var(--text-dim)"; }
+        else if (r.elteres !== 0) { szekcio = "Eltérés"; szin = "var(--danger)"; }
+        else { szekcio = "Rendben"; szin = "var(--accent)"; }
+        return `
+          <div style="padding:10px; margin-bottom:8px; background:var(--panel-2); border:1px solid var(--line); border-radius:8px;">
+            <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px; flex-wrap:wrap;">
+              <div>
+                <b>${escapeHtml(r.nev || "Ismeretlen termék")}</b>
+                <div style="font-size:11px; color:var(--text-dim);">
+                  ${escapeHtml(r.sajat_cikkszam || "—")} · ${escapeHtml(r.vonalkod)}
+                </div>
+              </div>
+              <span style="font-size:11px; font-weight:700; color:${szin};">${szekcio}</span>
+            </div>
+            <div style="font-size:12px; margin-top:6px;">
+              Rendszer: <b>${r.rendszer_mennyiseg} db</b> · Számolt: <b>${r.szamolt_mennyiseg} db</b> ·
+              Eltérés: <b style="color:${r.elteres === 0 ? "var(--accent)" : "var(--danger)"};">${r.elteres > 0 ? "+" : ""}${r.elteres} db</b>
+            </div>
+            ${historyBlockHtml_(r)}
+          </div>`;
+      }).join("");
+    };
+    let searchTimer_ = null;
+    searchInput.addEventListener("input", () => {
+      if (searchTimer_) clearTimeout(searchTimer_);
+      searchTimer_ = setTimeout(runSearch_, 200);
+    });
+  }
+
   const loadMoreBtn = container.querySelector("#diffLoadMoreBtn");
   if (loadMoreBtn) {
     loadMoreBtn.addEventListener("click", () => loadMoreDiffRows_(container, leltar.leltar_id, showActions, isOpen));
@@ -1291,7 +1359,7 @@ function renderFullReport(container, report, opts) {
   bindSimpleLoadMore_(container, "pendingLoadMoreBtn", "pendingListWrap", "pendingLoadMoreWrap",
     "_pendingFullData", "_pendingRenderedCount", "rendszer_mennyiseg");
   bindSimpleLoadMore_(container, "okLoadMoreBtn", "okListWrap", "okLoadMoreWrap",
-    "_okFullData", "_okRenderedCount", "szamolt_mennyiseg");
+    "_okFullData", "_okRenderedCount", "szamolt_mennyiseg", okListRowHtml_);
 
   if (showActions) {
     el("createVerifyBtn").addEventListener("click", () => createVerificationRoundForSelected(leltar.leltar_id));
@@ -1310,6 +1378,52 @@ const DIFF_PAGE_SIZE_ = 150;
 // többet is megjeleníthetünk anélkül, hogy lassítaná a felületet.
 const PENDING_PAGE_SIZE_ = 300;
 
+// A "rendben" lista sora — alapból tömör, DE ha a tételen történt
+// beavatkozás (újraszámolás, admin-módosítás, rendszer-korrekció,
+// megjegyzés), azt is kiírjuk. A végleges riportban pontosan
+// látszódjon, mi történt azzal a termékkel, ami most rendben van.
+// A tétel teljes beavatkozás-előzménye (újraszámolások, admin-
+// módosítások, rendszer-korrekciók, megjegyzések) — a "rendben"
+// listában és a keresőben is ezt használjuk.
+function historyBlockHtml_(r) {
+  const tortentBeavatkozas = (r.ujraszamolasok && r.ujraszamolasok.length) ||
+    (r.rendszer_korrekciok && r.rendszer_korrekciok.length) ||
+    (r.tetel_megjegyzesek && r.tetel_megjegyzesek.length);
+  if (!tortentBeavatkozas) return "";
+  return `
+    <div style="margin-top:4px; padding-left:8px; border-left:2px solid var(--line);">
+      ${(r.ujraszamolasok || []).map(u => `
+        <div style="font-size:11px; ${u.admin_modositas ? "color:var(--warn);" : "color:var(--text-dim);"}">
+          ${u.admin_modositas ? "✏️ admin módosítás" : (u.szektor ? escapeHtml(u.szektor) + ". szektor újraszámolva" : "újraszámolva")}
+          → <b>${u.mennyiseg} db</b> · ${escapeHtml(formatDateTime(u.idobelyeg))} · ${escapeHtml(u.felhasznalo)}
+          ${u.megjegyzes ? `<br><span style="padding-left:10px;">💬 ${escapeHtml(u.megjegyzes)}</span>` : ""}
+        </div>
+      `).join("")}
+      ${(r.rendszer_korrekciok || []).map(c => `
+        <div style="font-size:11px; color:var(--accent);">
+          Rendszer-adat javítva → <b>${c.uj_mennyiseg} db</b> · ${escapeHtml(formatDateTime(c.idobelyeg))} · ${escapeHtml(c.felhasznalo)}${c.forras === "kezi" ? " [kézzel]" : ""}
+          ${c.megjegyzes ? `<br><span style="padding-left:10px;">💬 ${escapeHtml(c.megjegyzes)}</span>` : ""}
+        </div>
+      `).join("")}
+      ${(r.tetel_megjegyzesek || []).map(n => `
+        <div style="font-size:11px; color:var(--text-dim);">💬 ${escapeHtml(n.megjegyzes)} — ${escapeHtml(n.felhasznalo)}, ${escapeHtml(formatDateTime(n.idobelyeg))}</div>
+      `).join("")}
+    </div>`;
+}
+
+function okListRowHtml_(r) {
+  return `
+    <div style="padding:7px 10px; border-bottom:1px solid var(--line); font-size:12px;">
+      <b>${escapeHtml(r.nev || "Ismeretlen termék")}</b>
+      <span style="color:var(--text-dim);"> — ${escapeHtml(r.sajat_cikkszam || "—")} · ${escapeHtml(r.vonalkod)} · ${r.szamolt_mennyiseg} db</span>
+      ${(r.szektorok && r.szektorok.length) ? `
+        <div style="color:var(--text-dim); font-size:11px; margin-top:2px;">
+          ${r.szektorok.filter(s => s.forras !== "ujraszamolas" && s.szektor).map(s => escapeHtml(s.szektor) + ". szektor: " + s.mennyiseg + " db").join(" · ")}
+        </div>` : ""}
+      ${historyBlockHtml_(r)}
+    </div>`;
+}
+
 // Egyszerű felsorolás-sor a "beolvasásra vár" / "rendben" listákhoz.
 function simpleListRowHtml_(r, qtyField) {
   return `
@@ -1320,7 +1434,7 @@ function simpleListRowHtml_(r, qtyField) {
 }
 
 // Közös "Továbbiak betöltése" kezelő a két egyszerű listához.
-function bindSimpleLoadMore_(container, btnId, wrapId, wrapperDivId, dataKey, countKey, qtyField) {
+function bindSimpleLoadMore_(container, btnId, wrapId, wrapperDivId, dataKey, countKey, qtyField, renderer) {
   const btn = container.querySelector("#" + btnId);
   if (!btn) return;
   btn.addEventListener("click", () => {
@@ -1329,7 +1443,7 @@ function bindSimpleLoadMore_(container, btnId, wrapId, wrapperDivId, dataKey, co
     const rendered = container[countKey] || 0;
     const next = fullData.slice(rendered, rendered + PENDING_PAGE_SIZE_);
     if (!wrap || !next.length) return;
-    wrap.insertAdjacentHTML("beforeend", next.map(r => simpleListRowHtml_(r, qtyField)).join(""));
+    wrap.insertAdjacentHTML("beforeend", next.map(r => renderer ? renderer(r) : simpleListRowHtml_(r, qtyField)).join(""));
     container[countKey] = rendered + next.length;
     const wrapper = container.querySelector("#" + wrapperDivId);
     if (container[countKey] >= fullData.length) {
@@ -1517,8 +1631,21 @@ function renderDiffRowHtml(r, showCheckbox, isOpen) {
     }
   }
   const recountCount = (r.ujraszamolasok || []).length;
+  // A teljes előzményt kilistázzuk (nem csak az utolsót), hogy a
+  // végleges riportban pontosan látszódjon, KI, MIKOR, MIRE módosított
+  // és MIÉRT — az admin-módosításokat külön megjelölve.
   const recountNote = recountCount
-    ? `<div class="recountNote">Újraszámolva ${recountCount} alkalommal — utoljára: ${escapeHtml(formatDateTime(r.ujraszamolasok[r.ujraszamolasok.length - 1].idobelyeg))}, ${escapeHtml(r.ujraszamolasok[r.ujraszamolasok.length - 1].felhasznalo)}</div>`
+    ? `<div class="recountNote">
+        <b>Újraszámolva/módosítva ${recountCount} alkalommal:</b>
+        ${r.ujraszamolasok.map(u => `
+          <div style="margin-top:3px; padding-left:8px; ${u.admin_modositas ? "color:var(--warn);" : ""}">
+            ${u.admin_modositas ? "✏️ <b>admin módosítás</b>" : (u.szektor ? escapeHtml(u.szektor) + ". szektor" : "újraszámolás")}
+            → <b>${u.mennyiseg} db</b>
+            · ${escapeHtml(formatDateTime(u.idobelyeg))} · ${escapeHtml(u.felhasznalo)}
+            ${u.megjegyzes ? `<br><span style="padding-left:12px;">💬 ${escapeHtml(u.megjegyzes)}</span>` : ""}
+          </div>
+        `).join("")}
+      </div>`
     : "";
   const correctionCount = (r.rendszer_korrekciok || []).length;
   const lastCorrection = correctionCount ? r.rendszer_korrekciok[r.rendszer_korrekciok.length - 1] : null;
@@ -1885,10 +2012,27 @@ function updateReportLiveInPlace_(leltarId, container, report, opts) {
   // és "rendben" listákat a következő teljes riport-betöltés frissíti
   // (ezek úgyis csak felsorolások, nincs bennük interaktív elem).
   // A szűrő UGYANAZ, mint a renderFullReport-ban (lásd beolvastakE_).
-  const elteresekLive = diff.filter(r =>
-    ((r.szektorok && r.szektorok.length > 0) || (r.ujraszamolasok && r.ujraszamolasok.length > 0))
-    && r.elteres !== 0
-  );
+  const beolvasva_ = r => (r.szektorok && r.szektorok.length > 0) || (r.ujraszamolasok && r.ujraszamolasok.length > 0);
+  const elteresekLive = diff.filter(r => beolvasva_(r) && r.elteres !== 0);
+  const rendbenLive = diff.filter(r => beolvasva_(r) && r.elteres === 0);
+  const hatravanLive = diff.filter(r => !beolvasva_(r));
+
+  // KRITIKUS: ha egy tétel ÁTKERÜLT egy másik szekcióba (pl. beolvasták,
+  // így a "beolvasásra vár"-ból az "eltérések" közé, vagy javítás után
+  // az "eltérések"-ből a "rendben" közé), akkor a részleges (csak a
+  // #diffListWrap-ot érintő) frissítés nem elég: a másik két szekció
+  // tartalma is megváltozott. Ilyenkor a TELJES riportot újrarajzoljuk,
+  // hogy minden szekció konzisztens legyen. Enélkül a tétel egyszerre
+  // két helyen (vagy sehol) látszódna, amíg a felhasználó kézzel nem
+  // frissíti az oldalt.
+  const groupSig = elteresekLive.length + "|" + rendbenLive.length + "|" + hatravanLive.length;
+  if (container._groupSig !== undefined && container._groupSig !== groupSig) {
+    container._groupSig = groupSig;
+    renderFullReport(container, report, opts);
+    return;
+  }
+  container._groupSig = groupSig;
+
   container._diffFullData = elteresekLive;
   const renderedCount = container._diffRenderedCount || elteresekLive.length;
   const windowData = elteresekLive.slice(0, renderedCount);
