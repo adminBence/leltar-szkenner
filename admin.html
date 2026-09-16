@@ -375,7 +375,11 @@
       <div id="activeLeltarakBody"></div>
     </div>
 
-    <div class="card" id="startLeltarCard">
+    <div class="card" id="leltarLoadingCard">
+      <div class="inlineLoading"><div class="spinner small"></div>Leltár állapotának betöltése…</div>
+    </div>
+
+    <div class="card" id="startLeltarCard" style="display:none;">
       <div class="cardTitle">Új leltár indítása</div>
       <div id="keszletFrissessegLine" style="font-size:12px; color:var(--text-dim); margin-bottom:12px;"></div>
       <div class="typeChoice">
@@ -909,9 +913,15 @@ async function loadActiveLeltarak() {
   const card = el("activeLeltarakCard");
   const body = el("activeLeltarakBody");
   const startCard = el("startLeltarCard");
+  const loadingCard = el("leltarLoadingCard");
   try {
     const data = await apiGet({ action: "active_leltarak" });
     const list = data.leltarak || [];
+    // A töltő-kártyát csak MOST rejtjük el, amikor már tudjuk, van-e
+    // futó leltár — enélkül az "Új leltár indítása" villanna fel
+    // azonnal, még akkor is, ha valójában már fut egy leltár (és így
+    // valaki véletlenül elindíthatna egy másodikat).
+    if (loadingCard) loadingCard.style.display = "none";
     if (!list.length) {
       card.style.display = "none";
       startCard.style.display = "block";
@@ -953,6 +963,7 @@ async function loadActiveLeltarak() {
       openReport(list[0].leltar_id, el("reportContainer"), { showActions: true }, true);
     }
   } catch (e) {
+    if (loadingCard) loadingCard.style.display = "none";
     card.style.display = "block";
     body.innerHTML = `<p class="emptyNote">Hiba: ${escapeHtml(e.message)}</p>`;
   }
@@ -1115,6 +1126,13 @@ function renderFullReport(container, report, opts) {
   const isOpen = leltar.statusz === "folyamatban";
   const showActions = !!opts.showActions && isOpen;
 
+  // A tételeket HÁROM csoportra bontjuk, hogy a lényeg (a tényleges
+  // eltérések) legyen elöl, és a tömeget jelentő "még hátravan"
+  // tételek ne nyomják el — ezekhez elég a puszta felsorolás is.
+  const elteresek = diff.filter(r => r.elteres !== 0 && r.szamolt_mennyiseg > 0);
+  const hatravan = diff.filter(r => r.szamolt_mennyiseg === 0 && r.rendszer_mennyiseg > 0);
+  const rendben = diff.filter(r => r.elteres === 0 && r.szamolt_mennyiseg > 0);
+
   const felelosHtml = buildFelelosHtml_(szektor_felelosok);
 
   const termektipusokHtml = (leltar.tipus === "termektipus" && leltar.termektipusok && leltar.termektipusok.length)
@@ -1175,18 +1193,54 @@ function renderFullReport(container, report, opts) {
     <div class="card" id="verifyQrCard" style="display:none;"></div>
 
     <div class="card">
-      <div class="cardTitle">Eltérés-riport, tételesen</div>
+      <div class="cardTitle">Eltérések (beolvasva, de nem stimmel)</div>
       ${showActions ? `<div class="row" style="margin-bottom:14px; gap:8px;">
         <button class="btn primary" id="createVerifyBtn">Kiválasztottak ellenőrzése (új QR)</button>
       </div>` : ""}
       <div id="diffListWrap">
-        ${diff.slice(0, DIFF_PAGE_SIZE_).map(r => renderDiffRowHtml(r, showActions, isOpen)).join("") || `<p class="emptyNote">Nincs tétel.</p>`}
+        ${elteresek.slice(0, DIFF_PAGE_SIZE_).map(r => renderDiffRowHtml(r, showActions, isOpen)).join("") || `<p class="emptyNote">Nincs ilyen tétel — minden beolvasott termék készlete stimmel.</p>`}
       </div>
-      ${diff.length > DIFF_PAGE_SIZE_ ? `
+      ${elteresek.length > DIFF_PAGE_SIZE_ ? `
       <div class="row" style="justify-content:center; margin-top:10px;" id="diffLoadMoreWrap">
-        <button class="btn" id="diffLoadMoreBtn">Továbbiak betöltése (${diff.length - DIFF_PAGE_SIZE_} hátra)</button>
+        <button class="btn" id="diffLoadMoreBtn">Továbbiak betöltése (${elteresek.length - DIFF_PAGE_SIZE_} hátra)</button>
       </div>` : ""}
     </div>
+
+    ${hatravan.length ? `
+    <div class="card">
+      <div class="cardTitle">Beolvasásra vár (${hatravan.length} tétel)</div>
+      <div class="metaLine" style="margin-bottom:10px;">Ezeket még egyetlen szektorban sem olvasták be.</div>
+      <div id="pendingListWrap" style="max-height:340px; overflow-y:auto;">
+        ${hatravan.slice(0, PENDING_PAGE_SIZE_).map(r => `
+          <div style="padding:7px 10px; border-bottom:1px solid var(--line); font-size:12px;">
+            <b>${escapeHtml(r.nev || "Ismeretlen termék")}</b>
+            <span style="color:var(--text-dim);"> — ${escapeHtml(r.sajat_cikkszam || "—")} · ${escapeHtml(r.vonalkod)} · ${r.rendszer_mennyiseg} db</span>
+          </div>
+        `).join("")}
+      </div>
+      ${hatravan.length > PENDING_PAGE_SIZE_ ? `
+      <div class="row" style="justify-content:center; margin-top:10px;" id="pendingLoadMoreWrap">
+        <button class="btn" id="pendingLoadMoreBtn">Továbbiak betöltése (${hatravan.length - PENDING_PAGE_SIZE_} hátra)</button>
+      </div>` : ""}
+    </div>` : ""}
+
+    ${rendben.length ? `
+    <div class="card">
+      <div class="cardTitle">Rendben (${rendben.length} tétel)</div>
+      <div class="metaLine" style="margin-bottom:10px;">Beolvasva, és a készletük pontosan egyezik.</div>
+      <div id="okListWrap" style="max-height:280px; overflow-y:auto;">
+        ${rendben.slice(0, PENDING_PAGE_SIZE_).map(r => `
+          <div style="padding:7px 10px; border-bottom:1px solid var(--line); font-size:12px;">
+            <b>${escapeHtml(r.nev || "Ismeretlen termék")}</b>
+            <span style="color:var(--text-dim);"> — ${escapeHtml(r.sajat_cikkszam || "—")} · ${escapeHtml(r.vonalkod)} · ${r.szamolt_mennyiseg} db</span>
+          </div>
+        `).join("")}
+      </div>
+      ${rendben.length > PENDING_PAGE_SIZE_ ? `
+      <div class="row" style="justify-content:center; margin-top:10px;" id="okLoadMoreWrap">
+        <button class="btn" id="okLoadMoreBtn">Továbbiak betöltése (${rendben.length - PENDING_PAGE_SIZE_} hátra)</button>
+      </div>` : ""}
+    </div>` : ""}
 
     ${(!isOpen && torolt_ismeretlen && torolt_ismeretlen.length) ? `
     <div class="card">
@@ -1213,12 +1267,20 @@ function renderFullReport(container, report, opts) {
   // betöltése" gombhoz és az élő (poll-alapú) frissítéshez is, hogy
   // csak a MÁR renderelt tartományt frissítsük, ne az egész (akár
   // több ezres) listát egyszerre.
-  container._diffFullData = diff;
-  container._diffRenderedCount = Math.min(diff.length, DIFF_PAGE_SIZE_);
+  container._diffFullData = elteresek;
+  container._diffRenderedCount = Math.min(elteresek.length, DIFF_PAGE_SIZE_);
+  container._pendingFullData = hatravan;
+  container._pendingRenderedCount = Math.min(hatravan.length, PENDING_PAGE_SIZE_);
+  container._okFullData = rendben;
+  container._okRenderedCount = Math.min(rendben.length, PENDING_PAGE_SIZE_);
   const loadMoreBtn = container.querySelector("#diffLoadMoreBtn");
   if (loadMoreBtn) {
     loadMoreBtn.addEventListener("click", () => loadMoreDiffRows_(container, leltar.leltar_id, showActions, isOpen));
   }
+  bindSimpleLoadMore_(container, "pendingLoadMoreBtn", "pendingListWrap", "pendingLoadMoreWrap",
+    "_pendingFullData", "_pendingRenderedCount", "rendszer_mennyiseg");
+  bindSimpleLoadMore_(container, "okLoadMoreBtn", "okListWrap", "okLoadMoreWrap",
+    "_okFullData", "_okRenderedCount", "szamolt_mennyiseg");
 
   if (showActions) {
     el("createVerifyBtn").addEventListener("click", () => createVerificationRoundForSelected(leltar.leltar_id));
@@ -1232,6 +1294,40 @@ function renderFullReport(container, report, opts) {
 // — ezért csak DIFF_PAGE_SIZE_ tételt renderelünk kezdetben, a többit
 // csak igény szerint, adagokban.
 const DIFF_PAGE_SIZE_ = 150;
+// A "beolvasásra vár" és "rendben" listák csak egyszerű felsorolások
+// (nincs bennük gomb/panel, csak szöveg), ezért ezekből egyszerre
+// többet is megjeleníthetünk anélkül, hogy lassítaná a felületet.
+const PENDING_PAGE_SIZE_ = 300;
+
+// Egyszerű felsorolás-sor a "beolvasásra vár" / "rendben" listákhoz.
+function simpleListRowHtml_(r, qtyField) {
+  return `
+    <div style="padding:7px 10px; border-bottom:1px solid var(--line); font-size:12px;">
+      <b>${escapeHtml(r.nev || "Ismeretlen termék")}</b>
+      <span style="color:var(--text-dim);"> — ${escapeHtml(r.sajat_cikkszam || "—")} · ${escapeHtml(r.vonalkod)} · ${r[qtyField]} db</span>
+    </div>`;
+}
+
+// Közös "Továbbiak betöltése" kezelő a két egyszerű listához.
+function bindSimpleLoadMore_(container, btnId, wrapId, wrapperDivId, dataKey, countKey, qtyField) {
+  const btn = container.querySelector("#" + btnId);
+  if (!btn) return;
+  btn.addEventListener("click", () => {
+    const wrap = container.querySelector("#" + wrapId);
+    const fullData = container[dataKey] || [];
+    const rendered = container[countKey] || 0;
+    const next = fullData.slice(rendered, rendered + PENDING_PAGE_SIZE_);
+    if (!wrap || !next.length) return;
+    wrap.insertAdjacentHTML("beforeend", next.map(r => simpleListRowHtml_(r, qtyField)).join(""));
+    container[countKey] = rendered + next.length;
+    const wrapper = container.querySelector("#" + wrapperDivId);
+    if (container[countKey] >= fullData.length) {
+      if (wrapper) wrapper.remove();
+    } else {
+      btn.textContent = `Továbbiak betöltése (${fullData.length - container[countKey]} hátra)`;
+    }
+  });
+}
 
 function loadMoreDiffRows_(container, leltarId, showActions, isOpen) {
   const wrap = container.querySelector("#diffListWrap");
@@ -1773,9 +1869,14 @@ function updateReportLiveInPlace_(leltarId, container, report, opts) {
   // "Továbbiak betöltése" gomb) — de az élő frissítés csak a MÁR
   // ténylegesen renderelt tartományt vizsgálja/rajzolja újra, hogy egy
   // több ezer tételes leltárnál is gyors maradjon a pollozás.
-  container._diffFullData = diff;
-  const renderedCount = container._diffRenderedCount || diff.length;
-  const windowData = diff.slice(0, renderedCount);
+  // FONTOS: az élő frissítés is CSAK az "eltérések" csoportot kezeli —
+  // ez az a szekció, ami a #diffListWrap-ban van. A "beolvasásra vár"
+  // és "rendben" listákat a következő teljes riport-betöltés frissíti
+  // (ezek úgyis csak felsorolások, nincs bennük interaktív elem).
+  const elteresekLive = diff.filter(r => r.elteres !== 0 && r.szamolt_mennyiseg > 0);
+  container._diffFullData = elteresekLive;
+  const renderedCount = container._diffRenderedCount || elteresekLive.length;
+  const windowData = elteresekLive.slice(0, renderedCount);
 
   const stillPresent = new Set();
   windowData.forEach(r => {
@@ -1808,11 +1909,11 @@ function updateReportLiveInPlace_(leltarId, container, report, opts) {
   // tételek száma időközben változott (pl. törlés miatt).
   const loadMoreWrap = container.querySelector("#diffLoadMoreWrap");
   if (loadMoreWrap) {
-    if (renderedCount >= diff.length) {
+    if (renderedCount >= elteresekLive.length) {
       loadMoreWrap.remove();
     } else {
       const btn = loadMoreWrap.querySelector("#diffLoadMoreBtn");
-      if (btn) btn.textContent = `Továbbiak betöltése (${diff.length - renderedCount} hátra)`;
+      if (btn) btn.textContent = `Továbbiak betöltése (${elteresekLive.length - renderedCount} hátra)`;
     }
   }
 }
@@ -2181,6 +2282,13 @@ async function trySilentSessionRestore_() {
   try {
     const result = await apiPost({ action: "verify_login" });
     if (result.error) {
+      // Csak akkor dobjuk el a munkamenetet, ha a szerver VALÓDI
+      // jogosultsági hibát jelzett — ha csak átmeneti (pl. időtúllépés,
+      // túlterhelés), a mentett bejelentkezés érvényes marad.
+      if (result.transient) {
+        onLoginVerified_();
+        return true;
+      }
       googleIdToken = null; googleUserEmail = null; googleUserName = null;
       clearTokenStorage_();
       return false;
@@ -2188,8 +2296,12 @@ async function trySilentSessionRestore_() {
     onLoginVerified_();
     return true;
   } catch (e) {
-    googleIdToken = null;
-    return false;
+    // Hálózati/időtúllépési hiba — a mentett munkamenet ilyenkor is
+    // érvényes marad; NEM jelentkeztetjük ki a felhasználót emiatt.
+    // Ez okozta korábban, hogy egy lassú/akadozó oldalfrissítés
+    // rendszeresen kidobta a bejelentkezésből.
+    onLoginVerified_();
+    return true;
   }
 }
 
@@ -2211,15 +2323,26 @@ function scheduleTokenRefresh_(payload) {
 }
 
 function showLoginLoading_(loading) {
-  const box = el("authGateBox");
-  if (!box) return;
-  box.querySelectorAll("[data-login-spinner]").forEach(n => n.remove());
+  // FONTOS: a töltő-jelzőt az authGateCONTENT-be tesszük (ez a keretes,
+  // szegélyezett doboz), nem az authGateBOX-ba — utóbbi csak a külső,
+  // keret nélküli tároló, ezért oda fűzve a spinner a doboz ALÁ lógott
+  // ki. A gomb helyére kerül, így a doboz mérete sem ugrál.
+  const content = el("authGateContent");
+  if (!content) return;
+  content.querySelectorAll("[data-login-spinner]").forEach(n => n.remove());
   if (loading) {
     el("googleSignInBtn").style.display = "none";
     const spinner = document.createElement("div");
     spinner.setAttribute("data-login-spinner", "1");
+    spinner.style.cssText = "display:flex; flex-direction:column; align-items:center; justify-content:center; padding:6px 0;";
     spinner.innerHTML = `<div class="spinner"></div><div style="margin-top:10px; font-size:12px; color:var(--text-dim);">Bejelentkezés ellenőrzése…</div>`;
-    box.appendChild(spinner);
+    // A gomb HELYÉRE szúrjuk be, nem a doboz végére.
+    const btn = el("googleSignInBtn");
+    if (btn && btn.parentNode) {
+      btn.parentNode.insertBefore(spinner, btn);
+    } else {
+      content.appendChild(spinner);
+    }
   } else {
     el("googleSignInBtn").style.display = "flex";
   }
