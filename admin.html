@@ -1129,9 +1129,20 @@ function renderFullReport(container, report, opts) {
   // A tételeket HÁROM csoportra bontjuk, hogy a lényeg (a tényleges
   // eltérések) legyen elöl, és a tömeget jelentő "még hátravan"
   // tételek ne nyomják el — ezekhez elég a puszta felsorolás is.
-  const elteresek = diff.filter(r => r.elteres !== 0 && r.szamolt_mennyiseg > 0);
-  const hatravan = diff.filter(r => r.szamolt_mennyiseg === 0 && r.rendszer_mennyiseg > 0);
-  const rendben = diff.filter(r => r.elteres === 0 && r.szamolt_mennyiseg > 0);
+  //
+  // FONTOS: a csoportosítás alapja az, hogy a terméket TÉNYLEGESEN
+  // beolvasták-e (van-e hozzá beolvasás vagy újraszámolás), NEM pedig
+  // a számolt darabszám. Enélkül kimaradna például az a tétel, amit
+  // beolvastak ugyan, de 0 db-ot számoltak belőle — és az is, aminél
+  // a rendszer szerinti készlet is 0. A három szűrő így GARANTÁLTAN
+  // lefedi az összes tételt, átfedés nélkül.
+  function beolvastakE_(r) {
+    return (r.szektorok && r.szektorok.length > 0) ||
+           (r.ujraszamolasok && r.ujraszamolasok.length > 0);
+  }
+  const elteresek = diff.filter(r => beolvastakE_(r) && r.elteres !== 0);
+  const rendben = diff.filter(r => beolvastakE_(r) && r.elteres === 0);
+  const hatravan = diff.filter(r => !beolvastakE_(r));
 
   const felelosHtml = buildFelelosHtml_(szektor_felelosok);
 
@@ -1873,7 +1884,11 @@ function updateReportLiveInPlace_(leltarId, container, report, opts) {
   // ez az a szekció, ami a #diffListWrap-ban van. A "beolvasásra vár"
   // és "rendben" listákat a következő teljes riport-betöltés frissíti
   // (ezek úgyis csak felsorolások, nincs bennük interaktív elem).
-  const elteresekLive = diff.filter(r => r.elteres !== 0 && r.szamolt_mennyiseg > 0);
+  // A szűrő UGYANAZ, mint a renderFullReport-ban (lásd beolvastakE_).
+  const elteresekLive = diff.filter(r =>
+    ((r.szektorok && r.szektorok.length > 0) || (r.ujraszamolasok && r.ujraszamolasok.length > 0))
+    && r.elteres !== 0
+  );
   container._diffFullData = elteresekLive;
   const renderedCount = container._diffRenderedCount || elteresekLive.length;
   const windowData = elteresekLive.slice(0, renderedCount);
