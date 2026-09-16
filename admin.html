@@ -359,6 +359,7 @@
   <nav>
     <button class="navBtn active" data-panel="leltar">Leltár</button>
     <button class="navBtn" data-panel="history">Korábbi leltárak</button>
+    <button class="navBtn" data-panel="itemhistory">Cikk előzmény</button>
     <button class="navBtn" data-panel="users">Felhasználók</button>
   </nav>
 
@@ -410,6 +411,24 @@
       <div id="historyList"><div class="inlineLoading"><div class="spinner small"></div>Betöltés…</div></div>
     </div>
     <div id="historyReportContainer"></div>
+  </div>
+
+  <!-- CIKK ELŐZMÉNY -->
+  <div class="panel" id="panel-itemhistory">
+    <div class="card">
+      <div class="cardTitle">Cikk előzmény</div>
+      <div class="metaLine" style="margin-bottom:10px;">
+        Keress rá egy termékre vonalkód, cikkszám vagy név alapján — megmutatja, hogyan alakult
+        az ÖSSZES eddigi leltárban: mennyi volt a rendszer szerint, mennyit számoltak, és milyen
+        beavatkozások (újraszámolás, admin-módosítás, rendszer-javítás, megjegyzés) történtek.
+      </div>
+      <div class="row" style="gap:8px;">
+        <input type="text" id="itemHistoryInput" placeholder="Vonalkód, cikkszám vagy terméknév…"
+          style="flex:1 1 auto; font-size:14px; padding:10px 12px;">
+        <button class="btn primary" id="itemHistoryBtn">Keresés</button>
+      </div>
+    </div>
+    <div id="itemHistoryResults"></div>
   </div>
 
   <!-- FELHASZNÁLÓK -->
@@ -2196,6 +2215,81 @@ async function closeLeltarAction(leltarId) {
 const SUPER_ADMIN_EMAIL_ = "admin@aceltigris.hu";
 function isSuperAdmin_() {
   return (googleUserEmail || "").toLowerCase() === SUPER_ADMIN_EMAIL_;
+}
+
+/* =========================================================================
+   CIKK ELŐZMÉNY — egy termék teljes története az ÖSSZES leltáron át
+   ========================================================================= */
+async function runItemHistorySearch_() {
+  const input = el("itemHistoryInput");
+  const results = el("itemHistoryResults");
+  const q = (input.value || "").trim();
+  if (q.length < 2) {
+    results.innerHTML = `<div class="card"><p class="emptyNote">Írj be legalább 2 karaktert.</p></div>`;
+    return;
+  }
+  results.innerHTML = `<div class="card"><div class="inlineLoading"><div class="spinner small"></div>Keresés…</div></div>`;
+  try {
+    const data = await apiGet({ action: "item_history", q: q });
+    const items = data.items || [];
+    if (!items.length) {
+      results.innerHTML = `<div class="card"><p class="emptyNote">Nincs találat erre: "${escapeHtml(q)}" — vagy a termék még egyetlen leltárban sem szerepelt.</p></div>`;
+      return;
+    }
+    results.innerHTML = items.map(it => {
+      // Összegzés: hány leltárban volt eltérés / admin-módosítás — ez
+      // teszi láthatóvá a visszatérő problémákat.
+      const elteroDb = it.leltarak.filter(l => l.elteres !== 0).length;
+      const adminDb = it.leltarak.filter(l => l.admin_modositva).length;
+      const korrDb = it.leltarak.filter(l => l.korrekciok.length).length;
+      return `
+      <div class="card">
+        <div class="cardTitle" style="margin-bottom:4px;">${escapeHtml(it.nev || "Ismeretlen termék")}</div>
+        <div class="metaLine" style="margin-bottom:10px;">
+          Vonalkód: ${escapeHtml(it.vonalkod)} · Saját cikkszám: ${escapeHtml(it.sajat_cikkszam || "—")}
+          · Gyártói: ${escapeHtml(it.gyartoi_cikkszam || "—")}
+        </div>
+        <div class="row" style="gap:8px; flex-wrap:wrap; margin-bottom:12px;">
+          <span class="permPill">${it.leltarak.length} leltárban szerepelt</span>
+          ${elteroDb ? `<span class="permPill" style="background:rgba(232,90,74,0.15); color:var(--danger); border-color:var(--danger);">${elteroDb} leltárban volt eltérés</span>` : ""}
+          ${adminDb ? `<span class="permPill" style="background:rgba(230,180,80,0.15); color:var(--warn); border-color:var(--warn);">${adminDb}× admin-módosítás</span>` : ""}
+          ${korrDb ? `<span class="permPill" style="background:rgba(62,207,142,0.12); color:var(--accent); border-color:var(--accent);">${korrDb}× rendszer-javítás</span>` : ""}
+        </div>
+        ${it.leltarak.map(l => `
+          <div style="padding:10px; margin-bottom:8px; background:var(--panel-2);
+            border:1px solid var(--line); border-left:3px solid ${l.elteres === 0 ? "var(--accent)" : "var(--danger)"}; border-radius:8px;">
+            <div style="display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap; align-items:baseline;">
+              <b style="font-size:13px;">${escapeHtml(formatDateTime(l.inditva))}</b>
+              <span style="font-size:11px; color:var(--text-dim);">
+                ${escapeHtml(l.tipus || "")} · ${l.statusz === "folyamatban" ? "folyamatban" : "lezárva"}
+              </span>
+            </div>
+            <div style="font-size:12px; margin-top:5px;">
+              Rendszer: <b>${l.rendszer_mennyiseg} db</b> · Számolt: <b>${l.szamolt_mennyiseg} db</b> ·
+              Eltérés: <b style="color:${l.elteres === 0 ? "var(--accent)" : "var(--danger)"};">${l.elteres > 0 ? "+" : ""}${l.elteres} db</b>
+            </div>
+            ${l.beolvasasok.length ? `
+              <div style="font-size:11px; color:var(--text-dim); margin-top:4px;">
+                ${l.beolvasasok.map(b => `${escapeHtml(b.szektor || "—")}. szektor: ${b.mennyiseg} db (${escapeHtml(b.felhasznalo)})`).join(" · ")}
+              </div>` : `<div style="font-size:11px; color:var(--text-dim); margin-top:4px;">Nem lett beolvasva.</div>`}
+            ${historyBlockHtml_({
+              ujraszamolasok: l.ujraszamolasok,
+              rendszer_korrekciok: l.korrekciok,
+              tetel_megjegyzesek: l.megjegyzesek,
+            })}
+          </div>
+        `).join("")}
+      </div>`;
+    }).join("");
+  } catch (e) {
+    results.innerHTML = `<div class="card"><p class="emptyNote">Hiba: ${escapeHtml(e.message)}</p></div>`;
+  }
+}
+if (el("itemHistoryBtn")) {
+  el("itemHistoryBtn").addEventListener("click", runItemHistorySearch_);
+  el("itemHistoryInput").addEventListener("keydown", (ev) => {
+    if (ev.key === "Enter") { ev.preventDefault(); runItemHistorySearch_(); }
+  });
 }
 
 async function loadHistory(silent) {
