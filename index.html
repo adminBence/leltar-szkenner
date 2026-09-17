@@ -631,6 +631,27 @@ async function apiPost(body) {
 /* =========================================================================
    ÁLLAPOT
    ========================================================================= */
+// Stabil, eszközönként egyedi azonosító — ez teszi lehetővé, hogy a
+// szerver FELÜLÍRJA (ne hozzáadja) ugyanannak az eszköznek az ismételt
+// küldéseit, így egy dupla szinkronizálás sem duplázza a mennyiséget.
+const deviceId_ = (function () {
+  try {
+    let id = localStorage.getItem("leltarScannerDeviceId");
+    if (!id) {
+      id = "d-" + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+      localStorage.setItem("leltarScannerDeviceId", id);
+    }
+    return id;
+  } catch (e) {
+    return "d-" + Math.random().toString(36).slice(2, 10);
+  }
+})();
+
+// Párhuzamos szinkronizálás elleni védelem: ha már fut egy küldés, egy
+// újabb kattintás NEM indít másodikat (korábban két egyidejű kérés
+// ugyanazokat a tételeket küldte fel).
+let syncInProgress_ = false;
+
 let currentSector = "";
 let activeLeltar = null;       // { leltar_id, code, tipus, raktar }
 let userEmail = "";            // kötelezően megadott név (lásd nameGateOverlay)
@@ -794,7 +815,7 @@ async function startCamera() {
   }
 }
 
-const APP_VERSION = "v66";
+const APP_VERSION = "v68";
 let frameCount = 0, detectCount = 0;
 function debugLog(msg) {
   // A felületen csak a verziószám látszik (lásd lent) — a részletes
@@ -1062,6 +1083,11 @@ async function acceptCode(barcode) {
   if (existing) {
     existing.qty += 1;
     existing.ts = Date.now();
+    // FONTOS: a tétel mennyisége megváltozott, tehát a szerveren lévő
+    // érték elavult — újra fel kell küldeni. Enélkül egy már
+    // szinkronizált tétel újabb beolvasásai SOSEM jutottak volna el a
+    // szerverre (a synced jelölés miatt kimaradtak a küldésből).
+    existing.synced = false;
   } else {
     scanned.unshift({
       barcode: barcode,
@@ -1211,6 +1237,7 @@ function commitPending() {
 
   const existing = scanned.find(s => s.barcode === committedBarcode && s.sector === currentSector);
   if (existing) {
+    if (existing.qty !== qty) existing.synced = false;  // változott -> újraküldés kell
     existing.qty = qty;
     existing.ts = Date.now();
     if (committedChecked) existing.checked = committedChecked;
@@ -1384,20 +1411,25 @@ document.querySelectorAll("[data-back]").forEach(btn => {
    SZEKTOR LEZÁRÁSA / BEFEJEZÉS
    ========================================================================= */
 async function syncPendingScans() {
+  if (syncInProgress_) return;
   const pendingItems = scanned.filter(s => !s.synced);
   if (!pendingItems.length || !APPS_SCRIPT_URL || !activeLeltar) return;
+  syncInProgress_ = true;
   try {
     await apiPost({
       action: "submit_scans",
       leltar_id: activeLeltar.leltar_id,
       items: pendingItems.map(s => ({
         sector: s.sector, barcode: s.barcode, qty: s.qty, user: userEmail || "ismeretlen",
+        device: deviceId_,
       })),
     });
     pendingItems.forEach(s => s.synced = true);
     updatePendingCount();
   } catch (e) {
     debugLog("háttér-szinkron hiba: " + e.message);
+  } finally {
+    syncInProgress_ = false;
   }
 }
 
@@ -1429,10 +1461,12 @@ el("finishAllBtn").addEventListener("click", async () => {
 });
 
 el("syncBtn").addEventListener("click", async () => {
+  if (syncInProgress_) return;   // már fut egy küldés — ne indítsunk másodikat
   if (pendingHit) commitPending();
   const btn = el("syncBtn");
   btn.disabled = true;
   btn.textContent = "Szinkronizálás…";
+  syncInProgress_ = true;
 
   const pendingItems = scanned.filter(s => !s.synced);
 
@@ -1443,6 +1477,7 @@ el("syncBtn").addEventListener("click", async () => {
         leltar_id: activeLeltar.leltar_id,
         items: pendingItems.map(s => ({
           sector: s.sector, barcode: s.barcode, qty: s.qty, user: userEmail || "ismeretlen",
+          device: deviceId_,
         })),
       });
       pendingItems.forEach(s => s.synced = true);
@@ -1456,6 +1491,7 @@ el("syncBtn").addEventListener("click", async () => {
     scanned.forEach(s => s.synced = true);
   }
 
+  syncInProgress_ = false;
   btn.disabled = false;
   updatePendingCount();
   btn.innerHTML = `Szinkronizálás (<span id="pendingCount">0</span>)`;
@@ -1629,6 +1665,7 @@ updateGateUI();
 
 let pendingJoinCode_ = null;
 let pendingVerifyCode_ = null;
+let prefetchedVerifyData_ = null;
 
 async function initStartup_() {
   const params = new URLSearchParams(window.location.search);
@@ -1649,7 +1686,13 @@ async function initStartup_() {
     let leltarId = null;
     try {
       const peek = await apiGet({ action: "join_verification", code: verifyCodeFromUrl });
-      if (peek && peek.found) leltarId = peek.leltar_id;
+      if (peek && peek.found) {
+        leltarId = peek.leltar_id;
+        // A választ ELTESSZÜK: az openVerifyMode így nem kérdezi le
+        // MÉGEGYSZER ugyanazt (korábban a betöltés duplán futott le,
+        // ezért kellett sokat várni a lista megjelenésére).
+        prefetchedVerifyData_ = { code: verifyCodeFromUrl, data: peek };
+      }
     } catch (e) { /* hiba esetén sima névbekérős úton folytatjuk */ }
     const savedName = getSavedNameForLeltar_(leltarId);
     if (savedName) {
@@ -2036,7 +2079,16 @@ async function openVerifyMode(kod) {
   body.innerHTML = `<p class="placeholderNote">Ellenőrzési lista betöltése…</p>`;
 
   try {
-    const data = await apiGet({ action: "join_verification", code: kod });
+    // Ha az indításkor már lekérdeztük ugyanezt a kódot (lásd
+    // initStartup_), azt az eredményt használjuk — így nem fut le
+    // feleslegesen kétszer ugyanaz a (viszonylag lassú) lekérdezés.
+    let data;
+    if (prefetchedVerifyData_ && prefetchedVerifyData_.code === kod) {
+      data = prefetchedVerifyData_.data;
+      prefetchedVerifyData_ = null;
+    } else {
+      data = await apiGet({ action: "join_verification", code: kod });
+    }
     if (!data.found) {
       body.innerHTML = `<p class="placeholderNote">Nincs ilyen ellenőrzési kód, vagy már nem érvényes.</p>`;
       return;
