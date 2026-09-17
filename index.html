@@ -815,7 +815,7 @@ async function startCamera() {
   }
 }
 
-const APP_VERSION = "v68";
+const APP_VERSION = "v69";
 let frameCount = 0, detectCount = 0;
 function debugLog(msg) {
   // A felületen csak a verziószám látszik (lásd lent) — a részletes
@@ -1641,13 +1641,23 @@ function getSavedNameForLeltar_(leltarId) {
   if (!leltarId) return null;
   return getSavedNames_()[leltarId] || null;
 }
-function saveNameForLeltar_(leltarId, name) {
-  if (!leltarId || !name) return;
+function saveNameForLeltar_(leltarId, name, kod) {
+  if (!name) return;
   try {
     const map = getSavedNames_();
-    map[leltarId] = name;
+    if (leltarId) map[leltarId] = name;
+    // A KÓD alapján is eltároljuk: így egy következő QR-beolvasásnál
+    // AZONNAL, hálózati kérés NÉLKÜL eldönthető, hogy kell-e
+    // névbekérés. Enélkül minden induláskor le kellett kérdezni a
+    // szervertől, melyik leltárhoz tartozik a kód — ami a felület
+    // megjelenését is percekig várakoztatta.
+    if (kod) map["kod:" + String(kod).toUpperCase()] = name;
     localStorage.setItem("leltarNevek", JSON.stringify(map));
   } catch (e) { /* nem kritikus, ha ez nem sikerül */ }
+}
+function getSavedNameForCode_(kod) {
+  if (!kod) return null;
+  return getSavedNames_()["kod:" + String(kod).toUpperCase()] || null;
 }
 
 /* =========================================================================
@@ -1667,65 +1677,36 @@ let pendingJoinCode_ = null;
 let pendingVerifyCode_ = null;
 let prefetchedVerifyData_ = null;
 
-async function initStartup_() {
+function initStartup_() {
   const params = new URLSearchParams(window.location.search);
   const verifyCodeFromUrl = params.get("verify");
   const joinCodeFromUrl = params.get("join");
+  const kod = verifyCodeFromUrl || joinCodeFromUrl;
+  if (!kod) return;
 
-  // Ha a linkben join/verify kód van, egy pillanatra semleges töltést
-  // mutatunk a névbekérő űrlap helyett, amíg eldől, hogy ehhez a
-  // leltárhoz van-e már mentett név ezen az eszközön — enélkül minden
-  // alkalommal felvillanna a névbekérő űrlap, még akkor is, ha aztán
-  // rögtön el is tüntetnénk.
-  if (verifyCodeFromUrl || joinCodeFromUrl) {
-    el("nameGateForm").style.display = "none";
-    el("nameGateChecking").style.display = "block";
-  }
+  // FONTOS (sebesség): a döntést — kell-e névbekérés — KIZÁRÓLAG a
+  // helyben tárolt adatból hozzuk meg, a KÓD alapján (lásd
+  // saveNameForLeltar_). Korábban ehhez előbb le kellett kérdezni a
+  // szervertől, melyik leltárhoz tartozik a kód, és csak AZUTÁN
+  // indulhatott a tényleges betöltés — vagyis minden QR-beolvasásnál
+  // két egymás utáni (lassú) szerver-kérésre kellett várni, mielőtt
+  // bármi megjelent volna. Így nincs várakozás: azonnal indul a
+  // tényleges betöltés.
+  const savedName = getSavedNameForCode_(kod);
 
-  if (verifyCodeFromUrl) {
-    let leltarId = null;
-    try {
-      const peek = await apiGet({ action: "join_verification", code: verifyCodeFromUrl });
-      if (peek && peek.found) {
-        leltarId = peek.leltar_id;
-        // A választ ELTESSZÜK: az openVerifyMode így nem kérdezi le
-        // MÉGEGYSZER ugyanazt (korábban a betöltés duplán futott le,
-        // ezért kellett sokat várni a lista megjelenésére).
-        prefetchedVerifyData_ = { code: verifyCodeFromUrl, data: peek };
-      }
-    } catch (e) { /* hiba esetén sima névbekérős úton folytatjuk */ }
-    const savedName = getSavedNameForLeltar_(leltarId);
-    if (savedName) {
-      userEmail = savedName;
-      el("nameGateOverlay").classList.add("hide");
-      openVerifyMode(verifyCodeFromUrl);
-      window.history.replaceState({}, "", window.location.pathname);
-      return;
-    }
-    pendingVerifyCode_ = verifyCodeFromUrl;
-    el("nameGateChecking").style.display = "none";
-    el("nameGateForm").style.display = "block";
+  if (savedName) {
+    userEmail = savedName;
+    el("nameGateOverlay").classList.add("hide");
+    if (verifyCodeFromUrl) openVerifyMode(verifyCodeFromUrl);
+    else joinLeltarWithCode(joinCodeFromUrl);
+    window.history.replaceState({}, "", window.location.pathname);
     return;
   }
 
-  if (joinCodeFromUrl) {
-    let leltarId = null;
-    try {
-      const peek = await apiGet({ action: "join", code: joinCodeFromUrl });
-      if (peek && peek.found && peek.active) leltarId = peek.leltar_id;
-    } catch (e) { /* hiba esetén sima névbekérős úton folytatjuk */ }
-    const savedName = getSavedNameForLeltar_(leltarId);
-    if (savedName) {
-      userEmail = savedName;
-      el("nameGateOverlay").classList.add("hide");
-      joinLeltarWithCode(joinCodeFromUrl);
-      window.history.replaceState({}, "", window.location.pathname);
-      return;
-    }
-    pendingJoinCode_ = joinCodeFromUrl;
-    el("nameGateChecking").style.display = "none";
-    el("nameGateForm").style.display = "block";
-  }
+  // Nincs mentett név ehhez a kódhoz — a névbekérő űrlap jelenik meg,
+  // és a megadás után indul a csatlakozás/ellenőrzés.
+  if (verifyCodeFromUrl) pendingVerifyCode_ = verifyCodeFromUrl;
+  else pendingJoinCode_ = joinCodeFromUrl;
 }
 initStartup_();
 
@@ -1872,7 +1853,7 @@ async function joinLeltarWithCode(code) {
     if (!result.found) { showToast("Nincs ilyen csatlakozási kód.", "warn"); return; }
     if (!result.active) { showToast(result.message || "Ez a leltár már nem aktív.", "warn"); return; }
     activeLeltar = { leltar_id: result.leltar_id, code: code.toUpperCase(), tipus: result.tipus, raktar: result.raktar };
-    saveNameForLeltar_(result.leltar_id, userEmail);
+    saveNameForLeltar_(result.leltar_id, userEmail, code);
     renderLeltarScreen();
     el("leltarScreen").classList.remove("show");
     updateGateUI();
@@ -2095,7 +2076,7 @@ async function openVerifyMode(kod) {
     }
     verifyKorId = data.kor_id;
     verifyLeltarId = data.leltar_id;
-    saveNameForLeltar_(data.leltar_id, userEmail);
+    saveNameForLeltar_(data.leltar_id, userEmail, kod);
     renderVerifyList(data.items || []);
   } catch (e) {
     body.innerHTML = `<p class="placeholderNote">Hiba: ${escapeHtml(e.message)}</p>`;
