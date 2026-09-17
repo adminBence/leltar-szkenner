@@ -1239,7 +1239,7 @@ function renderFullReport(container, report, opts) {
     </div>
 
     <div class="card">
-      <div class="cardTitle">Eltérések (beolvasva, de nem stimmel)</div>
+      <div class="cardTitle">${isOpen ? "Eltérések (beolvasva, de nem stimmel)" : "Eltérések"}</div>
       ${showActions ? `<div class="row" style="margin-bottom:14px; gap:8px;">
         <button class="btn primary" id="createVerifyBtn">Kiválasztottak ellenőrzése (új QR)</button>
       </div>` : ""}
@@ -1257,12 +1257,7 @@ function renderFullReport(container, report, opts) {
       <div class="cardTitle">Beolvasásra vár (${hatravan.length} tétel)</div>
       <div class="metaLine" style="margin-bottom:10px;">Ezeket még egyetlen szektorban sem olvasták be.</div>
       <div id="pendingListWrap" style="max-height:340px; overflow-y:auto;">
-        ${hatravan.slice(0, PENDING_PAGE_SIZE_).map(r => `
-          <div style="padding:7px 10px; border-bottom:1px solid var(--line); font-size:12px;">
-            <b>${escapeHtml(r.nev || "Ismeretlen termék")}</b>
-            <span style="color:var(--text-dim);"> — ${escapeHtml(r.sajat_cikkszam || "—")} · ${escapeHtml(r.vonalkod)} · ${r.rendszer_mennyiseg} db</span>
-          </div>
-        `).join("")}
+        ${hatravan.slice(0, PENDING_PAGE_SIZE_).map(r => pendingListRowHtml_(r)).join("")}
       </div>
       ${hatravan.length > PENDING_PAGE_SIZE_ ? `
       <div class="row" style="justify-content:center; margin-top:10px;" id="pendingLoadMoreWrap">
@@ -1376,7 +1371,7 @@ function renderFullReport(container, report, opts) {
     loadMoreBtn.addEventListener("click", () => loadMoreDiffRows_(container, leltar.leltar_id, showActions, isOpen));
   }
   bindSimpleLoadMore_(container, "pendingLoadMoreBtn", "pendingListWrap", "pendingLoadMoreWrap",
-    "_pendingFullData", "_pendingRenderedCount", "rendszer_mennyiseg");
+    "_pendingFullData", "_pendingRenderedCount", "rendszer_mennyiseg", pendingListRowHtml_);
   bindSimpleLoadMore_(container, "okLoadMoreBtn", "okListWrap", "okLoadMoreWrap",
     "_okFullData", "_okRenderedCount", "szamolt_mennyiseg", okListRowHtml_);
 
@@ -1440,6 +1435,17 @@ function okListRowHtml_(r) {
           ${r.szektorok.filter(s => s.forras !== "ujraszamolas" && s.szektor).map(s => escapeHtml(s.szektor) + ". szektor: " + s.mennyiseg + " db").join(" · ")}
         </div>` : ""}
       ${historyBlockHtml_(r)}
+    </div>`;
+}
+
+// A "beolvasásra vár" lista sora — VAKLELTÁR: itt SZÁNDÉKOSAN nem
+// mutatjuk a rendszer szerinti mennyiséget, mert a beolvasás még
+// hátravan, és az előre látott darabszám befolyásolná a számolást.
+function pendingListRowHtml_(r) {
+  return `
+    <div style="padding:7px 10px; border-bottom:1px solid var(--line); font-size:12px;">
+      <b>${escapeHtml(r.nev || "Ismeretlen termék")}</b>
+      <span style="color:var(--text-dim);"> — ${escapeHtml(r.sajat_cikkszam || "—")} · ${escapeHtml(r.vonalkod)}</span>
     </div>`;
 }
 
