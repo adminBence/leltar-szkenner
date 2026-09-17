@@ -211,6 +211,12 @@
     transform:translateY(12px); opacity:0; transition:transform .18s ease, opacity .18s ease;}
   #hit.show{display:block; transform:translateY(0); opacity:1;}
   #hit.unknown{border-color:var(--warn);}
+  /* Összecsukott mód: nincs függőben lévő tétel, de a "Beolvasott
+     tételek" link elérhető marad — enélkül rögzítés után (és kézi
+     bevitelnél mindig) eltűnt volna a lista megnyitásának lehetősége. */
+  #hit.compact{padding:6px 14px; box-shadow:none; background:transparent; border-color:transparent;}
+  #hit.compact .hitTop, #hit.compact #hitCheckedNote, #hit.compact .qtyRow{display:none;}
+  #hit.compact #listToggle{border-top:none; margin-top:0;}
   .hitTop{display:flex; justify-content:space-between; align-items:flex-start; gap:10px;}
   .hitName{font-size:17px; font-weight:600; line-height:1.25;}
   .hitBarcode{font-size:12px; color:var(--text-dim); margin-top:2px; font-variant-numeric:tabular-nums;}
@@ -788,7 +794,7 @@ async function startCamera() {
   }
 }
 
-const APP_VERSION = "v65";
+const APP_VERSION = "v66";
 let frameCount = 0, detectCount = 0;
 function debugLog(msg) {
   // A felületen csak a verziószám látszik (lásd lent) — a részletes
@@ -1134,8 +1140,22 @@ function checkedNoteHtml(checked) {
   return `<div class="checkedNote">✅ Ellenőrizve: ${escapeHtml(checked.felhasznalo)} · ${escapeHtml(formatCheckedDate_(checked.idobelyeg))}</div>`;
 }
 
+// Ha nincs függőben lévő tétel, a panel NEM tűnik el teljesen: egy
+// minimális, "összecsukott" változatban marad, amiben csak a
+// "Beolvasott tételek" link látszik. Enélkül rögzítés után (és kézi
+// bevitelnél gyakorlatilag mindig) nem lehetne megnyitni a listát.
+function collapseHitCard_() {
+  const vanTetel = scanned.some(x => !currentSector || x.sector === currentSector);
+  if (vanTetel) {
+    hitCard.classList.add("show", "compact");
+  } else {
+    hitCard.classList.remove("show", "compact");
+  }
+}
+
 function renderHitCard() {
-  if (!pendingHit) { hitCard.classList.remove("show"); return; }
+  if (!pendingHit) { collapseHitCard_(); return; }
+  hitCard.classList.remove("compact");
   const wasSameItem = el("hitBarcode").textContent === pendingHit.barcode;
   const userIsTyping = document.activeElement === el("qtyInput");
   el("hitName").textContent = pendingHit.name;
@@ -1209,8 +1229,8 @@ function commitPending() {
     });
   }
   pendingHit = null;
-  hitCard.classList.remove("show");
   renderList();
+  collapseHitCard_();
 }
 
 /* =========================================================================
@@ -1280,13 +1300,13 @@ function updateGateUI() {
   }
 
   const hasSector = joined && !!currentSector;
-  if (hasSector && !activeStream) {
-    el("startBtn").style.display = "block";
-    el("guide").style.display = "block";
-  } else if (!hasSector) {
-    el("startBtn").style.display = "none";
-    el("guide").style.display = "none";
-  }
+  // FONTOS: a vezetőkeretet (zöld csík) MINDIG a szektor megléte
+  // dönti el, függetlenül attól, hogy a kamera épp fut-e. Korábban a
+  // megjelenítés csak akkor futott le, ha a kamera MÉG NEM indult el —
+  // ezért egy szektor lezárása (ami elrejti a keretet) után, amikor a
+  // már futó kamerával új szektort adtunk meg, a keret rejtve maradt.
+  el("guide").style.display = hasSector ? "block" : "none";
+  el("startBtn").style.display = (hasSector && !activeStream) ? "block" : "none";
 
   // A szektor-modal pontosan akkor jelenik meg, ha már csatlakoztunk egy
   // leltárhoz, de még nincs kiválasztva/megadva szektor (induláskor,
@@ -1548,6 +1568,10 @@ function renderList() {
   }
 
   lastRenderedCount = items.length;
+  // Ha épp nincs függőben lévő tétel, gondoskodunk róla, hogy a
+  // "Beolvasott tételek" link akkor is elérhető legyen (összecsukott
+  // panel), amint van legalább egy rögzített tétel.
+  if (!pendingHit) collapseHitCard_();
 }
 
 el("listToggle").addEventListener("click", () => {
