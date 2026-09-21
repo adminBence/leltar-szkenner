@@ -2049,6 +2049,7 @@ function isReportBusy_() {
 function rememberReport_(container, report) {
   if (!container || !report || !report.diff) return;
   container._report = report;
+  container._lastSyncClientMs = Date.now();
   if (report.generated_ms) container._sinceMs = report.generated_ms;
 }
 
@@ -2120,6 +2121,7 @@ async function applyDeltaTo_(leltarId, container, opts) {
   if (d.full) { await loadFull(); return; }
   if (!d.changed_barcodes || !d.changed_barcodes.length) {
     container._sinceMs = d.now_ms;   // nincs változás — csak az időpontot léptetjük
+    container._lastSyncClientMs = Date.now();
     return;
   }
   updateReportLiveInPlace_(leltarId, container, mergeDelta_(container._report, d), opts);
@@ -2374,20 +2376,20 @@ async function closeLeltarAction(leltarId) {
     btn.innerHTML = `<span class="spinner" style="width:12px; height:12px; border-width:2px; display:inline-block; vertical-align:middle; margin-right:6px;"></span>Lezárás folyamatban…`;
   }
   const container = el("reportContainer");
+  // Az élő frissítés azonnal leáll, hogy ne versenyezzen a lezárással
+  // (hiba esetén visszaállítjuk).
+  const volt = currentOpenReport;
   try {
-    // Utolsó frissítés a lezárás ELŐTT, hogy a lezárt nézet biztosan a
-    // legfrissebb állapotot mutassa (csak a változások jönnek le).
-    try { await applyDeltaTo_(leltarId, container, container._opts || { showActions: true }); } catch (e) { /* nem kritikus */ }
+    currentOpenReport = null;
 
     const result = await apiPost({ action: "close_leltar", leltar_id: leltarId });
     if (result.error) {
+      currentOpenReport = volt;
       showToast("Hiba: " + result.error, "error");
       if (btn) { btn.disabled = false; btn.textContent = originalLabel; }
       return;
     }
     showToast("A leltár lezárva.", "success");
-    // Az élő frissítés leáll — a leltár lezárult.
-    currentOpenReport = null;
 
     // A lezárt nézetet a felületen MÁR MEGLÉVŐ, naprakész riportból
     // rajzoljuk ki azonnal — nem kérjük le újra a teljes riportot a
@@ -2407,9 +2409,26 @@ async function closeLeltarAction(leltarId) {
         .then(r => { if (r && !r.error && !currentOpenReport) renderFullReport(container, r, { showActions: false }); })
         .catch(() => { container.innerHTML = `<div class="card"><p class="emptyNote">A leltár lezárult. A riport a „Korábbi leltárak" fülön érhető el.</p></div>`; });
     }
+    // A felület AZONNAL átáll: a QR-kódos kártya eltűnik, az "Új leltár
+    // indítása" megjelenik (raktáranként egyszerre csak egy leltár futhat,
+    // tehát lezárás után biztosan nincs futó). A szerveri visszaigazolás
+    // már csak a háttérben fut.
     lastActiveLeltarakSig_ = null;
+    showActiveLeltarak_([]);
     loadActiveLeltarak();
+
+    // Ha a megtartott riport pár másodpercnél régebbi, a háttérben
+    // pontosítjuk (nem tartja fel a felületet).
+    if (base && Date.now() - (container._lastSyncClientMs || 0) > 10000) {
+      apiGet({ action: "full_report", leltar_id: leltarId })
+        .then(r => {
+          const still = container._report && container._report.leltar && container._report.leltar.leltar_id === leltarId;
+          if (r && !r.error && still && !currentOpenReport) renderFullReport(container, r, { showActions: false });
+        })
+        .catch(() => { /* a már megjelenített nézet marad */ });
+    }
   } catch (e) {
+    if (!currentOpenReport) currentOpenReport = volt;
     showToast("Hiba a lezáráskor: " + e.message, "error");
     if (btn && document.body.contains(btn)) { btn.disabled = false; btn.textContent = originalLabel; }
   }
