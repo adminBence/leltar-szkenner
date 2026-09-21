@@ -1482,6 +1482,39 @@ const PENDING_PAGE_SIZE_ = 300;
 // A tétel teljes beavatkozás-előzménye (újraszámolások, admin-
 // módosítások, rendszer-korrekciók, megjegyzések) — a "rendben"
 // listában és a keresőben is ezt használjuk.
+// ---------- Módosítás-előzmény egységes formázása ----------
+// Minden módosításnál (szektor-újraszámolás, admin-módosítás, rendszer-
+// javítás) "régi → új" formában mutatjuk, mi történt — minden egyes
+// bejegyzést külön, időrendben, hogy utólag is pontosan visszanézhető
+// legyen. Az opcionális "m" függvény a futó vakleltárnál a számok
+// takarását végzi (ugyanúgy, mint a sor többi számánál).
+function qtyChangeHtml_(elozo, uj, m) {
+  m = m || (x => x);
+  const ujS = `<b>${m(uj + " db")}</b>`;
+  if (elozo === null || elozo === undefined) return "→ " + ujS;
+  return `${m(elozo + " db")} → ${ujS}`;
+}
+function recountLineHtml_(u, m, baseStyle) {
+  const label = u.admin_modositas
+    ? "✏️ Admin módosítás (összesen)"
+    : (u.szektor ? escapeHtml(u.szektor) + ". szektor újraszámolva" : "Újraszámolva");
+  return `
+    <div style="${baseStyle || ""} ${u.admin_modositas ? "color:var(--warn);" : ""}">
+      ${label}: ${qtyChangeHtml_(u.elozo_mennyiseg, u.mennyiseg, m)}
+      · ${escapeHtml(formatDateTime(u.idobelyeg))} · ${escapeHtml(u.felhasznalo)}
+      ${u.megjegyzes ? `<br><span style="padding-left:12px;">💬 ${escapeHtml(u.megjegyzes)}</span>` : ""}
+    </div>`;
+}
+function correctionLineHtml_(c, m, baseStyle) {
+  return `
+    <div style="${baseStyle || ""} color:var(--accent);">
+      Rendszer-adat javítva ${c.forras === "kezi" ? "(kézzel megadva)" : "(Laurelből)"}:
+      ${qtyChangeHtml_(c.regi_mennyiseg, c.uj_mennyiseg, m)}
+      · ${escapeHtml(formatDateTime(c.idobelyeg))} · ${escapeHtml(c.felhasznalo)}
+      ${c.megjegyzes ? `<br><span style="padding-left:12px;">💬 ${escapeHtml(c.megjegyzes)}</span>` : ""}
+    </div>`;
+}
+
 function historyBlockHtml_(r) {
   const tortentBeavatkozas = (r.ujraszamolasok && r.ujraszamolasok.length) ||
     (r.rendszer_korrekciok && r.rendszer_korrekciok.length) ||
@@ -1489,19 +1522,8 @@ function historyBlockHtml_(r) {
   if (!tortentBeavatkozas) return "";
   return `
     <div style="margin-top:4px; padding-left:8px; border-left:2px solid var(--line);">
-      ${(r.ujraszamolasok || []).map(u => `
-        <div style="font-size:11px; ${u.admin_modositas ? "color:var(--warn);" : "color:var(--text-dim);"}">
-          ${u.admin_modositas ? "✏️ admin módosítás" : (u.szektor ? escapeHtml(u.szektor) + ". szektor újraszámolva" : "újraszámolva")}
-          → <b>${u.mennyiseg} db</b> · ${escapeHtml(formatDateTime(u.idobelyeg))} · ${escapeHtml(u.felhasznalo)}
-          ${u.megjegyzes ? `<br><span style="padding-left:10px;">💬 ${escapeHtml(u.megjegyzes)}</span>` : ""}
-        </div>
-      `).join("")}
-      ${(r.rendszer_korrekciok || []).map(c => `
-        <div style="font-size:11px; color:var(--accent);">
-          Rendszer-adat javítva → <b>${c.uj_mennyiseg} db</b> · ${escapeHtml(formatDateTime(c.idobelyeg))} · ${escapeHtml(c.felhasznalo)}${c.forras === "kezi" ? " [kézzel]" : ""}
-          ${c.megjegyzes ? `<br><span style="padding-left:10px;">💬 ${escapeHtml(c.megjegyzes)}</span>` : ""}
-        </div>
-      `).join("")}
+      ${(r.ujraszamolasok || []).map(u => recountLineHtml_(u, null, "font-size:11px; color:var(--text-dim);")).join("")}
+      ${(r.rendszer_korrekciok || []).map(c => correctionLineHtml_(c, null, "font-size:11px;")).join("")}
       ${(r.tetel_megjegyzesek || []).map(n => `
         <div style="font-size:11px; color:var(--text-dim);">💬 ${escapeHtml(n.megjegyzes)} — ${escapeHtml(n.felhasznalo)}, ${escapeHtml(formatDateTime(n.idobelyeg))}</div>
       `).join("")}
@@ -1730,20 +1752,16 @@ function renderDiffRowHtml(r, showCheckbox, isOpen) {
   const recountNote = recountCount
     ? `<div class="recountNote">
         <b>Újraszámolva/módosítva ${recountCount} alkalommal:</b>
-        ${r.ujraszamolasok.map(u => `
-          <div style="margin-top:3px; padding-left:8px; ${u.admin_modositas ? "color:var(--warn);" : ""}">
-            ${u.admin_modositas ? "✏️ <b>admin módosítás</b>" : (u.szektor ? escapeHtml(u.szektor) + ". szektor" : "újraszámolás")}
-            → <b>${u.mennyiseg} db</b>
-            · ${escapeHtml(formatDateTime(u.idobelyeg))} · ${escapeHtml(u.felhasznalo)}
-            ${u.megjegyzes ? `<br><span style="padding-left:12px;">💬 ${escapeHtml(u.megjegyzes)}</span>` : ""}
-          </div>
-        `).join("")}
+        ${r.ujraszamolasok.map(u => recountLineHtml_(u, mask, "margin-top:3px; padding-left:8px;")).join("")}
       </div>`
     : "";
   const correctionCount = (r.rendszer_korrekciok || []).length;
   const lastCorrection = correctionCount ? r.rendszer_korrekciok[r.rendszer_korrekciok.length - 1] : null;
   const correctionNote = lastCorrection
-    ? `<div class="recountNote" style="color:var(--accent);">Rendszer-adat javítva ${correctionCount} alkalommal — utoljára: ${escapeHtml(formatDateTime(lastCorrection.idobelyeg))}, ${escapeHtml(lastCorrection.felhasznalo)}${lastCorrection.forras === "kezi" ? " [kézzel megadva]" : ""}${lastCorrection.megjegyzes ? " — " + escapeHtml(lastCorrection.megjegyzes) : ""}</div>`
+    ? `<div class="recountNote" style="color:var(--accent);">
+        <b>Rendszer-adat javítva ${correctionCount} alkalommal:</b>
+        ${r.rendszer_korrekciok.map(c => correctionLineHtml_(c, mask, "margin-top:3px; padding-left:8px;")).join("")}
+      </div>`
     : "";
   const szallitolevelNote = r.nem_veglegesitett_szallitolevel
     ? `<div class="recountNote" style="color:var(--warn);">⚠ A termék szerepel nem véglegesített szállítólevélen — szám(ok): ${escapeHtml(r.nem_veglegesitett_szallitolevel.szamok || "ismeretlen")}</div>`
@@ -1825,6 +1843,13 @@ function renderDiffRowHtml(r, showCheckbox, isOpen) {
 }
 
 function bindDiffRowRefreshButtons(wrapEl, leltarId, targetContainer) {
+  // A tétel aktuális sora a megtartott riportból (rendszer szerinti és
+  // számolt mennyiség) — a változatlan értékű mentés kiszűréséhez.
+  function currentRow_(barcode) {
+    const rep = targetContainer && targetContainer._report;
+    return rep && rep.diff ? rep.diff.find(r => String(r.vonalkod) === String(barcode)) : null;
+  }
+
   async function loadLiveQty(barcode) {
     const loadedEl = document.getElementById("diffrow-" + barcode + "-loaded");
     const qtyInput = document.getElementById("diffrow-" + barcode + "-qty");
@@ -1839,6 +1864,11 @@ function bindDiffRowRefreshButtons(wrapEl, leltarId, targetContainer) {
       loadedEl.textContent = `Laurelből frissítve: ${result.mennyiseg} db${idoInfo}`;
       qtyInput.value = result.mennyiseg;
       qtyInput.dataset.fetchedValue = String(result.mennyiseg);
+      const cur = currentRow_(barcode);
+      if (cur && Number(result.mennyiseg) === Number(cur.rendszer_mennyiseg)) {
+        loadedEl.innerHTML = `Laurelből frissítve: ${result.mennyiseg} db${escapeHtml(idoInfo)}
+          <span style="color:var(--warn);"> — ugyanennyi szerepel a leltárban is, nincs mit javítani.</span>`;
+      }
     } catch (e) {
       loadedEl.textContent = "Hiba: " + e.message;
     }
@@ -1860,8 +1890,13 @@ function bindDiffRowRefreshButtons(wrapEl, leltarId, targetContainer) {
       const qty = parseInt(valueEl.value || "", 10);
       const note = (noteEl.value || "").trim();
       if (!isFinite(qty) || qty < 0) { showToast("Adj meg érvényes mennyiséget.", "warn"); valueEl.focus(); return; }
+      const curRowQ = currentRow_(barcode);
+      if (curRowQ && qty === Number(curRowQ.szamolt_mennyiseg)) {
+        showToast(`A számolt mennyiség már most is ${curRowQ.szamolt_mennyiseg} db — nincs mit módosítani.`, "warn");
+        return;
+      }
       if (!note) { showToast("A módosításhoz kötelező indoklást írni.", "warn"); noteEl.focus(); return; }
-      if (!(await showConfirm(`Biztosan ${qty} db-ra módosítod a számolt mennyiséget? A módosítás naplózva lesz.`, { yesLabel: "Módosítom", positive: true }))) return;
+      if (!(await showConfirm(`Biztosan módosítod a számolt mennyiséget${curRowQ ? " " + curRowQ.szamolt_mennyiseg + " db-ról" : ""} ${qty} db-ra? A módosítás naplózva lesz.`, { yesLabel: "Módosítom", positive: true }))) return;
       btn.disabled = true;
       btn.textContent = "Mentés…";
       try {
@@ -1875,7 +1910,7 @@ function bindDiffRowRefreshButtons(wrapEl, leltarId, targetContainer) {
         if (result.error) {
           showToast("Hiba: " + result.error, "error");
         } else {
-          showToast("Mennyiség módosítva és naplózva.", "success");
+          showToast(`Számolt mennyiség módosítva${curRowQ ? ": " + curRowQ.szamolt_mennyiseg + " db → " + qty + " db" : ""}.`, "success");
           refreshSingleDiffRow(leltarId, barcode, targetContainer);
         }
       } catch (e) {
@@ -1910,6 +1945,13 @@ function bindDiffRowRefreshButtons(wrapEl, leltarId, targetContainer) {
 
       // Ha a mező tartalma eltér a betöltött (live) értéktől, ez egy
       // kézi átírás — ilyenkor a megjegyzés kötelező.
+      // Változatlan mennyiség nem menthető — az nem javítás.
+      const curRow = currentRow_(barcode);
+      if (curRow && parseInt(qty, 10) === Number(curRow.rendszer_mennyiseg)) {
+        showToast(`A rendszer szerinti mennyiség már most is ${curRow.rendszer_mennyiseg} db — ugyanez volt korábban is, nincs mit javítani.`, "warn");
+        return;
+      }
+
       const fetchedValue = qtyInput.dataset.fetchedValue;
       const isManual = fetchedValue === undefined || qty !== fetchedValue;
       if (isManual && !note) {
@@ -1929,7 +1971,7 @@ function bindDiffRowRefreshButtons(wrapEl, leltarId, targetContainer) {
           forras: isManual ? "kezi" : "live_webshop",
         });
         if (result.error) {
-          showToast("Hiba: " + result.error, "error");
+          showToast((result.valtozatlan ? "" : "Hiba: ") + result.error, result.valtozatlan ? "warn" : "error");
           btn.disabled = false;
           btn.textContent = "Mentés";
         } else {
