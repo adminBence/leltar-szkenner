@@ -682,12 +682,22 @@ async function apiGet(params) {
   }
   return data;
 }
+// Csak a CSAK OLVASÓ POST-kérések kerülhetnek automatikus újraküldésre.
+// A módosító műveleteket (leltár indítása, készlet frissítése, ellenőrzési
+// kör, korrekció, megjegyzés…) SOHA nem küldjük újra automatikusan: ha a
+// szerver lassan válaszolt, a művelet valójában már lefuthatott, és az
+// újraküldés megismételné — ez okozta pl. a "Már fut egy leltár"
+// hibaüzenetet egy lassú, de sikeres indítás után.
+const READ_ONLY_POST_ACTIONS_ = new Set([
+  "verify_login", "get_admin_users", "check_negative_stock", "preview_live_qty",
+]);
 async function apiPost(body) {
+  const retries = READ_ONLY_POST_ACTIONS_.has(body && body.action) ? 2 : 0;
   const data = await fetchWithRetry_(APPS_SCRIPT_URL, {
     method: "POST",
     headers: { "Content-Type": "text/plain;charset=utf-8" },
     body: JSON.stringify({ ...body, key: APPS_SCRIPT_KEY, id_token: googleIdToken || "" }),
-  });
+  }, retries);
   if (data.authRequired) {
     if (!data.transient) showAuthError(data.error);
     throw new Error(data.error);
@@ -945,10 +955,21 @@ async function runStartLeltarFlow_(btn, doRefreshFirst) {
     });
     if (result.error) {
       el("startLeltarMsg").textContent = result.error;
+      // Ha már fut egy leltár, azt azonnal megjelenítjük — ez gyakran épp
+      // az, amit egy korábbi, lassan válaszoló kérés már elindított.
+      if (result.mar_fut) {
+        el("startLeltarMsg").textContent = "";
+        lastActiveLeltarakSig_ = null;
+        loadActiveLeltarak();
+      }
     } else {
       el("reportContainer").innerHTML = "";
       currentOpenReport = null;
-      loadActiveLeltarak();
+      lastActiveLeltarakSig_ = null;
+      // A QR-kód és az alapadatok AZONNAL megjelennek a szerver
+      // válaszából; a riport a háttérben töltődik be.
+      if (result.leltar) showActiveLeltarak_([result.leltar]);
+      else loadActiveLeltarak();
     }
   } catch (e) {
     el("startLeltarMsg").textContent = "Hiba: " + e.message;
@@ -966,64 +987,63 @@ el("keszletInfoCloseBtn").addEventListener("click", () => { el("keszletInfoModal
 /* =========================================================================
    FUTÓ LELTÁR KÁRTYA
    ========================================================================= */
-async function loadActiveLeltarak() {
-  activeLeltarakLoaded = true;
+// A futó leltár kártyájának (QR-kód + alapadatok) kirajzolása. Külön
+// függvényben van, hogy egy új leltár indítása után a szervertől kapott
+// adatokkal AZONNAL meg lehessen jeleníteni — a riport betöltése ettől
+// függetlenül, a háttérben történik.
+function showActiveLeltarak_(list) {
   const card = el("activeLeltarakCard");
   const body = el("activeLeltarakBody");
   const startCard = el("startLeltarCard");
   const loadingCard = el("leltarLoadingCard");
+  if (loadingCard) loadingCard.style.display = "none";
+  if (!list.length) {
+    card.style.display = "none";
+    startCard.style.display = "block";
+    loadKeszletFrissesseg_();
+    return;
+  }
+  card.style.display = "block";
+  startCard.style.display = "none";
+  // A kártyát (és benne a QR-kódot) CSAK akkor rajzoljuk újra, ha
+  // ténylegesen változott valami — enélkül az automatikus frissítés
+  // minden körben feleslegesen újragenerálná a QR-kódot (villogás).
+  const sig = list.map(l => l.leltar_id + ':' + l.csatlakozasi_kod).join(',');
+  if (sig !== lastActiveLeltarakSig_) {
+    lastActiveLeltarakSig_ = sig;
+    body.innerHTML = list.map(l => `
+      <div class="activeLeltarCard">
+        <div id="qrWrap-${escapeHtml(l.leltar_id)}" class="qrBox">
+          <canvas width="150" height="150"></canvas>
+        </div>
+        <div class="info">
+          <div class="metaLine" style="font-size:16px; font-weight:700; color:var(--text);">
+            Leltár indítva: ${escapeHtml(formatDateTime(l.inditva))}
+          </div>
+          <div class="metaLine">Indította: ${escapeHtml(l.inditotta)} · Típus: ${escapeHtml(l.tipus)} · Raktár: ${escapeHtml(l.raktar)}</div>
+          ${l.tipus === "termektipus" && l.termektipusok && l.termektipusok.length ? `<div class="metaLine">Kiválasztott terméktípusok: ${l.termektipusok.map(escapeHtml).join(", ")}</div>` : ""}
+        </div>
+      </div>
+    `).join("");
+    list.forEach(l => renderQrInto(`qrWrap-${l.leltar_id}`, buildJoinUrl(l.csatlakozasi_kod)));
+  }
+  // A riport a háttérben töltődik (nem várunk rá) — a QR-kód és az
+  // alapadatok ettől függetlenül már látszanak.
+  if (list[0] && (!currentOpenReport || currentOpenReport.leltarId !== list[0].leltar_id)) {
+    openReport(list[0].leltar_id, el("reportContainer"), { showActions: true }, true);
+  }
+}
+
+async function loadActiveLeltarak() {
+  activeLeltarakLoaded = true;
   try {
     const data = await apiGet({ action: "active_leltarak" });
-    const list = data.leltarak || [];
-    // A töltő-kártyát csak MOST rejtjük el, amikor már tudjuk, van-e
-    // futó leltár — enélkül az "Új leltár indítása" villanna fel
-    // azonnal, még akkor is, ha valójában már fut egy leltár (és így
-    // valaki véletlenül elindíthatna egy másodikat).
-    if (loadingCard) loadingCard.style.display = "none";
-    if (!list.length) {
-      card.style.display = "none";
-      startCard.style.display = "block";
-      loadKeszletFrissesseg_();
-      return;
-    }
-    card.style.display = "block";
-    startCard.style.display = "none";
-    // A kártyát (és benne a QR-kódot) CSAK akkor rajzoljuk újra, ha
-    // ténylegesen változott valami — enélkül a 15 másodperces automatikus
-    // frissítés minden körben feleslegesen újragenerálná a QR-kódot is,
-    // ami egy pillanatra fehérré válik, majd újrarajzolódik (zavaró
-    // villogás), miközben semmi nem változott.
-    const sig = list.map(l => l.leltar_id + ':' + l.csatlakozasi_kod).join(',');
-    if (sig !== lastActiveLeltarakSig_) {
-      lastActiveLeltarakSig_ = sig;
-      body.innerHTML = list.map(l => `
-        <div class="activeLeltarCard">
-          <div id="qrWrap-${escapeHtml(l.leltar_id)}" class="qrBox">
-            <canvas width="150" height="150"></canvas>
-          </div>
-          <div class="info">
-            <div class="metaLine" style="font-size:16px; font-weight:700; color:var(--text);">
-              Leltár indítva: ${escapeHtml(formatDateTime(l.inditva))}
-            </div>
-            <div class="metaLine">Indította: ${escapeHtml(l.inditotta)} · Típus: ${escapeHtml(l.tipus)} · Raktár: ${escapeHtml(l.raktar)}</div>
-            ${l.tipus === "termektipus" && l.termektipusok && l.termektipusok.length ? `<div class="metaLine">Kiválasztott terméktípusok: ${l.termektipusok.map(escapeHtml).join(", ")}</div>` : ""}
-          </div>
-        </div>
-      `).join("");
-      list.forEach(l => renderQrInto(`qrWrap-${l.leltar_id}`, buildJoinUrl(l.csatlakozasi_kod)));
-    }
-    // A haladás és az eltérés-riport mostantól automatikusan megnyílik —
-    // nincs szükség külön gombra. Ha már nyitva van (pl. az automatikus
-    // frissítés hívta újra ezt a függvényt), nem nyitjuk meg újra
-    // (elveszne a görgetési pozíció) — csak akkor, ha még nincs nyitva
-    // EHHEZ a leltárhoz.
-    if (list[0] && (!currentOpenReport || currentOpenReport.leltarId !== list[0].leltar_id)) {
-      openReport(list[0].leltar_id, el("reportContainer"), { showActions: true }, true);
-    }
+    showActiveLeltarak_(data.leltarak || []);
   } catch (e) {
+    const loadingCard = el("leltarLoadingCard");
     if (loadingCard) loadingCard.style.display = "none";
-    card.style.display = "block";
-    body.innerHTML = `<p class="emptyNote">Hiba: ${escapeHtml(e.message)}</p>`;
+    el("activeLeltarakCard").style.display = "block";
+    el("activeLeltarakBody").innerHTML = `<p class="emptyNote">Hiba: ${escapeHtml(e.message)}</p>`;
   }
 }
 
@@ -2106,6 +2126,13 @@ async function applyDeltaTo_(leltarId, container, opts) {
 }
 
 let refreshInFlight_ = false;
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) return;
+  const activePanel = document.querySelector(".panel.active");
+  if (activePanel && activePanel.id === "panel-leltar" && isLiveViewHolder_ && currentOpenReport) {
+    refreshOpenReportSilently_();
+  }
+});
 async function refreshOpenReportSilently_(force) {
   if (!currentOpenReport || refreshInFlight_) return;
   if (!force && isReportBusy_()) return;
@@ -2260,6 +2287,11 @@ function updateReportLiveInPlace_(leltarId, container, report, opts) {
 //    mert ezek ritkán változnak, és a szerver oldalon is gyorsítótárazva
 //    vannak.
 setInterval(() => {
+  // Ha a lap nincs előtérben (másik fül, lezárt képernyő), NEM kérdezünk
+  // a szervertől — több nyitott lap/eszköz esetén ez folyamatos,
+  // felesleges terhelést jelentett, ami a ténylegesen használt lapot is
+  // lassította.
+  if (document.hidden) return;
   if (Date.now() - lastScrollActivityMs_ < 800) return;
   const activePanel = document.querySelector(".panel.active");
   if (activePanel && activePanel.id === "panel-leltar" && isLiveViewHolder_ && currentOpenReport) {
@@ -2268,6 +2300,7 @@ setInterval(() => {
 }, 4000);
 
 setInterval(() => {
+  if (document.hidden) return;
   if (Date.now() - lastScrollActivityMs_ < 800) return;
   checkEloNezetAllapot_();
   const activePanel = document.querySelector(".panel.active");
