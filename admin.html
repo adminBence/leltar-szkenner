@@ -595,7 +595,12 @@ async function loadKeszletFrissesseg_() {
     const data = await apiGet({ action: "get_keszlet_frissesseg" });
     const line = el("keszletFrissessegLine");
     if (!line) return;
-    if (data.friss_idobelyeg) {
+    // Elsősorban a szerver által KÉSZ SZÖVEGKÉNT (budapesti időben)
+    // adott időpontot használjuk — ez nem függ az időbélyeg-formátum
+    // értelmezésétől, így nem lehet pontatlan vagy elavult.
+    if (data.friss_szoveg) {
+      line.textContent = `Készlet frissítve: ${data.friss_szoveg}`;
+    } else if (data.friss_idobelyeg) {
       line.textContent = `Készlet frissítve: ${formatDateTime(data.friss_idobelyeg)}`;
     } else if (data.friss_datum) {
       line.textContent = `Készlet frissítve: ${data.friss_datum}`;
@@ -803,7 +808,10 @@ function showStartLeltarModal(frissDatum, items) {
     const titleEl = el("negStockTitle");
     const subtitleEl = el("negStockSubtitle");
 
-    titleEl.textContent = frissDatum ? `Készlet frissítve: ${formatDateTime(frissDatum)}. Elindítod a leltárat?` : "Elindítod a leltárat?";
+    const frissKiirva = frissDatum
+      ? (frissDatum.szoveg ? frissDatum.szoveg : formatDateTime(frissDatum))
+      : null;
+    titleEl.textContent = frissKiirva ? `Készlet frissítve: ${frissKiirva}. Elindítod a leltárat?` : "Elindítod a leltárat?";
 
     if (items && items.length) {
       subtitleEl.style.display = "block";
@@ -863,7 +871,18 @@ async function runStartLeltarFlow_(btn, doRefreshFirst) {
         return;
       }
       btn.textContent = "Készlet frissítése… 100%";
-      showToast(`Készlet frissítve (${refreshResult.sorok_szama} sor, ${refreshResult.fajlnev}).`, "success");
+      // A visszajelzés azt is megmutatja, hány sor tartozott a leltár
+      // raktárához — ha 0, a fájl feldolgozódott ugyan, de ehhez a
+      // raktárhoz nem hozott új adatot.
+      const sajat = refreshResult.sajat_raktar_sorok;
+      if (sajat === 0) {
+        showToast(`A fájl feldolgozva (${refreshResult.sorok_szama} sor), de nem volt benne adat ehhez a raktárhoz — ellenőrizd az exportot.`, "warn");
+      } else {
+        showToast(`Készlet frissítve: ${refreshResult.friss_szoveg || ""} (${sajat != null ? sajat : refreshResult.sorok_szama} sor).`, "success");
+      }
+      if (refreshResult.friss_szoveg && el("keszletFrissessegLine")) {
+        el("keszletFrissessegLine").textContent = `Készlet frissítve: ${refreshResult.friss_szoveg}`;
+      }
       keszletFrissessegLoaded = false;
       loadKeszletFrissesseg_();
     } catch (e) {
@@ -884,7 +903,10 @@ async function runStartLeltarFlow_(btn, doRefreshFirst) {
       tipus: tipus,
       termektipusok: Array.from(selectedProductTypes),
     });
-    frissDatum = negCheck.friss_idobelyeg || negCheck.friss_datum || null;
+    // A kész szöveget részesítjük előnyben (lásd loadKeszletFrissesseg_).
+    frissDatum = negCheck.friss_szoveg
+      ? { szoveg: negCheck.friss_szoveg }
+      : (negCheck.friss_idobelyeg || negCheck.friss_datum || null);
     negativeItems = negCheck.items || [];
   } catch (e) {
     console.error("Negatív készlet ellenőrzési hiba (nem blokkoló):", e);
@@ -1009,13 +1031,19 @@ function renderProgressHtml(progress) {
 let currentOpenReport = null; // { leltarId, container, opts } — a poll-alapú automatikus frissítéshez (CSAK a futó leltárra)
 
 async function openReport(leltarId, container, opts, trackForPolling) {
+  // Másik leltár megnyitásakor a korábban kiadott ellenőrzési QR
+  // állapotát elfelejtjük — az ahhoz a leltárhoz tartozott.
+  if (!currentOpenReport || currentOpenReport.leltarId !== leltarId) currentVerifyQr_ = null;
   container.innerHTML = `<div class="card"><div class="inlineLoading"><div class="spinner"></div>Riport betöltése…</div></div>`;
   container.scrollIntoView({ behavior: "smooth" });
   // A currentOpenReport-ot CSAK akkor állítjuk be, ha ez a futó leltár
   // riportja (trackForPolling=true) — egy korábbi (lezárt) leltár
   // megnézése NEM írhatja felül, különben az automatikus frissítés
   // összekeveredne, és feleslegesen újratöltené a futó leltár riportját.
-  if (trackForPolling) currentOpenReport = { leltarId, container, opts: opts || {} };
+  if (trackForPolling) {
+    currentOpenReport = { leltarId, container, opts: opts || {} };
+    lastReportVersion_ = null;
+  }
   try {
     const report = await apiGet({ action: "full_report", leltar_id: leltarId });
     if (report.error) { container.innerHTML = `<div class="card"><p class="emptyNote">Hiba: ${escapeHtml(report.error)}</p></div>`; return; }
@@ -1303,6 +1331,15 @@ function renderFullReport(container, report, opts) {
   // betöltése" gombhoz és az élő (poll-alapú) frissítéshez is, hogy
   // csak a MÁR renderelt tartományt frissítsük, ne az egész (akár
   // több ezres) listát egyszerre.
+  // A kiadott ellenőrzési QR visszaállítása: a riport újrarajzolása
+  // kiüríti a QR-kártyát (az a riport HTML részeként generálódik),
+  // ezért ha van épp kint lévő QR, azt itt visszatöltjük — így egy
+  // automatikus frissítés nem veszi el a felhasználó alól.
+  if (currentVerifyQr_ && showActions) {
+    showVerifyQr(currentVerifyQr_.kod, currentVerifyQr_.tetelekSzama, true);
+  }
+
+  container._opts = opts;
   container._diffFullData = elteresek;
   container._groupSig = elteresek.length + "|" + rendben.length + "|" + hatravan.length;
   container._diffRenderedCount = Math.min(elteresek.length, DIFF_PAGE_SIZE_);
@@ -1317,6 +1354,10 @@ function renderFullReport(container, report, opts) {
   const searchInput = container.querySelector("#reportSearchInput");
   if (searchInput) {
     const resultsEl = container.querySelector("#reportSearchResults");
+    // Az automatikus frissítés újrarajzolja a riportot — a keresőbe
+    // gépelt szöveget ilyenkor visszaállítjuk, és a találatokat is
+    // újraszámoljuk a friss adatokból.
+    const prevQuery = container._searchQuery || "";
     const runSearch_ = () => {
       const q = (searchInput.value || "").trim().toLowerCase();
       if (!q) { resultsEl.innerHTML = ""; return; }
@@ -1361,9 +1402,14 @@ function renderFullReport(container, report, opts) {
     };
     let searchTimer_ = null;
     searchInput.addEventListener("input", () => {
+      container._searchQuery = searchInput.value;
       if (searchTimer_) clearTimeout(searchTimer_);
       searchTimer_ = setTimeout(runSearch_, 200);
     });
+    if (prevQuery) {
+      searchInput.value = prevQuery;
+      runSearch_();
+    }
   }
 
   const loadMoreBtn = container.querySelector("#diffLoadMoreBtn");
@@ -1583,28 +1629,23 @@ function bindDiffRowEvents(rowEl, leltarId, targetContainer, showActions, isOpen
 // TELJES riport újratöltése/újrarajzolása nélkül — megőrzi a görgetési
 // pozíciót és a többi nyitva lévő panelt.
 async function refreshSingleDiffRow(leltarId, barcode, targetContainer) {
+  // Egy módosítás (korrekció, mennyiség-módosítás, megjegyzés) után a
+  // riportot a SZEKCIÓK KÖZTI ÁTHELYEZÉST is kezelő frissítéssel
+  // frissítjük. Korábban itt csak az adott SOR rajzolódott újra — így ha
+  // a javítás után a tétel már rendben volt, az "Eltérések" között
+  // maradt (csak rendben állapotban), és csak kézi oldalfrissítésre
+  // került át a "Rendben" szekcióba.
   try {
     const report = await apiGet({ action: "full_report", leltar_id: leltarId });
     if (report.error) return;
-    const rowData = report.diff.find(r => r.vonalkod === barcode);
-    if (!rowData) return;
-    const oldRowEl = document.getElementById("diffrow-" + barcode + "-row");
-    if (!oldRowEl) return;
-    oldRowEl.outerHTML = renderDiffRowHtml(rowData, true, true);
-    const newRowEl = document.getElementById("diffrow-" + barcode + "-row");
-    bindDiffRowEvents(newRowEl, leltarId, targetContainer, true, true);
-
-    // Az összesítő számokat is frissítjük — ugyanebből a lekérdezésből
-    // már megvan, nem kell külön hívás.
-    const o = report.osszesito;
-    if (o && el("summaryOsszesDb")) {
-      el("summaryHianyDb").textContent = `${o.hiany_db} db`;
-      el("summaryHianyErtek").textContent = formatFt(o.hiany_ertek);
-      el("summaryTobbletDb").textContent = `${o.tobblet_db} db`;
-      el("summaryTobbletErtek").textContent = formatFt(o.tobblet_ertek);
-      el("summaryOsszesDb").textContent = `${o.hiany_db + o.tobblet_db} db`;
-      el("summaryTetelSzam").textContent = `${o.elteres_tetelek_szama} / ${o.osszes_tetel_szama} tétel`;
-      el("summaryErtekAbsz").textContent = formatFtSigned(o.elteres_ertek_netto);
+    const opts = (targetContainer && targetContainer._opts) || { showActions: true };
+    updateReportLiveInPlace_(leltarId, targetContainer, report, opts);
+    // A következő automatikus ellenőrzés ne töltse le feleslegesen újra.
+    if (currentOpenReport && currentOpenReport.container === targetContainer) {
+      try {
+        const v = await apiGet({ action: "report_version", leltar_id: leltarId });
+        if (v && v.version) lastReportVersion_ = v.version;
+      } catch (e) { /* nem kritikus */ }
     }
   } catch (e) {
     console.error("Sor-frissítési hiba:", e);
@@ -1620,6 +1661,7 @@ function rowSignature_(r) {
   return [
     r.rendszer_mennyiseg, r.szamolt_mennyiseg, r.elteres, r.elteres_ertek,
     (r.szektorok || []).length, (r.rendszer_korrekciok || []).length,
+    (r.ujraszamolasok || []).length,
     (r.tetel_megjegyzesek || []).length,
     r.nem_veglegesitett_szallitolevel ? r.nem_veglegesitett_szallitolevel.szamok : "",
   ].join("|");
@@ -1956,8 +1998,12 @@ function isTypingInReport_() {
 function isReportBusy_() {
   if (isTypingInReport_()) return true;
   if (Date.now() - lastScrollActivityMs_ < 800) return true; // aktív görgetés közben ne zavarjunk bele
-  const qrCard = document.getElementById("verifyQrCard");
-  if (qrCard && qrCard.style.display !== "none" && qrCard.innerHTML.trim()) return true;
+  // MEGJEGYZÉS: korábban itt a kint lévő ellenőrzési QR-kártya
+  // TELJESEN blokkolta az automatikus frissítést — pont abban a
+  // helyzetben, amikor a legfontosabb lett volna: kiadod a QR-t,
+  // valaki újraszámol vele, te pedig várod az eredményt. Mivel a
+  // QR-kártya a riport-konténeren KÍVÜL van (nem érinti az
+  // újrarajzolás), erre a blokkolásra nincs szükség.
   const wrap = document.getElementById("diffListWrap");
   if (wrap) {
     const openForms = wrap.querySelectorAll('[id$="-form"]');
@@ -1967,13 +2013,35 @@ function isReportBusy_() {
   }
   return false;
 }
-async function refreshOpenReportSilently_() {
-  if (!currentOpenReport || isReportBusy_()) return;
+// ÉLŐ FRISSÍTÉS — két lépésben, hogy gyors ÉS olcsó legyen:
+//   1) egy nagyon könnyű "report_version" kérés megmondja, változott-e
+//      BÁRMI a leltárban (új beolvasás, újraszámolás, javítás stb.);
+//   2) CSAK ha változott, akkor töltjük le a teljes (drága) riportot, és
+//      abból is csak a ténylegesen megváltozott részeket rajzoljuk újra.
+// Így az ellenőrzés sűrűn futhat (pár másodpercenként), mégsem terheli
+// a rendszert, amikor épp nem történik semmi.
+let lastReportVersion_ = null;
+let refreshInFlight_ = false;
+async function refreshOpenReportSilently_(force) {
+  if (!currentOpenReport || refreshInFlight_) return;
+  if (!force && isReportBusy_()) return;
+  const target = currentOpenReport;
+  refreshInFlight_ = true;
   try {
-    const report = await apiGet({ action: "full_report", leltar_id: currentOpenReport.leltarId });
-    if (report.error || !currentOpenReport) return;
-    updateReportLiveInPlace_(currentOpenReport.leltarId, currentOpenReport.container, report, currentOpenReport.opts);
-  } catch (e) { /* csendben kihagyjuk ezt a kört, legközelebb újra próbálja */ }
+    if (!force) {
+      const v = await apiGet({ action: "report_version", leltar_id: target.leltarId });
+      if (!v || v.error) return;
+      if (v.version === lastReportVersion_) return;   // nincs változás
+      lastReportVersion_ = v.version;
+    }
+    const report = await apiGet({ action: "full_report", leltar_id: target.leltarId });
+    if (report.error || currentOpenReport !== target) return;
+    updateReportLiveInPlace_(target.leltarId, target.container, report, target.opts);
+  } catch (e) {
+    /* csendben kihagyjuk ezt a kört, legközelebb újra próbálja */
+  } finally {
+    refreshInFlight_ = false;
+  }
 }
 
 // A pollozásnál EZT hívjuk a teljes renderFullReport helyett — csak az
@@ -2108,28 +2176,33 @@ function updateReportLiveInPlace_(leltarId, container, report, opts) {
 // a többi eszköz csak azt az egy, olcsó lekérdezést futtatja, ami
 // megmondja, ki a birtokos éppen. Így akárhány eszközön/lapon van
 // nyitva a felület, a terhelés nem halmozódik fel.
+// ÜTEMEZÉS
+//  - Élő riport: 4 másodpercenként (csak a könnyű verzió-ellenőrzés fut,
+//    a teljes riport csak valódi változáskor töltődik le).
+//  - Futó leltár kártya, élő nézet birtoklás, listák: ritkábban (20 mp),
+//    mert ezek ritkán változnak, és a szerver oldalon is gyorsítótárazva
+//    vannak.
 setInterval(() => {
-  // Aktív görgetés közben (és röviddel utána) semmit sem frissítünk —
-  // ez okozta mobilon a "villódzó, eltűnő adat" és a QR-kód
-  // kifehéredésének érzetét, mert a DOM-frissítés versenyzett a
-  // böngésző saját görgetés-renderelésével.
   if (Date.now() - lastScrollActivityMs_ < 800) return;
+  const activePanel = document.querySelector(".panel.active");
+  if (activePanel && activePanel.id === "panel-leltar" && isLiveViewHolder_ && currentOpenReport) {
+    refreshOpenReportSilently_();
+  }
+}, 4000);
 
+setInterval(() => {
+  if (Date.now() - lastScrollActivityMs_ < 800) return;
   checkEloNezetAllapot_();
-
   const activePanel = document.querySelector(".panel.active");
   if (!activePanel) return;
   if (activePanel.id === "panel-leltar") {
-    if (isLiveViewHolder_) {
-      loadActiveLeltarak();
-      if (currentOpenReport) refreshOpenReportSilently_();
-    }
+    if (isLiveViewHolder_) loadActiveLeltarak();
   } else if (activePanel.id === "panel-history") {
     loadHistory(true);
   } else if (activePanel.id === "panel-users") {
     loadAdminUsers(true);
   }
-}, 15000);
+}, 20000);
 
 async function createVerificationRoundForSelected(leltarId) {
   if (!selectedDiffBarcodes.size) { showToast("Válassz ki legalább egy tételt a checkbox-okkal.", "warn"); return; }
@@ -2154,7 +2227,13 @@ async function createVerificationRoundForSelected(leltarId) {
   btn.textContent = "Kiválasztottak ellenőrzése (új QR)";
 }
 
-function showVerifyQr(kod, tetelekSzama) {
+// A kint lévő ellenőrzési QR állapota — a riport teljes
+// újrarajzolásakor ebből állítjuk vissza, hogy egy automatikus
+// frissítés ne "vegye el" a felhasználó alól a kiadott QR-kódot.
+let currentVerifyQr_ = null;
+
+function showVerifyQr(kod, tetelekSzama, skipScroll) {
+  currentVerifyQr_ = { kod: kod, tetelekSzama: tetelekSzama };
   const card = el("verifyQrCard");
   card.style.display = "block";
   card.innerHTML = `
@@ -2169,7 +2248,7 @@ function showVerifyQr(kod, tetelekSzama) {
     </div>
   `;
   renderQrInto("verifyQrWrap", buildVerifyUrl(kod));
-  card.scrollIntoView({ behavior: "smooth" });
+  if (!skipScroll) card.scrollIntoView({ behavior: "smooth" });
 }
 
 function buildVerifyUrl(kod) {
@@ -2218,6 +2297,24 @@ async function closeLeltarAction(leltarId) {
 /* =========================================================================
    KORÁBBI LELTÁRAK
    ========================================================================= */
+/* ---------- Kliens-oldali gyorsítótár ----------
+   A már egyszer betöltött listákat (felhasználók, korábbi leltárak)
+   eltesszük, így fülváltáskor AZONNAL megjelennek, a friss adat pedig
+   a háttérben érkezik. A kulcs tartalmazza a bejelentkezett e-mailt,
+   így fiókváltáskor sosem jelenik meg más felhasználó adata. */
+function clientCacheKey_(name) {
+  return "lc_" + (googleUserEmail || "anon").toLowerCase() + "_" + name;
+}
+function clientCacheGet_(name) {
+  try {
+    const raw = sessionStorage.getItem(clientCacheKey_(name));
+    return raw ? JSON.parse(raw) : null;
+  } catch (e) { return null; }
+}
+function clientCacheSet_(name, value) {
+  try { sessionStorage.setItem(clientCacheKey_(name), JSON.stringify(value)); } catch (e) { /* nem kritikus */ }
+}
+
 const SUPER_ADMIN_EMAIL_ = "admin@aceltigris.hu";
 function isSuperAdmin_() {
   return (googleUserEmail || "").toLowerCase() === SUPER_ADMIN_EMAIL_;
@@ -2298,66 +2395,90 @@ if (el("itemHistoryBtn")) {
   });
 }
 
+// A korábbi leltárak listájának kirajzolása (a betöltéstől külön, hogy
+// a gyorsítótárból azonnal meg lehessen jeleníteni).
+function renderHistoryList_(list) {
+  const wrap = el("historyList");
+  const deleteAllBtn = el("deleteAllHistoryBtn");
+  if (!list.length) {
+    wrap.innerHTML = `<p class="emptyNote">Még nincs egyetlen leltár sem.</p>`;
+    if (deleteAllBtn) deleteAllBtn.style.display = "none";
+    return;
+  }
+  if (deleteAllBtn) deleteAllBtn.style.display = isSuperAdmin_() ? "inline-block" : "none";
+  const showDelete = isSuperAdmin_();
+  wrap.innerHTML = list.map(l => `
+    <div class="historyRow" data-leltar="${escapeHtml(l.leltar_id)}">
+      <div>
+        <b>${escapeHtml(formatDateTime(l.inditva))}</b>
+        <div class="meta">Indította: ${escapeHtml(l.inditotta)} · Típus: ${escapeHtml(l.tipus)} · Raktár: ${escapeHtml(l.raktar)}</div>
+      </div>
+      <div class="row" style="gap:8px; align-items:center;">
+        <span class="statusPill ${l.statusz === "folyamatban" ? "folyamatban" : "lezart"}">${l.statusz === "folyamatban" ? "Folyamatban" : "Lezárva"}</span>
+        ${showDelete ? `<button class="btn danger" data-delete-leltar="${escapeHtml(l.leltar_id)}" style="font-size:11px; padding:5px 10px;">Törlés</button>` : ""}
+      </div>
+    </div>
+  `).join("");
+  wrap.querySelectorAll(".historyRow").forEach(row => {
+    row.addEventListener("click", (ev) => {
+      if (ev.target.closest("[data-delete-leltar]")) return;
+      openReport(row.dataset.leltar, el("historyReportContainer"), { showActions: row.querySelector(".folyamatban") !== null });
+    });
+  });
+  wrap.querySelectorAll("[data-delete-leltar]").forEach(btn => {
+    btn.addEventListener("click", async (ev) => {
+      ev.stopPropagation();
+      const leltarId = btn.dataset.deleteLeltar;
+      if (!(await showConfirm("Biztosan véglegesen törlöd ezt a leltárat és az összes hozzá tartozó adatot? Ez nem vonható vissza.", { yesLabel: "Igen, törlöm" }))) return;
+      btn.disabled = true;
+      btn.textContent = "Törlés…";
+      try {
+        const result = await apiPost({ action: "delete_leltar", leltar_id: leltarId });
+        if (result.error) {
+          showToast("Hiba: " + result.error, "error");
+          btn.disabled = false;
+          btn.textContent = "Törlés";
+        } else {
+          showToast("Leltár törölve.", "success");
+          el("historyReportContainer").innerHTML = "";
+          lastHistorySig_ = null;
+          loadHistory();
+        }
+      } catch (e) {
+        showToast("Hiba: " + e.message, "error");
+        btn.disabled = false;
+        btn.textContent = "Törlés";
+      }
+    });
+  });
+}
+
+let lastHistorySig_ = null;
 async function loadHistory(silent) {
   historyLoaded = true;
   const wrap = el("historyList");
-  const deleteAllBtn = el("deleteAllHistoryBtn");
-  if (deleteAllBtn) deleteAllBtn.style.display = isSuperAdmin_() ? "inline-block" : "none";
-  if (!silent) wrap.innerHTML = `<div class="inlineLoading"><div class="spinner small"></div>Betöltés…</div>`;
+  if (!silent) {
+    // Azonnali megjelenítés a korábban betöltött listából (ha van).
+    const cachedList = clientCacheGet_("history");
+    if (cachedList) {
+      lastHistorySig_ = JSON.stringify(cachedList);
+      renderHistoryList_(cachedList);
+    } else {
+      wrap.innerHTML = `<div class="inlineLoading"><div class="spinner small"></div>Betöltés…</div>`;
+    }
+  }
   try {
     const data = await apiGet({ action: "history" });
     const list = data.leltarak || [];
-    if (!list.length) {
-      wrap.innerHTML = `<p class="emptyNote">Még nincs egyetlen leltár sem.</p>`;
-      if (deleteAllBtn) deleteAllBtn.style.display = "none";
-      return;
+    const sig = JSON.stringify(list);
+    clientCacheSet_("history", list);
+    // Csak valódi változáskor rajzoljuk újra (nincs villogás).
+    if (sig !== lastHistorySig_) {
+      lastHistorySig_ = sig;
+      renderHistoryList_(list);
     }
-    const showDelete = isSuperAdmin_();
-    wrap.innerHTML = list.map(l => `
-      <div class="historyRow" data-leltar="${escapeHtml(l.leltar_id)}">
-        <div>
-          <b>${escapeHtml(formatDateTime(l.inditva))}</b>
-          <div class="meta">Indította: ${escapeHtml(l.inditotta)} · Típus: ${escapeHtml(l.tipus)} · Raktár: ${escapeHtml(l.raktar)}</div>
-        </div>
-        <div class="row" style="gap:8px; align-items:center;">
-          <span class="statusPill ${l.statusz === "folyamatban" ? "folyamatban" : "lezart"}">${l.statusz === "folyamatban" ? "Folyamatban" : "Lezárva"}</span>
-          ${showDelete ? `<button class="btn danger" data-delete-leltar="${escapeHtml(l.leltar_id)}" style="font-size:11px; padding:5px 10px;">Törlés</button>` : ""}
-        </div>
-      </div>
-    `).join("");
-    wrap.querySelectorAll(".historyRow").forEach(row => {
-      row.addEventListener("click", (ev) => {
-        if (ev.target.closest("[data-delete-leltar]")) return;
-        openReport(row.dataset.leltar, el("historyReportContainer"), { showActions: row.querySelector(".folyamatban") !== null });
-      });
-    });
-    wrap.querySelectorAll("[data-delete-leltar]").forEach(btn => {
-      btn.addEventListener("click", async (ev) => {
-        ev.stopPropagation();
-        const leltarId = btn.dataset.deleteLeltar;
-        if (!(await showConfirm("Biztosan véglegesen törlöd ezt a leltárat és az összes hozzá tartozó adatot? Ez nem vonható vissza.", { yesLabel: "Igen, törlöm" }))) return;
-        btn.disabled = true;
-        btn.textContent = "Törlés…";
-        try {
-          const result = await apiPost({ action: "delete_leltar", leltar_id: leltarId });
-          if (result.error) {
-            showToast("Hiba: " + result.error, "error");
-            btn.disabled = false;
-            btn.textContent = "Törlés";
-          } else {
-            showToast("Leltár törölve.", "success");
-            el("historyReportContainer").innerHTML = "";
-            loadHistory();
-          }
-        } catch (e) {
-          showToast("Hiba: " + e.message, "error");
-          btn.disabled = false;
-          btn.textContent = "Törlés";
-        }
-      });
-    });
   } catch (e) {
-    wrap.innerHTML = `<p class="emptyNote">Hiba: ${escapeHtml(e.message)}</p>`;
+    if (!silent && !lastHistorySig_) wrap.innerHTML = `<p class="emptyNote">Hiba: ${escapeHtml(e.message)}</p>`;
   }
 }
 
@@ -2374,6 +2495,7 @@ if (el("deleteAllHistoryBtn")) {
       } else {
         showToast("Az összes korábbi leltár törölve.", "success");
         el("historyReportContainer").innerHTML = "";
+        lastHistorySig_ = null;
         loadHistory();
       }
     } catch (e) {
@@ -2478,6 +2600,8 @@ function onLoginVerified_() {
   // valódi jogosultság-ellenőrzés ettől függetlenül mindig a szerveren
   // történik — ez csak a felületi villanást szünteti meg.)
   historyLoaded = false;
+  lastHistorySig_ = null;
+  lastUsersSig_ = null;
   el("historyList").innerHTML = `<div class="inlineLoading"><div class="spinner small"></div>Betöltés…</div>`;
   el("historyReportContainer").innerHTML = "";
   if (el("deleteAllHistoryBtn")) el("deleteAllHistoryBtn").style.display = "none";
@@ -2658,16 +2782,40 @@ window.addEventListener("load", async () => {
    Csak azok szerkeszthetik, akiknek "hozzaadhat_felhasznalot" joguk van
    — ezt a backend is kikényszeríti, itt csak a felület van hozzá.
    ========================================================================= */
+let lastUsersSig_ = null;
 async function loadAdminUsers(silent) {
   usersLoaded = true;
   const wrap = el("usersList");
-  if (!silent) wrap.innerHTML = `<div class="inlineLoading"><div class="spinner small"></div>Betöltés…</div>`;
+  // Azonnali megjelenítés a korábban betöltött listából (ha van) —
+  // így fülváltáskor nem kell a szerverre várni, a friss adat pedig a
+  // háttérben érkezik.
+  if (!silent) {
+    const cachedUsers = clientCacheGet_("users");
+    if (cachedUsers) {
+      lastUsersSig_ = JSON.stringify(cachedUsers);
+      renderAdminUsersList(cachedUsers);
+    } else {
+      wrap.innerHTML = `<div class="inlineLoading"><div class="spinner small"></div>Betöltés…</div>`;
+    }
+  }
   try {
     const data = await apiPost({ action: "get_admin_users" });
-    if (data.error) { wrap.innerHTML = `<p class="emptyNote">${escapeHtml(data.error)}</p>`; return; }
-    renderAdminUsersList(data.users || []);
+    if (data.error) {
+      // Csendes (háttér) frissítésnél egy hiba NEM tüntetheti el a már
+      // látható listát — ez okozta a villogást.
+      if (!silent && !lastUsersSig_) wrap.innerHTML = `<p class="emptyNote">${escapeHtml(data.error)}</p>`;
+      return;
+    }
+    const users = data.users || [];
+    const sig = JSON.stringify(users);
+    clientCacheSet_("users", users);
+    // Csak akkor rajzoljuk újra, ha TÉNYLEG változott a lista.
+    if (sig !== lastUsersSig_) {
+      lastUsersSig_ = sig;
+      renderAdminUsersList(users);
+    }
   } catch (e) {
-    wrap.innerHTML = `<p class="emptyNote">Hiba: ${escapeHtml(e.message)}</p>`;
+    if (!silent && !lastUsersSig_) wrap.innerHTML = `<p class="emptyNote">Hiba: ${escapeHtml(e.message)}</p>`;
   }
 }
 
