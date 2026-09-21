@@ -815,7 +815,7 @@ async function startCamera() {
   }
 }
 
-const APP_VERSION = "v69";
+const APP_VERSION = "v70";
 let frameCount = 0, detectCount = 0;
 function debugLog(msg) {
   // A felületen csak a verziószám látszik (lásd lent) — a részletes
@@ -1032,6 +1032,8 @@ async function fallbackScanLoop() {
    ========================================================================= */
 let lastSeenAt = 0;
 let scanningHeld = false;
+// Az aktuális gomb-lenyomás alatt már beolvasott (nyers) vonalkódok.
+let pressAcceptedCodes_ = new Set();
 
 function handleDetections(codes) {
   // Csak akkor fogadunk el bármilyen felismerést, ha a felhasználó
@@ -1046,7 +1048,6 @@ function handleDetections(codes) {
     // (kb. fél másodperce) folyamatosan nem látja — így egy-egy
     // véletlenül kihagyott képkocka (gyakori a gyors, natív ciklusnál)
     // nem okoz azonnali, pörgős újra-beolvasást/villogást.
-    if (Date.now() - lastSeenAt > 500) lastAcceptedCode = null;
     return;
   }
 
@@ -1057,8 +1058,14 @@ function handleDetections(codes) {
   candidateCode = code;
   candidateCount = 1;
 
-  if (code === lastAcceptedCode) return; // ugyanaz a kód, még mindig folyamatosan látszik
-  if (pendingHit && code === pendingHit.barcode) return; // már ez van kártyán
+  // NYOMÓGOMBOS MŰKÖDÉS: egy gomb-lenyomás alatt minden vonalkód
+  // LEGFELJEBB EGYSZER kerül beolvasásra (így ha a kamera tovább látja,
+  // nem számolja újra és újra). A gomb ÚJ lenyomásakor ez a halmaz
+  // kiürül — tehát ugyanazt a vonalkódot (egy másik, ugyanolyan
+  // terméket) egyszerűen újra meg lehet nyomni, NEM kell kivinni a
+  // képből és visszahozni.
+  if (pressAcceptedCodes_.has(code)) return;
+  pressAcceptedCodes_.add(code);
 
   acceptCode(code);
 }
@@ -1271,7 +1278,15 @@ function commitPending() {
 (function bindHoldScanButton_() {
   const btn = el("holdScanBtn");
   if (!btn) return;
-  const start = (e) => { e.preventDefault(); scanningHeld = true; btn.classList.add("active"); };
+  const start = (e) => {
+    e.preventDefault();
+    // Minden ÚJ lenyomás tiszta lappal indul: a korábban beolvasott
+    // kódok újra elfogadhatók (pl. ugyanaz a termék még egyszer).
+    pressAcceptedCodes_ = new Set();
+    lastAcceptedCode = null;
+    scanningHeld = true;
+    btn.classList.add("active");
+  };
   const stop = () => { scanningHeld = false; btn.classList.remove("active"); };
   btn.addEventListener("pointerdown", start);
   btn.addEventListener("pointerup", stop);
