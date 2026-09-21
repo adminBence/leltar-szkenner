@@ -2373,7 +2373,12 @@ async function closeLeltarAction(leltarId) {
     btn.disabled = true;
     btn.innerHTML = `<span class="spinner" style="width:12px; height:12px; border-width:2px; display:inline-block; vertical-align:middle; margin-right:6px;"></span>Lezárás folyamatban…`;
   }
+  const container = el("reportContainer");
   try {
+    // Utolsó frissítés a lezárás ELŐTT, hogy a lezárt nézet biztosan a
+    // legfrissebb állapotot mutassa (csak a változások jönnek le).
+    try { await applyDeltaTo_(leltarId, container, container._opts || { showActions: true }); } catch (e) { /* nem kritikus */ }
+
     const result = await apiPost({ action: "close_leltar", leltar_id: leltarId });
     if (result.error) {
       showToast("Hiba: " + result.error, "error");
@@ -2381,22 +2386,28 @@ async function closeLeltarAction(leltarId) {
       return;
     }
     showToast("A leltár lezárva.", "success");
-    // A riportot KÜLÖN töltjük be — a szerver a lezárási válaszban már
-    // nem számolja újra (ez jelentősen gyorsítja a lezárást). Ha ez a
-    // betöltés bármiért elhasalna, a lezárás akkor is megtörtént.
-    try {
-      const report = await apiGet({ action: "full_report", leltar_id: leltarId });
-      if (!report.error) {
-        renderFullReport(el("reportContainer"), report, { showActions: false });
-      } else {
-        el("reportContainer").innerHTML = "";
-        currentOpenReport = null;
-      }
-    } catch (e) {
-      showToast("A leltár lezárva, de a riport betöltése nem sikerült — nézd meg a \"Korábbi leltárak\" fülön.", "warn");
-      el("reportContainer").innerHTML = "";
-      currentOpenReport = null;
+    // Az élő frissítés leáll — a leltár lezárult.
+    currentOpenReport = null;
+
+    // A lezárt nézetet a felületen MÁR MEGLÉVŐ, naprakész riportból
+    // rajzoljuk ki azonnal — nem kérjük le újra a teljes riportot a
+    // szervertől (egy nagy leltárnál ez volt a leglassabb lépés, és erre
+    // várt a gomb).
+    const base = container._report;
+    if (base && base.leltar && base.leltar.leltar_id === leltarId) {
+      const lezart = Object.assign({}, base, {
+        leltar: Object.assign({}, base.leltar, { statusz: "lezart", lezarva: String(Date.now() / 1000) }),
+      });
+      renderFullReport(container, lezart, { showActions: false });
+    } else {
+      // Ritka eset (pl. a riport még be sem töltött): háttérben kérjük le,
+      // a lezárást ez nem tartja fel.
+      container.innerHTML = `<div class="card"><div class="inlineLoading"><div class="spinner"></div>Lezárt riport betöltése…</div></div>`;
+      apiGet({ action: "full_report", leltar_id: leltarId })
+        .then(r => { if (r && !r.error && !currentOpenReport) renderFullReport(container, r, { showActions: false }); })
+        .catch(() => { container.innerHTML = `<div class="card"><p class="emptyNote">A leltár lezárult. A riport a „Korábbi leltárak" fülön érhető el.</p></div>`; });
     }
+    lastActiveLeltarakSig_ = null;
     loadActiveLeltarak();
   } catch (e) {
     showToast("Hiba a lezáráskor: " + e.message, "error");
