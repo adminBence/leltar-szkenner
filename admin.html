@@ -1040,10 +1040,9 @@ async function openReport(leltarId, container, opts, trackForPolling) {
   // riportja (trackForPolling=true) — egy korábbi (lezárt) leltár
   // megnézése NEM írhatja felül, különben az automatikus frissítés
   // összekeveredne, és feleslegesen újratöltené a futó leltár riportját.
-  if (trackForPolling) {
-    currentOpenReport = { leltarId, container, opts: opts || {} };
-    lastReportVersion_ = null;
-  }
+  if (trackForPolling) currentOpenReport = { leltarId, container, opts: opts || {} };
+  container._report = null;
+  container._sinceMs = null;
   try {
     const report = await apiGet({ action: "full_report", leltar_id: leltarId });
     if (report.error) { container.innerHTML = `<div class="card"><p class="emptyNote">Hiba: ${escapeHtml(report.error)}</p></div>`; return; }
@@ -1340,6 +1339,7 @@ function renderFullReport(container, report, opts) {
   }
 
   container._opts = opts;
+  rememberReport_(container, report);
   container._diffFullData = elteresek;
   container._groupSig = elteresek.length + "|" + rendben.length + "|" + hatravan.length;
   container._diffRenderedCount = Math.min(elteresek.length, DIFF_PAGE_SIZE_);
@@ -1629,26 +1629,15 @@ function bindDiffRowEvents(rowEl, leltarId, targetContainer, showActions, isOpen
 // TELJES riport újratöltése/újrarajzolása nélkül — megőrzi a görgetési
 // pozíciót és a többi nyitva lévő panelt.
 async function refreshSingleDiffRow(leltarId, barcode, targetContainer) {
-  // Egy módosítás (korrekció, mennyiség-módosítás, megjegyzés) után a
-  // riportot a SZEKCIÓK KÖZTI ÁTHELYEZÉST is kezelő frissítéssel
-  // frissítjük. Korábban itt csak az adott SOR rajzolódott újra — így ha
-  // a javítás után a tétel már rendben volt, az "Eltérések" között
-  // maradt (csak rendben állapotban), és csak kézi oldalfrissítésre
-  // került át a "Rendben" szekcióba.
+  // Egy módosítás (korrekció, mennyiség-módosítás, megjegyzés) után csak
+  // a változásokat kérjük le és fésüljük bele — a szekciók közti
+  // áthelyezést (pl. javítás után "Eltérések" -> "Rendben") az
+  // updateReportLiveInPlace_ kezeli.
   try {
-    const report = await apiGet({ action: "full_report", leltar_id: leltarId });
-    if (report.error) return;
     const opts = (targetContainer && targetContainer._opts) || { showActions: true };
-    updateReportLiveInPlace_(leltarId, targetContainer, report, opts);
-    // A következő automatikus ellenőrzés ne töltse le feleslegesen újra.
-    if (currentOpenReport && currentOpenReport.container === targetContainer) {
-      try {
-        const v = await apiGet({ action: "report_version", leltar_id: leltarId });
-        if (v && v.version) lastReportVersion_ = v.version;
-      } catch (e) { /* nem kritikus */ }
-    }
+    await applyDeltaTo_(leltarId, targetContainer, opts);
   } catch (e) {
-    console.error("Sor-frissítési hiba:", e);
+    console.error("Frissítési hiba:", e);
   }
 }
 
@@ -2013,14 +2002,92 @@ function isReportBusy_() {
   }
   return false;
 }
-// ÉLŐ FRISSÍTÉS — két lépésben, hogy gyors ÉS olcsó legyen:
-//   1) egy nagyon könnyű "report_version" kérés megmondja, változott-e
-//      BÁRMI a leltárban (új beolvasás, újraszámolás, javítás stb.);
-//   2) CSAK ha változott, akkor töltjük le a teljes (drága) riportot, és
-//      abból is csak a ténylegesen megváltozott részeket rajzoljuk újra.
-// Így az ellenőrzés sűrűn futhat (pár másodpercenként), mégsem terheli
-// a rendszert, amikor épp nem történik semmi.
-let lastReportVersion_ = null;
+// ÉLŐ FRISSÍTÉS — INKREMENTÁLISAN
+// Az első betöltéskor a teljes riportot kérjük le és megtartjuk. Utána
+// csak a VÁLTOZÁSOKAT kérjük a szervertől ("report_delta": mely tételek
+// módosultak a legutóbbi lekérdezés óta, és csak azok friss sorai),
+// ezeket fésüljük bele a megtartott riportba, az összesítőt pedig
+// helyben számoljuk újra. Így egy több ezer tételes leltárnál sem kell
+// minden frissítésnél az egész riportot újraszámolni.
+function rememberReport_(container, report) {
+  if (!container || !report || !report.diff) return;
+  container._report = report;
+  if (report.generated_ms) container._sinceMs = report.generated_ms;
+}
+
+function normBc_(v) {
+  const str = String(v == null ? "" : v).trim();
+  return str.replace(/^0+/, "") || str;
+}
+
+// Az összesítő ugyanúgy, mint a szerveren (Code.gs getFullReport).
+function computeOsszesito_(diff) {
+  const hiany = diff.filter(r => r.elteres < 0);
+  const tobblet = diff.filter(r => r.elteres > 0);
+  const eltero = diff.filter(r => r.elteres !== 0);
+  const sum = (arr, f) => arr.reduce((acc, r) => acc + f(r), 0);
+  return {
+    hiany_tetelek_szama: hiany.length,
+    hiany_db: sum(hiany, r => Math.abs(r.elteres)),
+    hiany_ertek: sum(hiany, r => Math.abs(r.elteres_ertek || 0)),
+    tobblet_tetelek_szama: tobblet.length,
+    tobblet_db: sum(tobblet, r => r.elteres),
+    tobblet_ertek: sum(tobblet, r => r.elteres_ertek || 0),
+    elteres_tetelek_szama: eltero.length,
+    osszes_tetel_szama: diff.length,
+    elteres_ertek_netto: sum(eltero, r => r.elteres_ertek || 0),
+    elteres_ertek_abszolut: sum(eltero, r => Math.abs(r.elteres_ertek || 0)),
+    osszes_rendszer_db: sum(diff, r => r.rendszer_mennyiseg || 0),
+    osszes_rendszer_ertek: sum(diff, r => r.rendszer_ertek || 0),
+  };
+}
+
+// A delta belefésülése a megtartott riportba. A megváltozott tételek
+// régi sorai kikerülnek, a frissek bekerülnek (ha egy tétel nem jött
+// vissza — pl. törölt ismeretlen többlet —, az így el is tűnik).
+function mergeDelta_(base, delta) {
+  const changed = new Set((delta.changed_barcodes || []).map(normBc_));
+  let diff = base.diff.filter(r => !changed.has(normBc_(r.vonalkod)));
+  diff = diff.concat(delta.rows || []);
+  // Rendezés ugyanúgy, mint a szerveren: eltérés nagysága szerint
+  // csökkenően, azonos nagyságnál név szerint.
+  diff.sort((a, b) => {
+    const da = Math.abs(a.elteres || 0), db = Math.abs(b.elteres || 0);
+    if (da !== db) return db - da;
+    return String(a.nev || a.vonalkod).localeCompare(String(b.nev || b.vonalkod), "hu");
+  });
+  return {
+    leltar: base.leltar,
+    diff: diff,
+    osszesito: computeOsszesito_(diff),
+    szektor_felelosok: delta.szektor_felelosok || base.szektor_felelosok,
+    progress: delta.progress || base.progress,
+    torolt_ismeretlen: delta.torolt_ismeretlen || base.torolt_ismeretlen,
+    szektor_konfliktusok: delta.szektor_konfliktusok || base.szektor_konfliktusok,
+    generated_ms: delta.now_ms,
+  };
+}
+
+// Egy konténer (riport) frissítése a változásokkal. Teljes riportot
+// CSAK akkor tölt le, ha még nincs megtartott riport, vagy ha a szerver
+// jelzi, hogy a változás jellege ezt igényli (szektor-döntés, lezárás,
+// túl sok egyszerre változott tétel).
+async function applyDeltaTo_(leltarId, container, opts) {
+  const loadFull = async () => {
+    const full = await apiGet({ action: "full_report", leltar_id: leltarId });
+    if (full && !full.error) updateReportLiveInPlace_(leltarId, container, full, opts);
+  };
+  if (!container._report || !container._sinceMs) { await loadFull(); return; }
+  const d = await apiGet({ action: "report_delta", leltar_id: leltarId, since_ms: container._sinceMs });
+  if (!d || d.error) return;
+  if (d.full) { await loadFull(); return; }
+  if (!d.changed_barcodes || !d.changed_barcodes.length) {
+    container._sinceMs = d.now_ms;   // nincs változás — csak az időpontot léptetjük
+    return;
+  }
+  updateReportLiveInPlace_(leltarId, container, mergeDelta_(container._report, d), opts);
+}
+
 let refreshInFlight_ = false;
 async function refreshOpenReportSilently_(force) {
   if (!currentOpenReport || refreshInFlight_) return;
@@ -2028,15 +2095,7 @@ async function refreshOpenReportSilently_(force) {
   const target = currentOpenReport;
   refreshInFlight_ = true;
   try {
-    if (!force) {
-      const v = await apiGet({ action: "report_version", leltar_id: target.leltarId });
-      if (!v || v.error) return;
-      if (v.version === lastReportVersion_) return;   // nincs változás
-      lastReportVersion_ = v.version;
-    }
-    const report = await apiGet({ action: "full_report", leltar_id: target.leltarId });
-    if (report.error || currentOpenReport !== target) return;
-    updateReportLiveInPlace_(target.leltarId, target.container, report, target.opts);
+    await applyDeltaTo_(target.leltarId, target.container, target.opts);
   } catch (e) {
     /* csendben kihagyjuk ezt a kört, legközelebb újra próbálja */
   } finally {
@@ -2053,6 +2112,7 @@ async function refreshOpenReportSilently_(force) {
 // (15 másodpercenként) az egész listát újraépítse, ami mobilon
 // komoly akadozást/lefagyást okozott.
 function updateReportLiveInPlace_(leltarId, container, report, opts) {
+  rememberReport_(container, report);
   const { leltar, diff, osszesito, szektor_felelosok, progress, szektor_konfliktusok } = report;
   const isOpen = leltar.statusz === "folyamatban";
   const showActions = !!opts.showActions && isOpen;
