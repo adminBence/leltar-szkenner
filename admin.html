@@ -127,25 +127,25 @@
   /* ---------- Műveleti gombok színrendszere ----------
      Minden funkciónak saját, jól elkülönülő színe van, hogy idővel szín
      alapján is lehessen navigálni:
-       kék    = a SZÁMOLT mennyiség módosítása (amit mi számoltunk)
-       lila   = a RENDSZER készletének frissítése a Laurelből (külső adat)
-       sárga  = azonosító (vonalkód) javítása
-       türkiz = megjegyzés
-       szürke = részletek megtekintése (nem módosít semmit)
-       piros  = törlés  */
+       kék     = a SZÁMOLT mennyiség módosítása (amit mi számoltunk)
+       lila    = a RENDSZER készletének frissítése a Laurelből (külső adat)
+       rózsa   = azonosító (vonalkód) javítása
+       türkiz  = megjegyzés
+       sárga   = részletek / előzmény megtekintése
+       piros   = törlés  */
   .rowActionBtn{font-size:10.5px; padding:3px 9px; line-height:1.6; border-radius:6px;
     border:1px solid transparent; font-weight:600; transition:background .12s, color .12s;}
   .act-qty{background:rgba(78,163,255,.14); border-color:rgba(78,163,255,.45); color:#8cc4ff;}
   .act-qty:hover{background:#2f7fd4; color:#fff;}
   .act-laurel{background:rgba(178,132,255,.14); border-color:rgba(178,132,255,.45); color:#c3a4ff;}
   .act-laurel:hover{background:#7a4fd0; color:#fff;}
-  .act-barcode{background:rgba(240,180,41,.14); border-color:rgba(240,180,41,.45); color:#f0c65e;}
-  .act-barcode:hover{background:#c8930f; color:#1a1a1a;}
+  .act-barcode{background:rgba(255,122,184,.14); border-color:rgba(255,122,184,.45); color:#ff9ec9;}
+  .act-barcode:hover{background:#d4437f; color:#fff;}
   .act-note{background:rgba(47,212,196,.13); border-color:rgba(47,212,196,.42); color:#5fdccf;}
   .act-note:hover{background:#1e9e92; color:#fff;}
-  .act-details{background:var(--panel); border-color:var(--line); color:var(--text-dim);}
-  .act-details:hover{background:var(--line); color:var(--text);}
-  .act-details.warn{border-color:var(--warn); color:var(--warn);}
+  .act-details{background:rgba(240,180,41,.14); border-color:rgba(240,180,41,.45); color:#f0c65e;}
+  .act-details:hover{background:#c8930f; color:#1a1a1a;}
+  .act-details.warn{background:rgba(240,180,41,.26); border-color:var(--warn); color:#ffd27a; font-weight:700;}
   /* Ugyanez a jelentés a nagyobb, szekció-szintű gomboknál is:
      a Laurelből való készletfrissítés mindig lila. */
   .btn.laurel{background:rgba(178,132,255,.16); border:1px solid rgba(178,132,255,.5); color:#c3a4ff;}
