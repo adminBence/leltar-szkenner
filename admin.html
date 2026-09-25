@@ -1358,7 +1358,7 @@ function renderFullReport(container, report, opts) {
         ${isOpen ? `
         <div class="switchRow" style="margin-top:0;">
           <label class="switch">
-            <input type="checkbox" id="hideDataToggle" checked>
+            <input type="checkbox" id="hideDataToggle">
             <span class="switchTrack"><span class="switchKnob"></span></span>
           </label>
           <span>Adatok elrejtése</span>
@@ -1464,7 +1464,10 @@ function renderFullReport(container, report, opts) {
     // soronkénti szem-gomb). Kikapcsolva minden szám látszik, és a
     // szem-gombokra nincs is szükség. Alapértelmezés: bekapcsolva.
     const mentett = (() => { try { return localStorage.getItem("leltarHideData"); } catch (e) { return null; } })();
-    const rejtve = mentett === null ? true : mentett === "1";
+    // Alapértelmezés: KIKAPCSOLVA — a riport megnyitásakor minden adat
+    // látszik. A kapcsolót bekapcsolva lehet visszaállni a vakleltár-módra
+    // (elmosott számok, soronkénti szem-gomb).
+    const rejtve = mentett === null ? false : mentett === "1";
     hideToggle.checked = rejtve;
     document.body.classList.toggle("revealAll", !rejtve);
     hideToggle.addEventListener("change", () => {
