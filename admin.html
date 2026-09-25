@@ -1366,7 +1366,9 @@ function renderFullReport(container, report, opts) {
       </div>
       ${showActions ? `<div class="row" style="margin-bottom:14px; gap:8px;">
         <button class="btn primary" id="createVerifyBtn">Kiválasztottak ellenőrzése (új QR)</button>
-      </div>` : ""}
+        <button class="btn" id="bulkLiveBtn">Készlet frissítése LKR-ből (minden eltérésnél)</button>
+      </div>
+      <div id="bulkLiveResult"></div>` : ""}
       <div id="diffListWrap">
         ${elteresek.slice(0, DIFF_PAGE_SIZE_).map(r => renderDiffRowHtml(r, showActions, isOpen)).join("") || `<p class="emptyNote">Nincs ilyen tétel — minden beolvasott termék készlete stimmel.</p>`}
       </div>
@@ -1570,6 +1572,54 @@ function renderFullReport(container, report, opts) {
       searchInput.value = prevQuery;
       runSearch_();
     }
+  }
+
+  // Tömeges készlet-frissítés az LKR-ből az ÖSSZES eltérő tételre.
+  const bulkBtn = container.querySelector("#bulkLiveBtn");
+  if (bulkBtn) {
+    bulkBtn.addEventListener("click", async () => {
+      const elteroDb = elteresek.length;
+      if (!elteroDb) { showToast("Nincs eltérő tétel.", "warn"); return; }
+      if (!(await showConfirm(
+        `Frissíted a rendszer szerinti készletet az LKR-ből mind a(z) ${elteroDb} eltérő tételnél? ` +
+        `Csak ott történik változás, ahol az LKR más értéket mutat, és minden változás naplózva lesz (régi → új).`,
+        { yesLabel: "Frissítés", positive: true }))) return;
+      bulkBtn.disabled = true;
+      const eredetiFelirat = bulkBtn.textContent;
+      bulkBtn.innerHTML = `<span class="spinner" style="width:12px; height:12px; border-width:2px; display:inline-block; vertical-align:middle; margin-right:6px;"></span>Frissítés folyamatban…`;
+      const resultEl = container.querySelector("#bulkLiveResult");
+      try {
+        const res = await apiPost({ action: "bulk_live_correction", leltar_id: leltar.leltar_id });
+        if (res.error) {
+          showToast("Hiba: " + res.error, "error");
+        } else if (!res.frissitve) {
+          showToast(res.message || "Nem volt mit frissíteni.", "warn");
+          if (resultEl) resultEl.innerHTML = "";
+        } else {
+          showToast(`${res.frissitve} tétel készlete frissítve az LKR-ből.`, "success");
+          if (resultEl) {
+            resultEl.innerHTML = `
+              <div style="margin-bottom:12px; padding:10px; background:var(--panel-2); border:1px solid var(--line); border-radius:8px;">
+                <div style="font-weight:700; margin-bottom:6px;">Frissítve: ${res.frissitve} tétel</div>
+                <div class="metaLine" style="margin-bottom:6px;">
+                  Változatlan: ${res.valtozatlan} · Nem szerepel az LKR-ben (kihagyva): ${res.nincs_lkr}
+                </div>
+                ${(res.valtozasok || []).map(v => `
+                  <div style="font-size:11px; color:var(--text-dim);">
+                    ${escapeHtml(v.nev)} — <b>${v.regi_mennyiseg} db → ${v.uj_mennyiseg} db</b>
+                  </div>`).join("")}
+                ${res.frissitve > (res.valtozasok || []).length
+                  ? `<div class="metaLine">…és további ${res.frissitve - res.valtozasok.length} tétel.</div>` : ""}
+              </div>`;
+          }
+          refreshSingleDiffRow(leltar.leltar_id, null, container);
+        }
+      } catch (e) {
+        showToast("Hiba: " + e.message, "error");
+      }
+      bulkBtn.disabled = false;
+      bulkBtn.textContent = eredetiFelirat;
+    });
   }
 
   const loadMoreBtn = container.querySelector("#diffLoadMoreBtn");
