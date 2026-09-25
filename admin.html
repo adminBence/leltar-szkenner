@@ -1235,6 +1235,8 @@ function renderFullReport(container, report, opts) {
     ? diff.filter(r => beolvastakE_(r) && r.elteres === 0)
     : diff.filter(r => r.elteres === 0);
   const hatravan = isOpen ? diff.filter(r => !beolvastakE_(r)) : [];
+  // Ismeretlen tételek: a beolvasott vonalkód nem szerepel a cikktörzsben.
+  const ismeretlenDb = diff.filter(r => r.ismeretlen_tobblet || !r.nev).length;
 
   const felelosHtml = buildFelelosHtml_(szektor_felelosok);
 
@@ -1297,13 +1299,20 @@ function renderFullReport(container, report, opts) {
 
     <div class="card" id="reportSearchCard">
       <div class="cardTitle">Keresés a tételek között</div>
-      <input type="text" id="reportSearchInput" placeholder="Vonalkód, cikkszám vagy terméknév…"
-        style="width:100%; font-size:14px; padding:10px 12px;">
+      <div class="row" style="gap:8px;">
+        <input type="text" id="reportSearchInput" placeholder="Vonalkód, cikkszám vagy terméknév…"
+          style="flex:1 1 auto; font-size:14px; padding:10px 12px;">
+        <button class="btn" id="reportSearchClearBtn" style="display:none;">Vissza</button>
+      </div>
+      ${ismeretlenDb ? `<div class="metaLine" style="margin-top:8px;">
+        Ismeretlen termék: <b>${ismeretlenDb} db</b> tétel —
+        <a href="#" id="showUnknownLink" style="color:var(--accent);">mutasd</a>
+      </div>` : ""}
       <div id="reportSearchResults" style="margin-top:12px;"></div>
     </div>
 
-    <div class="card">
-      <div class="cardTitle">${isOpen ? "Eltérések (beolvasva, de nem stimmel)" : "Eltérések"}</div>
+    <div class="card" id="elteresekCard">
+      <div class="cardTitle" id="elteresekTitle">${isOpen ? "Eltérések (beolvasva, de nem stimmel)" : "Eltérések"}</div>
       ${showActions ? `<div class="row" style="margin-bottom:14px; gap:8px;">
         <button class="btn primary" id="createVerifyBtn">Kiválasztottak ellenőrzése (új QR)</button>
       </div>` : ""}
@@ -1317,7 +1326,7 @@ function renderFullReport(container, report, opts) {
     </div>
 
     ${hatravan.length ? `
-    <div class="card">
+    <div class="card" id="pendingCard">
       <div class="cardTitle">Beolvasásra vár (${hatravan.length} tétel)</div>
       <div class="metaLine" style="margin-bottom:10px;">Ezeket még egyetlen szektorban sem olvasták be.</div>
       <div id="pendingListWrap" style="max-height:340px; overflow-y:auto;">
@@ -1330,7 +1339,7 @@ function renderFullReport(container, report, opts) {
     </div>` : ""}
 
     ${rendben.length ? `
-    <div class="card">
+    <div class="card" id="okCard">
       <div class="cardTitle">Rendben (${rendben.length} tétel)</div>
       <div class="metaLine" style="margin-bottom:10px;">Beolvasva, és a készletük pontosan egyezik.</div>
       <div id="okListWrap" style="max-height:340px; overflow-y:auto;">
@@ -1395,48 +1404,89 @@ function renderFullReport(container, report, opts) {
     // gépelt szöveget ilyenkor visszaállítjuk, és a találatokat is
     // újraszámoljuk a friss adatokból.
     const prevQuery = container._searchQuery || "";
+    // A találatokat a FŐ eltérés-listában jelenítjük meg, ugyanolyan
+    // teljes értékű sorként, mint az eltéréseknél — így minden művelet
+    // (ellenőrzésre jelölés, mennyiség-módosítás, rendszer-javítás,
+    // megjegyzés, törlés) ugyanúgy elérhető rajtuk. A többi szekciót
+    // ilyenkor elrejtjük, hogy ne legyen két helyen ugyanaz a tétel.
+    const diffWrap = container.querySelector("#diffListWrap");
+    const titleEl = container.querySelector("#elteresekTitle");
+    const clearBtn = container.querySelector("#reportSearchClearBtn");
+    const alapCim = titleEl ? titleEl.textContent : "";
+    const setSection = (id, show) => {
+      const elx = container.querySelector("#" + id);
+      if (elx) elx.style.display = show ? "" : "none";
+    };
+
+    const restoreNormalView_ = () => {
+      resultsEl.innerHTML = "";
+      if (clearBtn) clearBtn.style.display = "none";
+      if (titleEl) titleEl.textContent = alapCim;
+      setSection("pendingCard", true);
+      setSection("okCard", true);
+      const lm = container.querySelector("#diffLoadMoreWrap");
+      if (lm) lm.style.display = "";
+      const vb = container.querySelector("#createVerifyBtn");
+      if (vb && vb.parentElement) vb.parentElement.style.display = "";
+      diffWrap.innerHTML = elteresek.slice(0, DIFF_PAGE_SIZE_).map(r => renderDiffRowHtml(r, showActions, isOpen)).join("")
+        || `<p class="emptyNote">Nincs ilyen tétel — minden beolvasott termék készlete stimmel.</p>`;
+      container._diffRenderedCount = Math.min(elteresek.length, DIFF_PAGE_SIZE_);
+      diffWrap.querySelectorAll(".diffRow").forEach(row => bindDiffRowEvents(row, leltar.leltar_id, container, showActions, isOpen));
+    };
+
+    const matches_ = (r, q) => {
+      const qNorm = q.replace(/^0+/, "");
+      const vk = String(r.vonalkod || "").toLowerCase();
+      // A NÉV helyett a megjelenített nevet nézzük: az ismeretlen
+      // tételeknek nincs nevük a törzsben, a felületen viszont
+      // "Ismeretlen termék"-ként látszanak — így erre is rá lehet keresni.
+      const nev = String(r.nev || "Ismeretlen termék").toLowerCase();
+      return vk.includes(q) ||
+        vk.replace(/^0+/, "").includes(qNorm) ||
+        String(r.sajat_cikkszam || "").toLowerCase().includes(q) ||
+        String(r.gyartoi_cikkszam || "").toLowerCase().includes(q) ||
+        nev.includes(q);
+    };
+
     const runSearch_ = () => {
       const q = (searchInput.value || "").trim().toLowerCase();
-      if (!q) { resultsEl.innerHTML = ""; return; }
-      const qNorm = q.replace(/^0+/, "");
-      const hits = diff.filter(r => {
-        const vk = String(r.vonalkod || "").toLowerCase();
-        return vk.includes(q) ||
-          vk.replace(/^0+/, "").includes(qNorm) ||
-          String(r.sajat_cikkszam || "").toLowerCase().includes(q) ||
-          String(r.gyartoi_cikkszam || "").toLowerCase().includes(q) ||
-          String(r.nev || "").toLowerCase().includes(q);
-      }).slice(0, 25);
+      if (!q) { restoreNormalView_(); return; }
+      const hits = diff.filter(r => matches_(r, q));
+      if (clearBtn) clearBtn.style.display = "inline-block";
+      setSection("pendingCard", false);
+      setSection("okCard", false);
+      const lm = container.querySelector("#diffLoadMoreWrap");
+      if (lm) lm.style.display = "none";
+      resultsEl.innerHTML = "";
       if (!hits.length) {
-        resultsEl.innerHTML = `<p class="emptyNote">Nincs találat erre: "${escapeHtml(searchInput.value)}"</p>`;
+        if (titleEl) titleEl.textContent = "Keresés: nincs találat";
+        diffWrap.innerHTML = `<p class="emptyNote">Nincs találat erre: "${escapeHtml(searchInput.value)}"</p>`;
         return;
       }
-      resultsEl.innerHTML = hits.map(r => {
-        const beolvasva = (r.szektorok && r.szektorok.length) || (r.ujraszamolasok && r.ujraszamolasok.length);
-        let szekcio, szin;
-        if (!isOpen && r.elteres !== 0) { szekcio = "Eltérés"; szin = "var(--danger)"; }
-        else if (!beolvasva) { szekcio = "Beolvasásra vár"; szin = "var(--text-dim)"; }
-        else if (r.elteres !== 0) { szekcio = "Eltérés"; szin = "var(--danger)"; }
-        else { szekcio = "Rendben"; szin = "var(--accent)"; }
-        return `
-          <div style="padding:10px; margin-bottom:8px; background:var(--panel-2); border:1px solid var(--line); border-radius:8px;">
-            <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px; flex-wrap:wrap;">
-              <div>
-                <b>${escapeHtml(r.nev || "Ismeretlen termék")}</b>
-                <div style="font-size:11px; color:var(--text-dim);">
-                  ${escapeHtml(r.sajat_cikkszam || "—")} · ${escapeHtml(r.vonalkod)}
-                </div>
-              </div>
-              <span style="font-size:11px; font-weight:700; color:${szin};">${szekcio}</span>
-            </div>
-            <div style="font-size:12px; margin-top:6px;">
-              Rendszer: <b>${r.rendszer_mennyiseg} db</b> · Számolt: <b>${r.szamolt_mennyiseg} db</b> ·
-              Eltérés: <b style="color:${r.elteres === 0 ? "var(--accent)" : "var(--danger)"};">${r.elteres > 0 ? "+" : ""}${r.elteres} db</b>
-            </div>
-            ${historyBlockHtml_(r)}
-          </div>`;
-      }).join("");
+      if (titleEl) titleEl.textContent = `Keresés — ${hits.length} találat`;
+      const lista = hits.slice(0, 200);
+      diffWrap.innerHTML = lista.map(r => renderDiffRowHtml(r, showActions, isOpen)).join("") +
+        (hits.length > lista.length ? `<p class="emptyNote">…és még ${hits.length - lista.length} találat — pontosíts a keresésen.</p>` : "");
+      diffWrap.querySelectorAll(".diffRow").forEach(row => bindDiffRowEvents(row, leltar.leltar_id, container, showActions, isOpen));
     };
+
+    if (clearBtn) {
+      clearBtn.addEventListener("click", () => {
+        searchInput.value = "";
+        container._searchQuery = "";
+        restoreNormalView_();
+      });
+    }
+    const unknownLink = container.querySelector("#showUnknownLink");
+    if (unknownLink) {
+      unknownLink.addEventListener("click", (ev) => {
+        ev.preventDefault();
+        searchInput.value = "Ismeretlen termék";
+        container._searchQuery = searchInput.value;
+        runSearch_();
+      });
+    }
+
     let searchTimer_ = null;
     searchInput.addEventListener("input", () => {
       container._searchQuery = searchInput.value;
@@ -2243,6 +2293,12 @@ function updateReportLiveInPlace_(leltarId, container, report, opts) {
 
   const wrap = container.querySelector("#diffListWrap");
   if (!wrap) return;
+
+  // Aktív keresés közben a listát NEM írjuk felül: ilyenkor a
+  // találatok láthatók benne, nem az eltérés-lista. (A keresés
+  // a friss adatokból újraszámolódik, amikor a riport teljesen
+  // újrarajzolódik — lásd a kereső visszaállítását.)
+  if ((container._searchQuery || "").trim()) return;
 
   // A friss, teljes listát mindig eltároljuk (ezt használja majd a
   // "Továbbiak betöltése" gomb) — de az élő frissítés csak a MÁR
