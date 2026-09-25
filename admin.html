@@ -104,9 +104,22 @@
     border-radius:4px; flex:0 0 auto;}
   .diffRow .tag.warn{background:#4a3a17; color:var(--warn);}
   .diffRow .tag.danger{background:#4a1f1b; color:var(--danger);}
+  /* Törlés a termék neve mellett — jól látható, piros kuka. */
+  .rowDeleteBtn{flex:0 0 auto; width:24px; height:24px; border-radius:6px; padding:0;
+    border:1px solid var(--danger); background:#4a1f1b; color:#ff9b90; font-size:14px;
+    line-height:1; display:inline-flex; align-items:center; justify-content:center; cursor:pointer;}
+  .rowDeleteBtn:hover{background:var(--danger); color:#fff;}
   .diffRow .diffVal{flex:0 0 auto; text-align:right; min-width:74px;}
   .diffRow .diffVal .dv1{font-size:15px; font-weight:800; line-height:1.2;}
   .diffRow .diffVal .dv2{font-size:10.5px; font-weight:600; opacity:.8; line-height:1.2;}
+  /* Többlet zöld, hiány piros — a sarokban lévő számnál és a sor bal
+     szélén is, hogy egy pillantásra látszódjon, melyik melyik. */
+  .diffVal.pos{color:var(--accent);}
+  .diffVal.neg{color:var(--danger);}
+  .diffVal.zero{color:var(--text-dim);}
+  .diffRow.pos{border-left:3px solid var(--accent);}
+  .diffRow.neg{border-left:3px solid var(--danger);}
+  .diffRow.zero{border-left:3px solid var(--line);}
   .diffRow .rowActions{display:flex; flex-wrap:wrap; gap:5px; margin-top:6px; padding-left:25px;}
   .rowActionBtn{font-size:10.5px; padding:3px 8px; line-height:1.6;}
   .diffRow .rowPanel{margin-top:6px; padding:8px; background:var(--panel);
@@ -2000,11 +2013,15 @@ function renderDiffRowHtml(r, showCheckbox, isOpen) {
   // ---- Műveleti gombok (egy sorban, kis pill-gombok) ----
   const g = [];
   if (showCheckbox) g.push(`<button class="btn rowActionBtn" data-qtymod-toggle="${escapeHtml(r.vonalkod)}">✏️ Mennyiség</button>`);
-  if (showCheckbox && !r.ismeretlen_tobblet) g.push(`<button class="btn rowActionBtn" data-refresh-toggle="${escapeHtml(r.vonalkod)}">🔄 Laurel</button>`);
+  // A Laurel-frissítés akkor is elérhető, ha a tétel a leltár indulásakor
+  // nem volt készleten (ismeretlen többlet), DE a terméktörzsben ismert —
+  // ilyenkor a mentéskor 0 induló készlettel felvesszük a leltárba.
+  if (showCheckbox && (!r.ismeretlen_tobblet || !r.ismeretlen_termek)) {
+    g.push(`<button class="btn rowActionBtn" data-refresh-toggle="${escapeHtml(r.vonalkod)}">🔄 Laurel</button>`);
+  }
   if (showCheckbox && r.ismeretlen_tobblet) g.push(`<button class="btn rowActionBtn" data-barcode-toggle="${escapeHtml(r.vonalkod)}">🏷 Vonalkód</button>`);
   if (showCheckbox && r.ismeretlen_tobblet) g.push(`<button class="btn rowActionBtn" data-note-toggle="${escapeHtml(r.vonalkod)}">💬 Megjegyzés</button>`);
   if (reszletDb) g.push(`<button class="btn rowActionBtn" data-details-toggle="${escapeHtml(r.vonalkod)}">${vanSzallitolevel ? "⚠ " : ""}Részletek (${reszletDb})</button>`);
-  if (showCheckbox && r.ismeretlen_tobblet) g.push(`<button class="btn danger rowActionBtn" data-delete-unknown="${escapeHtml(r.vonalkod)}">🗑</button>`);
   const actionsHtml = g.length ? `<div class="rowActions">${g.join("")}</div>` : "";
 
   // ---- Kinyitható panelek ----
@@ -2019,7 +2036,7 @@ function renderDiffRowHtml(r, showCheckbox, isOpen) {
       </div>
     </div>` : "";
 
-  const refreshPanel = (showCheckbox && !r.ismeretlen_tobblet) ? `
+  const refreshPanel = (showCheckbox && (!r.ismeretlen_tobblet || !r.ismeretlen_termek)) ? `
     <div id="${rowId}-form" class="rowPanel" style="display:none;">
       <div class="panelHint" id="${rowId}-loaded">Betöltés…</div>
       <div class="row" style="gap:6px;">
@@ -2051,7 +2068,7 @@ function renderDiffRowHtml(r, showCheckbox, isOpen) {
   const eyeBtn = isOpen ? `<button class="rowEyeBtn" aria-label="Tartsd lenyomva a számok megtekintéséhez">👁</button>` : "";
 
   return `
-    <div class="diffRow" id="${rowId}-row" data-sig="${escapeHtml(rowSignature_(r))}">
+    <div class="diffRow ${cls}" id="${rowId}-row" data-sig="${escapeHtml(rowSignature_(r))}">
       <div class="rowMain">
         ${showCheckbox ? `<input type="checkbox" class="diffSelect" value="${escapeHtml(r.vonalkod)}"${selectedDiffBarcodes.has(r.vonalkod) ? " checked" : ""}${r.elteres === 0 ? " disabled" : ""}>` : ""}
         <div class="rowInfo">
@@ -2059,6 +2076,7 @@ function renderDiffRowHtml(r, showCheckbox, isOpen) {
             <b>${escapeHtml(r.nev || (r.ismeretlen_termek ? "Ismeretlen termék" : r.vonalkod))}</b>
             ${r.ismeretlen_tobblet ? `<span class="tag warn">ISMERETLEN</span>` : ""}
             ${nincsBeolvasva ? `<span class="tag danger">NEM OLVASTÁK BE</span>` : ""}
+            ${(showCheckbox && r.ismeretlen_tobblet) ? `<button class="rowDeleteBtn" title="Tétel törlése" aria-label="Tétel törlése" data-delete-unknown="${escapeHtml(r.vonalkod)}">🗑</button>` : ""}
           </div>
           <div class="rowLine rowMeta">${escapeHtml(r.vonalkod)}${r.sajat_cikkszam ? " · " + escapeHtml(r.sajat_cikkszam) : ""}${r.gyartoi_cikkszam ? " · " + escapeHtml(r.gyartoi_cikkszam) : ""}</div>
           <div class="rowLine rowQty">
