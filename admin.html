@@ -128,8 +128,8 @@
 
   /* iOS-stílusú kapcsoló */
   .switchRow{display:flex; align-items:center; gap:10px; margin-top:10px;}
-  .switchRow label{font-size:13px; color:var(--text-dim); cursor:pointer; user-select:none;}
-  .switch{position:relative; width:46px; height:27px; flex:0 0 auto; cursor:pointer;}
+  .switchRow > span{font-size:13px; color:var(--text-dim); user-select:none;}
+  .switch{position:relative; display:inline-block; width:46px; height:27px; flex:0 0 auto; cursor:pointer;}
   .switch input{position:absolute; opacity:0; width:0; height:0;}
   .switchTrack{position:absolute; inset:0; background:var(--line); border-radius:999px; transition:background .2s;}
   .switchKnob{position:absolute; top:3px; left:3px; width:21px; height:21px; background:#fff;
@@ -1181,7 +1181,8 @@ function buildFelelosHtml_(szektor_felelosok) {
 function buildConflictsHtml_(szektor_konfliktusok, showActions) {
   return (szektor_konfliktusok && szektor_konfliktusok.length) ? `
     <div class="card">
-      <div class="cardTitle">⚠ Szektor-ütközések</div>
+      <div class="cardTitle collapsible collapsed" data-collapse="conflictsBody"><span class="arrow">▾</span>⚠ Szektor-ütközések (${szektor_konfliktusok.length})</div>
+      <div id="conflictsBody" class="collapseBody collapsed">
       ${szektor_konfliktusok.map(c => {
         const csoportok = c.csoportok || [];
         if (c.mind_egyezik || csoportok.length <= 1) {
@@ -1225,7 +1226,28 @@ function buildConflictsHtml_(szektor_konfliktusok, showActions) {
             ${elteresekHtml}
           </div>`;
       }).join("")}
+      </div>
     </div>` : "";
+}
+
+// Összecsukható szekciók bekötése. Külön függvényben, mert az élő
+// frissítés egyes részeket (pl. a szektor-ütközéseket) újrarajzol —
+// ilyenkor az új fejlécekre újra be kell kötni a kattintást.
+function bindCollapsibles_(root) {
+  root.querySelectorAll(".collapsible[data-collapse]").forEach(head => {
+    if (head._collapseBound) return;
+    head._collapseBound = true;
+    const key = head.dataset.collapse;
+    const body = root.querySelector("#" + key) || document.getElementById(key);
+    if (!body) return;
+    const tarolt = (() => { try { return localStorage.getItem("leltarCollapse_" + key); } catch (e) { return null; } })();
+    if (tarolt === "0") { head.classList.remove("collapsed"); body.classList.remove("collapsed"); }
+    head.addEventListener("click", () => {
+      const csukva = head.classList.toggle("collapsed");
+      body.classList.toggle("collapsed", csukva);
+      try { localStorage.setItem("leltarCollapse_" + key, csukva ? "1" : "0"); } catch (e) { /* nem kritikus */ }
+    });
+  });
 }
 
 function renderFullReport(container, report, opts) {
@@ -1326,19 +1348,22 @@ function renderFullReport(container, report, opts) {
           style="flex:1 1 auto; font-size:14px; padding:10px 12px;">
         <button class="btn" id="reportSearchClearBtn" style="display:none;">Vissza</button>
       </div>
-      ${isOpen ? `
-      <div class="switchRow">
-        <span class="switch">
-          <input type="checkbox" id="revealAllToggle">
-          <span class="switchTrack"><span class="switchKnob"></span></span>
-        </span>
-        <label for="revealAllToggle">Számok láthatók</label>
-      </div>` : ""}
+
       <div id="reportSearchResults" style="margin-top:12px;"></div>
     </div>
 
     <div class="card" id="elteresekCard">
-      <div class="cardTitle" id="elteresekTitle">${isOpen ? "Eltérések (beolvasva, de nem stimmel)" : "Eltérések"}</div>
+      <div class="row" style="justify-content:space-between; align-items:center; gap:10px; margin-bottom:10px;">
+        <div class="cardTitle" id="elteresekTitle" style="margin-bottom:0;">${isOpen ? "Eltérések (beolvasva, de nem stimmel)" : "Eltérések"}</div>
+        ${isOpen ? `
+        <div class="switchRow" style="margin-top:0;">
+          <label class="switch">
+            <input type="checkbox" id="hideDataToggle" checked>
+            <span class="switchTrack"><span class="switchKnob"></span></span>
+          </label>
+          <span>Adatok elrejtése</span>
+        </div>` : ""}
+      </div>
       ${showActions ? `<div class="row" style="margin-bottom:14px; gap:8px;">
         <button class="btn primary" id="createVerifyBtn">Kiválasztottak ellenőrzése (új QR)</button>
       </div>` : ""}
@@ -1431,14 +1456,18 @@ function renderFullReport(container, report, opts) {
   // Bekapcsolva mindenhol látszanak a számok, és a soronkénti
   // szem-gombok eltűnnek; kikapcsolva a vakleltár-mód marad (szem-gomb
   // soronként). Az állapot megmarad a következő megnyitásig is.
-  const revealToggle = container.querySelector("#revealAllToggle");
-  if (revealToggle) {
-    const mentett = (() => { try { return localStorage.getItem("leltarRevealAll") === "1"; } catch (e) { return false; } })();
-    revealToggle.checked = mentett;
-    document.body.classList.toggle("revealAll", mentett);
-    revealToggle.addEventListener("change", () => {
-      document.body.classList.toggle("revealAll", revealToggle.checked);
-      try { localStorage.setItem("leltarRevealAll", revealToggle.checked ? "1" : "0"); } catch (e) { /* nem kritikus */ }
+  const hideToggle = container.querySelector("#hideDataToggle");
+  if (hideToggle) {
+    // Bekapcsolva = adatok elrejtve (vakleltár-mód: elmosott számok,
+    // soronkénti szem-gomb). Kikapcsolva minden szám látszik, és a
+    // szem-gombokra nincs is szükség. Alapértelmezés: bekapcsolva.
+    const mentett = (() => { try { return localStorage.getItem("leltarHideData"); } catch (e) { return null; } })();
+    const rejtve = mentett === null ? true : mentett === "1";
+    hideToggle.checked = rejtve;
+    document.body.classList.toggle("revealAll", !rejtve);
+    hideToggle.addEventListener("change", () => {
+      document.body.classList.toggle("revealAll", !hideToggle.checked);
+      try { localStorage.setItem("leltarHideData", hideToggle.checked ? "1" : "0"); } catch (e) { /* nem kritikus */ }
     });
   } else {
     // Lezárt riportnál nincs takarás — a kapcsoló sem kell.
@@ -1449,18 +1478,7 @@ function renderFullReport(container, report, opts) {
   // A hosszú részek (haladás, "Ki mit csinált", beolvasásra vár,
   // rendben) alapból csukva vannak, hogy a lényeg — az eltérések —
   // legyen szem előtt. A ki-/becsukott állapot megjegyződik.
-  container.querySelectorAll(".collapsible[data-collapse]").forEach(head => {
-    const key = head.dataset.collapse;
-    const body = container.querySelector("#" + key);
-    if (!body) return;
-    const tarolt = (() => { try { return localStorage.getItem("leltarCollapse_" + key); } catch (e) { return null; } })();
-    if (tarolt === "0") { head.classList.remove("collapsed"); body.classList.remove("collapsed"); }
-    head.addEventListener("click", () => {
-      const csukva = head.classList.toggle("collapsed");
-      body.classList.toggle("collapsed", csukva);
-      try { localStorage.setItem("leltarCollapse_" + key, csukva ? "1" : "0"); } catch (e) { /* nem kritikus */ }
-    });
-  });
+  bindCollapsibles_(container);
 
   const searchInput = container.querySelector("#reportSearchInput");
   if (searchInput) {
@@ -2342,6 +2360,7 @@ function updateReportLiveInPlace_(leltarId, container, report, opts) {
     if (conflictsWrap) {
       conflictsWrap.innerHTML = buildConflictsHtml_(szektor_konfliktusok, showActions);
       bindConflictButtons_(conflictsWrap, leltarId, container, opts);
+      bindCollapsibles_(conflictsWrap);
     }
   }
 
