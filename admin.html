@@ -1364,9 +1364,17 @@ function renderFullReport(container, report, opts) {
           <span>Adatok elrejtése</span>
         </div>` : ""}
       </div>
-      ${showActions ? `<div class="row" style="margin-bottom:14px; gap:8px;">
+      ${showActions ? `
+      <div class="row" style="margin-bottom:10px; gap:10px; align-items:center;">
+        <label style="display:flex; align-items:center; gap:8px; cursor:pointer; user-select:none;">
+          <input type="checkbox" id="selectAllDiff" style="width:16px; height:16px; accent-color:var(--accent);">
+          <span style="font-size:13px;">Összes kijelölése</span>
+        </label>
+        <span class="metaLine" id="selCountLabel" style="margin:0;">0 db kijelölve</span>
+      </div>
+      <div class="row" style="margin-bottom:14px; gap:8px;">
         <button class="btn primary" id="createVerifyBtn">Kiválasztottak ellenőrzése (új QR)</button>
-        <button class="btn" id="bulkLiveBtn">Készlet frissítése LKR-ből (minden eltérésnél)</button>
+        <button class="btn" id="bulkLiveBtn">Kijelöltek készletének frissítése LKR-ből</button>
       </div>
       <div id="bulkLiveResult"></div>` : ""}
       <div id="diffListWrap">
@@ -1520,6 +1528,7 @@ function renderFullReport(container, report, opts) {
         || `<p class="emptyNote">Nincs ilyen tétel — minden beolvasott termék készlete stimmel.</p>`;
       container._diffRenderedCount = Math.min(elteresek.length, DIFF_PAGE_SIZE_);
       diffWrap.querySelectorAll(".diffRow").forEach(row => bindDiffRowEvents(row, leltar.leltar_id, container, showActions, isOpen));
+      if (container._updateSelectionUi) container._updateSelectionUi();
     };
 
     const matches_ = (r, q) => {
@@ -1556,6 +1565,7 @@ function renderFullReport(container, report, opts) {
       diffWrap.innerHTML = lista.map(r => renderDiffRowHtml(r, showActions, isOpen)).join("") +
         (hits.length > lista.length ? `<p class="emptyNote">…és még ${hits.length - lista.length} találat — pontosíts a keresésen.</p>` : "");
       diffWrap.querySelectorAll(".diffRow").forEach(row => bindDiffRowEvents(row, leltar.leltar_id, container, showActions, isOpen));
+      if (container._updateSelectionUi) container._updateSelectionUi();
     };
 
     if (clearBtn) {
@@ -1577,14 +1587,42 @@ function renderFullReport(container, report, opts) {
     }
   }
 
-  // Tömeges készlet-frissítés az LKR-ből az ÖSSZES eltérő tételre.
+  // ---------- Kijelölés: számláló és "Összes kijelölése" ----------
+  // Az "Összes kijelölése" mindig csak a LÁTHATÓ (épp megjelenített)
+  // sorokra hat — tehát ha keresel, csak a találatokat jelöli ki.
+  const selectAllCb = container.querySelector("#selectAllDiff");
+  const selCountLabel = container.querySelector("#selCountLabel");
+  const lathatoCheckboxok_ = () => Array.from(container.querySelectorAll("#diffListWrap .diffSelect"));
+  const updateSelectionUi_ = () => {
+    if (selCountLabel) selCountLabel.textContent = `${selectedDiffBarcodes.size} db kijelölve`;
+    if (!selectAllCb) return;
+    const cbs = lathatoCheckboxok_();
+    const kijelolt = cbs.filter(cb => cb.checked).length;
+    selectAllCb.checked = cbs.length > 0 && kijelolt === cbs.length;
+    selectAllCb.indeterminate = kijelolt > 0 && kijelolt < cbs.length;
+  };
+  container._updateSelectionUi = updateSelectionUi_;
+  if (selectAllCb) {
+    selectAllCb.addEventListener("change", () => {
+      const mind = selectAllCb.checked;
+      lathatoCheckboxok_().forEach(cb => {
+        cb.checked = mind;
+        if (mind) selectedDiffBarcodes.add(cb.value);
+        else selectedDiffBarcodes.delete(cb.value);
+      });
+      updateSelectionUi_();
+    });
+  }
+  updateSelectionUi_();
+
+  // Tömeges készlet-frissítés az LKR-ből a KIJELÖLT tételekre.
   const bulkBtn = container.querySelector("#bulkLiveBtn");
   if (bulkBtn) {
     bulkBtn.addEventListener("click", async () => {
-      const elteroDb = elteresek.length;
-      if (!elteroDb) { showToast("Nincs eltérő tétel.", "warn"); return; }
+      const kijeloltek = Array.from(selectedDiffBarcodes);
+      if (!kijeloltek.length) { showToast("Előbb jelölj ki tételeket.", "warn"); return; }
       if (!(await showConfirm(
-        `Frissíted a rendszer szerinti készletet az LKR-ből mind a(z) ${elteroDb} eltérő tételnél? ` +
+        `Frissíted a rendszer szerinti készletet az LKR-ből a kijelölt ${kijeloltek.length} tételnél? ` +
         `Csak ott történik változás, ahol az LKR más értéket mutat, és minden változás naplózva lesz (régi → új).`,
         { yesLabel: "Frissítés", positive: true }))) return;
       bulkBtn.disabled = true;
@@ -1592,7 +1630,7 @@ function renderFullReport(container, report, opts) {
       bulkBtn.innerHTML = `<span class="spinner" style="width:12px; height:12px; border-width:2px; display:inline-block; vertical-align:middle; margin-right:6px;"></span>Frissítés folyamatban…`;
       const resultEl = container.querySelector("#bulkLiveResult");
       try {
-        const res = await apiPost({ action: "bulk_live_correction", leltar_id: leltar.leltar_id });
+        const res = await apiPost({ action: "bulk_live_correction", leltar_id: leltar.leltar_id, vonalkodok: kijeloltek });
         if (res.error) {
           showToast("Hiba: " + res.error, "error");
         } else if (!res.frissitve) {
@@ -1615,6 +1653,8 @@ function renderFullReport(container, report, opts) {
                   ? `<div class="metaLine">…és további ${res.frissitve - res.valtozasok.length} tétel.</div>` : ""}
               </div>`;
           }
+          selectedDiffBarcodes.clear();
+          if (container._updateSelectionUi) container._updateSelectionUi();
           refreshSingleDiffRow(leltar.leltar_id, null, container);
         }
       } catch (e) {
@@ -1774,6 +1814,7 @@ function loadMoreDiffRows_(container, leltarId, showActions, isOpen) {
   container._diffRenderedCount = renderedCount + nextBatch.length;
 
   const loadMoreWrap = container.querySelector("#diffLoadMoreWrap");
+  if (container._updateSelectionUi) container._updateSelectionUi();
   if (container._diffRenderedCount >= fullData.length) {
     if (loadMoreWrap) loadMoreWrap.remove();
   } else if (loadMoreWrap) {
@@ -1854,6 +1895,7 @@ function bindDiffRowEvents(rowEl, leltarId, targetContainer, showActions, isOpen
       cb.addEventListener("change", () => {
         if (cb.checked) selectedDiffBarcodes.add(cb.value);
         else selectedDiffBarcodes.delete(cb.value);
+        if (targetContainer && targetContainer._updateSelectionUi) targetContainer._updateSelectionUi();
       });
     }
     bindDiffRowRefreshButtons(rowEl, leltarId, targetContainer);
@@ -1995,7 +2037,7 @@ function renderDiffRowHtml(r, showCheckbox, isOpen) {
   const eyeBtn = isOpen ? `<button class="rowEyeBtn" aria-label="Tartsd lenyomva a számok megtekintéséhez">👁</button>` : "";
   return `
     <div class="diffRow" id="diffrow-${escapeHtml(r.vonalkod)}-row" data-sig="${escapeHtml(rowSignature_(r))}">
-      ${showCheckbox && r.elteres !== 0 ? `<input type="checkbox" class="diffSelect" value="${escapeHtml(r.vonalkod)}">` : (showCheckbox ? `<span style="width:18px;"></span>` : "")}
+      ${showCheckbox && r.elteres !== 0 ? `<input type="checkbox" class="diffSelect" value="${escapeHtml(r.vonalkod)}"${selectedDiffBarcodes.has(r.vonalkod) ? " checked" : ""}>` : (showCheckbox ? `<span style="width:18px;"></span>` : "")}
       <div class="info">
         <b>${escapeHtml(r.nev || (r.ismeretlen_termek ? "Ismeretlen termék" : r.vonalkod))}</b>${unknownDeleteBtn}
         ${r.ismeretlen_tobblet ? `<span class="permPill" style="background:#4a3a17; color:var(--warn);">⚠ ISMERETLEN TÖBBLET${r.ismeretlen_termek ? " — nincs a törzsben" : " — nem volt ebben a leltárban"}</span>` : ""}
@@ -2555,6 +2597,9 @@ async function createVerificationRoundForSelected(leltarId) {
     else {
       showVerifyQr(result.kod, result.tetelek_szama);
       selectedDiffBarcodes.clear();
+      document.querySelectorAll("#diffListWrap .diffSelect").forEach(cb => { cb.checked = false; });
+      const cont_ = el("reportContainer");
+      if (cont_ && cont_._updateSelectionUi) cont_._updateSelectionUi();
     }
   } catch (e) {
     showToast("Hiba: " + e.message, "error");
