@@ -1235,8 +1235,6 @@ function renderFullReport(container, report, opts) {
     ? diff.filter(r => beolvastakE_(r) && r.elteres === 0)
     : diff.filter(r => r.elteres === 0);
   const hatravan = isOpen ? diff.filter(r => !beolvastakE_(r)) : [];
-  // Ismeretlen tételek: a beolvasott vonalkód nem szerepel a cikktörzsben.
-  const ismeretlenDb = diff.filter(r => r.ismeretlen_tobblet || !r.nev).length;
 
   const felelosHtml = buildFelelosHtml_(szektor_felelosok);
 
@@ -1304,10 +1302,6 @@ function renderFullReport(container, report, opts) {
           style="flex:1 1 auto; font-size:14px; padding:10px 12px;">
         <button class="btn" id="reportSearchClearBtn" style="display:none;">Vissza</button>
       </div>
-      ${ismeretlenDb ? `<div class="metaLine" style="margin-top:8px;">
-        Ismeretlen termék: <b>${ismeretlenDb} db</b> tétel —
-        <a href="#" id="showUnknownLink" style="color:var(--accent);">mutasd</a>
-      </div>` : ""}
       <div id="reportSearchResults" style="margin-top:12px;"></div>
     </div>
 
@@ -1477,16 +1471,6 @@ function renderFullReport(container, report, opts) {
         restoreNormalView_();
       });
     }
-    const unknownLink = container.querySelector("#showUnknownLink");
-    if (unknownLink) {
-      unknownLink.addEventListener("click", (ev) => {
-        ev.preventDefault();
-        searchInput.value = "Ismeretlen termék";
-        container._searchQuery = searchInput.value;
-        runSearch_();
-      });
-    }
-
     let searchTimer_ = null;
     searchInput.addEventListener("input", () => {
       container._searchQuery = searchInput.value;
