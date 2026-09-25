@@ -79,13 +79,16 @@
   .activeLeltarCard .codeValue{font-size:30px; font-weight:800; letter-spacing:.1em; margin-bottom:8px;}
   .activeLeltarCard .metaLine{font-size:13px; color:var(--text-dim); margin-bottom:4px;}
 
-  .diffRow{display:flex; align-items:flex-start; gap:10px; padding:12px 14px;
-    background:var(--panel-2); border:1px solid var(--line); border-radius:10px; margin-bottom:8px;}
-  .diffRow input[type=checkbox]{margin-top:4px; flex:0 0 auto; width:18px; height:18px; accent-color:var(--accent);}
+  /* Kompakt tétel-sorok: sok tételnél a tömör megjelenítés sokkal
+     átláthatóbb, ezért szűkebb belső margók és kisebb betűméretek. */
+  .diffRow{display:flex; align-items:flex-start; gap:8px; padding:7px 10px;
+    background:var(--panel-2); border:1px solid var(--line); border-radius:8px; margin-bottom:5px;}
+  .diffRow input[type=checkbox]{margin-top:2px; flex:0 0 auto; width:16px; height:16px; accent-color:var(--accent);}
   .diffRow .info{flex:1; min-width:0;}
-  .diffRow .info b{display:block; font-size:14px;}
-  .diffRow .info span{font-size:11px; color:var(--text-dim); display:block; margin-top:2px;}
-  .diffRow .diffVal{font-size:16px; font-weight:800; min-width:70px; text-align:right;}
+  .diffRow .info b{display:block; font-size:13px; line-height:1.3;}
+  .diffRow .info span{font-size:11px; color:var(--text-dim); display:block; margin-top:1px;}
+  .diffRow .info .qtyLine{color:var(--text); font-size:12px; margin-top:3px;}
+  .diffRow .diffVal{font-size:15px; font-weight:800; min-width:64px; text-align:right; line-height:1.25;}
   .diffVal.pos{color:var(--accent);}
   .diffVal.neg{color:var(--danger);}
   .diffVal.zero{color:var(--text-dim);}
@@ -118,6 +121,27 @@
   /* ---------- Számok eltakarása (vak leltár elve) ---------- */
   .maskedNum{filter:blur(6px); transition:filter .08s; user-select:none;}
   .diffRow.revealed .maskedNum{filter:none;}
+  /* Globális "számok láthatók" kapcsoló: bekapcsolva mindenhol látszanak
+     a számok, és a soronkénti szem-gombokra nincs is szükség. */
+  body.revealAll .maskedNum{filter:none;}
+  body.revealAll .rowEyeBtn{display:none;}
+
+  /* iOS-stílusú kapcsoló */
+  .switchRow{display:flex; align-items:center; gap:10px; margin-top:10px;}
+  .switchRow label{font-size:13px; color:var(--text-dim); cursor:pointer; user-select:none;}
+  .switch{position:relative; width:46px; height:27px; flex:0 0 auto; cursor:pointer;}
+  .switch input{position:absolute; opacity:0; width:0; height:0;}
+  .switchTrack{position:absolute; inset:0; background:var(--line); border-radius:999px; transition:background .2s;}
+  .switchKnob{position:absolute; top:3px; left:3px; width:21px; height:21px; background:#fff;
+    border-radius:50%; transition:transform .2s; box-shadow:0 1px 3px rgba(0,0,0,.4);}
+  .switch input:checked + .switchTrack{background:var(--accent);}
+  .switch input:checked + .switchTrack .switchKnob{transform:translateX(19px);}
+
+  /* Összecsukható szekciók */
+  .collapsible{cursor:pointer; user-select:none; display:flex; align-items:center; gap:6px;}
+  .collapsible .arrow{display:inline-block; font-size:11px; color:var(--text-dim); transition:transform .15s;}
+  .collapsible.collapsed .arrow{transform:rotate(-90deg);}
+  .collapseBody.collapsed{display:none;}
   .rowEyeBtn{flex:0 0 auto; width:34px; height:34px; border-radius:50%; border:1px solid var(--line);
     background:var(--panel-2); color:var(--text-dim); font-size:15px; -webkit-user-select:none; user-select:none;
     touch-action:manipulation; align-self:flex-start;}
@@ -251,9 +275,9 @@
 
     /* Eltérés-riport sorai: a checkbox és a szöveg között kicsit több
        hely, a mennyiség-mezők és gombok teljes szélességben. */
-    .diffRow{padding:14px;}
-    .diffRow .info b{font-size:15px;}
-    .diffRow .info span{font-size:12px;}
+    .diffRow{padding:9px 11px;}
+    .diffRow .info b{font-size:14px;}
+    .diffRow .info span{font-size:11px;}
     #diffListWrap input[type=text]{font-size:16px;}
 
     /* Sor-elrendezésű listák (felelős, előzmény, felhasználó sorok):
@@ -1284,11 +1308,11 @@ function renderFullReport(container, report, opts) {
         <div class="summaryBox"><div class="num">${formatFt(osszesito.osszes_rendszer_ertek)}</div><div class="lbl">teljes készlet értéke (rendszer szerint)</div></div>
       </div>` : ""}
 
-      <div class="cardTitle">Szektoronkénti haladás</div>
-      <div id="progressWrap">${renderProgressHtml(progress)}</div>
+      <div class="cardTitle collapsible collapsed" data-collapse="progressWrap"><span class="arrow">▾</span>Szektoronkénti haladás</div>
+      <div id="progressWrap" class="collapseBody collapsed">${renderProgressHtml(progress)}</div>
 
-      <div class="cardTitle" style="margin-top:16px;">Ki mit csinált</div>
-      <div id="felelosWrap">${felelosHtml}</div>
+      <div class="cardTitle collapsible collapsed" style="margin-top:16px;" data-collapse="felelosWrap"><span class="arrow">▾</span>Ki mit csinált</div>
+      <div id="felelosWrap" class="collapseBody collapsed">${felelosHtml}</div>
     </div>
 
     <div id="conflictsWrap">${conflictsHtml}</div>
@@ -1302,6 +1326,14 @@ function renderFullReport(container, report, opts) {
           style="flex:1 1 auto; font-size:14px; padding:10px 12px;">
         <button class="btn" id="reportSearchClearBtn" style="display:none;">Vissza</button>
       </div>
+      ${isOpen ? `
+      <div class="switchRow">
+        <span class="switch">
+          <input type="checkbox" id="revealAllToggle">
+          <span class="switchTrack"><span class="switchKnob"></span></span>
+        </span>
+        <label for="revealAllToggle">Számok láthatók</label>
+      </div>` : ""}
       <div id="reportSearchResults" style="margin-top:12px;"></div>
     </div>
 
@@ -1321,7 +1353,8 @@ function renderFullReport(container, report, opts) {
 
     ${hatravan.length ? `
     <div class="card" id="pendingCard">
-      <div class="cardTitle">Beolvasásra vár (${hatravan.length} tétel)</div>
+      <div class="cardTitle collapsible collapsed" data-collapse="pendingBody"><span class="arrow">▾</span>Beolvasásra vár (${hatravan.length} tétel)</div>
+      <div id="pendingBody" class="collapseBody collapsed">
       <div class="metaLine" style="margin-bottom:10px;">Ezeket még egyetlen szektorban sem olvasták be.</div>
       <div id="pendingListWrap" style="max-height:340px; overflow-y:auto;">
         ${hatravan.slice(0, PENDING_PAGE_SIZE_).map(r => pendingListRowHtml_(r)).join("")}
@@ -1330,11 +1363,13 @@ function renderFullReport(container, report, opts) {
       <div class="row" style="justify-content:center; margin-top:10px;" id="pendingLoadMoreWrap">
         <button class="btn" id="pendingLoadMoreBtn">Továbbiak betöltése (${hatravan.length - PENDING_PAGE_SIZE_} hátra)</button>
       </div>` : ""}
+      </div>
     </div>` : ""}
 
     ${rendben.length ? `
     <div class="card" id="okCard">
-      <div class="cardTitle">Rendben (${rendben.length} tétel)</div>
+      <div class="cardTitle collapsible collapsed" data-collapse="okBody"><span class="arrow">▾</span>Rendben (${rendben.length} tétel)</div>
+      <div id="okBody" class="collapseBody collapsed">
       <div class="metaLine" style="margin-bottom:10px;">Beolvasva, és a készletük pontosan egyezik.</div>
       <div id="okListWrap" style="max-height:340px; overflow-y:auto;">
         ${rendben.slice(0, PENDING_PAGE_SIZE_).map(r => okListRowHtml_(r)).join("")}
@@ -1343,6 +1378,7 @@ function renderFullReport(container, report, opts) {
       <div class="row" style="justify-content:center; margin-top:10px;" id="okLoadMoreWrap">
         <button class="btn" id="okLoadMoreBtn">Továbbiak betöltése (${rendben.length - PENDING_PAGE_SIZE_} hátra)</button>
       </div>` : ""}
+      </div>
     </div>` : ""}
 
     ${(!isOpen && torolt_ismeretlen && torolt_ismeretlen.length) ? `
@@ -1391,6 +1427,41 @@ function renderFullReport(container, report, opts) {
   // megmutatja, melyik szekcióba tartozik a tétel, és minden eddigi
   // beavatkozást (beolvasások szektoronként, újraszámolások,
   // admin-módosítások, korrekciók, megjegyzések) kilistáz.
+  // ---------- Számok láthatósága (globális kapcsoló) ----------
+  // Bekapcsolva mindenhol látszanak a számok, és a soronkénti
+  // szem-gombok eltűnnek; kikapcsolva a vakleltár-mód marad (szem-gomb
+  // soronként). Az állapot megmarad a következő megnyitásig is.
+  const revealToggle = container.querySelector("#revealAllToggle");
+  if (revealToggle) {
+    const mentett = (() => { try { return localStorage.getItem("leltarRevealAll") === "1"; } catch (e) { return false; } })();
+    revealToggle.checked = mentett;
+    document.body.classList.toggle("revealAll", mentett);
+    revealToggle.addEventListener("change", () => {
+      document.body.classList.toggle("revealAll", revealToggle.checked);
+      try { localStorage.setItem("leltarRevealAll", revealToggle.checked ? "1" : "0"); } catch (e) { /* nem kritikus */ }
+    });
+  } else {
+    // Lezárt riportnál nincs takarás — a kapcsoló sem kell.
+    document.body.classList.remove("revealAll");
+  }
+
+  // ---------- Összecsukható szekciók ----------
+  // A hosszú részek (haladás, "Ki mit csinált", beolvasásra vár,
+  // rendben) alapból csukva vannak, hogy a lényeg — az eltérések —
+  // legyen szem előtt. A ki-/becsukott állapot megjegyződik.
+  container.querySelectorAll(".collapsible[data-collapse]").forEach(head => {
+    const key = head.dataset.collapse;
+    const body = container.querySelector("#" + key);
+    if (!body) return;
+    const tarolt = (() => { try { return localStorage.getItem("leltarCollapse_" + key); } catch (e) { return null; } })();
+    if (tarolt === "0") { head.classList.remove("collapsed"); body.classList.remove("collapsed"); }
+    head.addEventListener("click", () => {
+      const csukva = head.classList.toggle("collapsed");
+      body.classList.toggle("collapsed", csukva);
+      try { localStorage.setItem("leltarCollapse_" + key, csukva ? "1" : "0"); } catch (e) { /* nem kritikus */ }
+    });
+  });
+
   const searchInput = container.querySelector("#reportSearchInput");
   if (searchInput) {
     const resultsEl = container.querySelector("#reportSearchResults");
@@ -1858,8 +1929,7 @@ function renderDiffRowHtml(r, showCheckbox, isOpen) {
         <b>${escapeHtml(r.nev || (r.ismeretlen_termek ? "Ismeretlen termék" : r.vonalkod))}</b>${unknownDeleteBtn}
         ${r.ismeretlen_tobblet ? `<span class="permPill" style="background:#4a3a17; color:var(--warn);">⚠ ISMERETLEN TÖBBLET${r.ismeretlen_termek ? " — nincs a törzsben" : " — nem volt ebben a leltárban"}</span>` : ""}
         <span>Vonalkód: ${escapeHtml(r.vonalkod)} · Saját cikkszám: ${escapeHtml(r.sajat_cikkszam || "—")} · Gyártói cikkszám: ${escapeHtml(r.gyartoi_cikkszam || "—")}</span>
-        <span class="qtyLine">Rendszer: ${mask(r.rendszer_mennyiseg + " db")}</span>
-        <span class="qtyLine">Számolt: ${mask(r.szamolt_mennyiseg + " db")}</span>
+        <span class="qtyLine">Rendszer: ${mask(r.rendszer_mennyiseg + " db")} · Számolt: ${mask(r.szamolt_mennyiseg + " db")}</span>
         ${scanStatusHtml}
         ${sectorChips ? `<div class="sectorBreakdown">${sectorChips}</div>` : ""}
         ${others ? `<span class="otherWarehouses">Más raktárak — ${others}</span>` : ""}
