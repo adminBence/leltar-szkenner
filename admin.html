@@ -105,10 +105,13 @@
   .diffRow .tag.warn{background:#4a3a17; color:var(--warn);}
   .diffRow .tag.danger{background:#4a1f1b; color:var(--danger);}
   /* Törlés a termék neve mellett — jól látható, piros kuka. */
-  .rowDeleteBtn{flex:0 0 auto; width:24px; height:24px; border-radius:6px; padding:0;
-    border:1px solid var(--danger); background:#4a1f1b; color:#ff9b90; font-size:14px;
-    line-height:1; display:inline-flex; align-items:center; justify-content:center; cursor:pointer;}
-  .rowDeleteBtn:hover{background:var(--danger); color:#fff;}
+  .rowDeleteBtn{flex:0 0 auto; width:25px; height:25px; border-radius:7px; padding:0; border:none;
+    background:var(--danger); color:#fff; font-size:13px; line-height:1; cursor:pointer;
+    display:inline-flex; align-items:center; justify-content:center;
+    box-shadow:0 1px 3px rgba(0,0,0,.35); transition:background .12s, transform .12s;}
+  .rowDeleteBtn:hover{background:#ff6a5a; transform:translateY(-1px);}
+  .rowDeleteBtn:active{transform:translateY(0);}
+  .rowDeleteBtn svg{width:13px; height:13px; display:block;}
   .diffRow .diffVal{flex:0 0 auto; text-align:right; min-width:74px;}
   .diffRow .diffVal .dv1{font-size:15px; font-weight:800; line-height:1.2;}
   .diffRow .diffVal .dv2{font-size:10.5px; font-weight:600; opacity:.8; line-height:1.2;}
@@ -121,7 +124,32 @@
   .diffRow.neg{border-left:3px solid var(--danger);}
   .diffRow.zero{border-left:3px solid var(--line);}
   .diffRow .rowActions{display:flex; flex-wrap:wrap; gap:5px; margin-top:6px; padding-left:25px;}
-  .rowActionBtn{font-size:10.5px; padding:3px 8px; line-height:1.6;}
+  /* ---------- Műveleti gombok színrendszere ----------
+     Minden funkciónak saját, jól elkülönülő színe van, hogy idővel szín
+     alapján is lehessen navigálni:
+       kék    = a SZÁMOLT mennyiség módosítása (amit mi számoltunk)
+       lila   = a RENDSZER készletének frissítése a Laurelből (külső adat)
+       sárga  = azonosító (vonalkód) javítása
+       türkiz = megjegyzés
+       szürke = részletek megtekintése (nem módosít semmit)
+       piros  = törlés  */
+  .rowActionBtn{font-size:10.5px; padding:3px 9px; line-height:1.6; border-radius:6px;
+    border:1px solid transparent; font-weight:600; transition:background .12s, color .12s;}
+  .act-qty{background:rgba(78,163,255,.14); border-color:rgba(78,163,255,.45); color:#8cc4ff;}
+  .act-qty:hover{background:#2f7fd4; color:#fff;}
+  .act-laurel{background:rgba(178,132,255,.14); border-color:rgba(178,132,255,.45); color:#c3a4ff;}
+  .act-laurel:hover{background:#7a4fd0; color:#fff;}
+  .act-barcode{background:rgba(240,180,41,.14); border-color:rgba(240,180,41,.45); color:#f0c65e;}
+  .act-barcode:hover{background:#c8930f; color:#1a1a1a;}
+  .act-note{background:rgba(47,212,196,.13); border-color:rgba(47,212,196,.42); color:#5fdccf;}
+  .act-note:hover{background:#1e9e92; color:#fff;}
+  .act-details{background:var(--panel); border-color:var(--line); color:var(--text-dim);}
+  .act-details:hover{background:var(--line); color:var(--text);}
+  .act-details.warn{border-color:var(--warn); color:var(--warn);}
+  /* Ugyanez a jelentés a nagyobb, szekció-szintű gomboknál is:
+     a Laurelből való készletfrissítés mindig lila. */
+  .btn.laurel{background:rgba(178,132,255,.16); border:1px solid rgba(178,132,255,.5); color:#c3a4ff;}
+  .btn.laurel:hover{background:#7a4fd0; color:#fff;}
   .diffRow .rowPanel{margin-top:6px; padding:8px; background:var(--panel);
     border:1px solid var(--line); border-radius:7px; display:flex; flex-direction:column; gap:6px;}
   .diffRow .rowPanel input[type=text]{font-size:12px; padding:6px 8px;}
@@ -1406,7 +1434,7 @@ function renderFullReport(container, report, opts) {
       ${showActions ? `
       <div class="row" style="margin-bottom:10px; gap:8px;">
         <button class="btn primary" id="createVerifyBtn">Kiválasztottak ellenőrzése (új QR)</button>
-        <button class="btn" id="bulkLiveBtn">Kijelöltek készletének frissítése LKR-ből</button>
+        <button class="btn laurel" id="bulkLiveBtn">Kijelöltek készletének frissítése LKR-ből</button>
       </div>
       <div id="bulkLiveResult"></div>
       <!-- A kijelölő pontosan a tétel-sorok checkboxa fölött, azzal egy
@@ -1972,6 +2000,11 @@ function rowSignature_(r) {
   ].join("|");
 }
 
+// Letisztult kuka-ikon (a hangulatjel helyett, hogy minden eszközön
+// ugyanúgy nézzen ki).
+const TRASH_ICON_ = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+  stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/><path d="M10 11v6M14 11v6"/></svg>`;
+
 function renderDiffRowHtml(r, showCheckbox, isOpen) {
   const cls = r.elteres > 0 ? "pos" : (r.elteres < 0 ? "neg" : "zero");
   const sign = r.elteres > 0 ? "+" : "";
@@ -2012,16 +2045,16 @@ function renderDiffRowHtml(r, showCheckbox, isOpen) {
 
   // ---- Műveleti gombok (egy sorban, kis pill-gombok) ----
   const g = [];
-  if (showCheckbox) g.push(`<button class="btn rowActionBtn" data-qtymod-toggle="${escapeHtml(r.vonalkod)}">✏️ Mennyiség</button>`);
+  if (showCheckbox) g.push(`<button class="btn rowActionBtn act-qty" data-qtymod-toggle="${escapeHtml(r.vonalkod)}">Számolt mennyiség</button>`);
   // A Laurel-frissítés akkor is elérhető, ha a tétel a leltár indulásakor
   // nem volt készleten (ismeretlen többlet), DE a terméktörzsben ismert —
   // ilyenkor a mentéskor 0 induló készlettel felvesszük a leltárba.
   if (showCheckbox && (!r.ismeretlen_tobblet || !r.ismeretlen_termek)) {
-    g.push(`<button class="btn rowActionBtn" data-refresh-toggle="${escapeHtml(r.vonalkod)}">🔄 Laurel</button>`);
+    g.push(`<button class="btn rowActionBtn act-laurel" data-refresh-toggle="${escapeHtml(r.vonalkod)}">Készlet a Laurelből</button>`);
   }
-  if (showCheckbox && r.ismeretlen_tobblet) g.push(`<button class="btn rowActionBtn" data-barcode-toggle="${escapeHtml(r.vonalkod)}">🏷 Vonalkód</button>`);
-  if (showCheckbox && r.ismeretlen_tobblet) g.push(`<button class="btn rowActionBtn" data-note-toggle="${escapeHtml(r.vonalkod)}">💬 Megjegyzés</button>`);
-  if (reszletDb) g.push(`<button class="btn rowActionBtn" data-details-toggle="${escapeHtml(r.vonalkod)}">${vanSzallitolevel ? "⚠ " : ""}Részletek (${reszletDb})</button>`);
+  if (showCheckbox && r.ismeretlen_tobblet) g.push(`<button class="btn rowActionBtn act-barcode" data-barcode-toggle="${escapeHtml(r.vonalkod)}">Vonalkód javítása</button>`);
+  if (showCheckbox && r.ismeretlen_tobblet) g.push(`<button class="btn rowActionBtn act-note" data-note-toggle="${escapeHtml(r.vonalkod)}">Megjegyzés</button>`);
+  if (reszletDb) g.push(`<button class="btn rowActionBtn act-details${vanSzallitolevel ? " warn" : ""}" data-details-toggle="${escapeHtml(r.vonalkod)}">${vanSzallitolevel ? "⚠ " : ""}Részletek (${reszletDb})</button>`);
   const actionsHtml = g.length ? `<div class="rowActions">${g.join("")}</div>` : "";
 
   // ---- Kinyitható panelek ----
@@ -2076,7 +2109,7 @@ function renderDiffRowHtml(r, showCheckbox, isOpen) {
             <b>${escapeHtml(r.nev || (r.ismeretlen_termek ? "Ismeretlen termék" : r.vonalkod))}</b>
             ${r.ismeretlen_tobblet ? `<span class="tag warn">ISMERETLEN</span>` : ""}
             ${nincsBeolvasva ? `<span class="tag danger">NEM OLVASTÁK BE</span>` : ""}
-            ${(showCheckbox && r.ismeretlen_tobblet) ? `<button class="rowDeleteBtn" title="Tétel törlése" aria-label="Tétel törlése" data-delete-unknown="${escapeHtml(r.vonalkod)}">🗑</button>` : ""}
+            ${(showCheckbox && r.ismeretlen_tobblet) ? `<button class="rowDeleteBtn" title="Tétel törlése" aria-label="Tétel törlése" data-delete-unknown="${escapeHtml(r.vonalkod)}">${TRASH_ICON_}</button>` : ""}
           </div>
           <div class="rowLine rowMeta">${escapeHtml(r.vonalkod)}${r.sajat_cikkszam ? " · " + escapeHtml(r.sajat_cikkszam) : ""}${r.gyartoi_cikkszam ? " · " + escapeHtml(r.gyartoi_cikkszam) : ""}</div>
           <div class="rowLine rowQty">
