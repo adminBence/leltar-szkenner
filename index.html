@@ -764,9 +764,37 @@ async function lookupProductRaw_(barcode) {
 // hálózati kört futnunk minden egyes beolvasásnál. A szerver azt is
 // visszaadja, milyen alakban szerepel a vonalkód ténylegesen a
 // cikktörzsben (ean mező), hogy azzal rögzítsük a tételt.
+// A már egyszer lekérdezett termékneveket az ESZKÖZÖN is eltároljuk.
+// Egy szektorban ugyanaz a termék sokszor előfordul, és a beolvasások
+// nagy része ismétlődő cikk — így ezekhez egyáltalán nem indul kérés:
+// a név azonnal megjelenik, a mobilhálózat pedig nem ébred fel újra és
+// újra (ez a telefon energiafogyasztásán is sokat számít).
+const PRODUCT_CACHE_KEY_ = "leltarTermekCache";
+let productCache_ = (() => {
+  try { return JSON.parse(localStorage.getItem(PRODUCT_CACHE_KEY_) || "{}"); }
+  catch (e) { return {}; }
+})();
+let productCacheDirty_ = false;
+function productCacheSave_() {
+  if (!productCacheDirty_) return;
+  productCacheDirty_ = false;
+  try { localStorage.setItem(PRODUCT_CACHE_KEY_, JSON.stringify(productCache_)); }
+  catch (e) { productCache_ = {}; }   // ha megtelt a tároló, ürítjük
+}
+setInterval(productCacheSave_, 10000);
+
 async function lookupProduct(barcode) {
+  const cached = productCache_[barcode];
+  if (cached) return { found: !!cached.n, name: cached.n || null, checked: null, matchedBarcode: cached.b || barcode };
   const result = await lookupProductRaw_(barcode);
-  return { ...result, matchedBarcode: result.ean || barcode };
+  const matched = result.ean || barcode;
+  // Csak a sikeres találatot tesszük el — az "ismeretlen" eredményt nem,
+  // hiszen a vonalkód később bekerülhet a terméktörzsbe.
+  if (result.found) {
+    productCache_[barcode] = { n: result.name, b: matched };
+    productCacheDirty_ = true;
+  }
+  return { ...result, matchedBarcode: matched };
 }
 
 /* =========================================================================
