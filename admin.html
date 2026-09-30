@@ -144,6 +144,41 @@
   .act-barcode:hover{background:#d4437f; color:#fff;}
   .act-note{background:rgba(47,212,196,.13); border-color:rgba(47,212,196,.42); color:#5fdccf;}
   .act-note:hover{background:#1e9e92; color:#fff;}
+  /* ---------- Excel-szerű táblázat nézet ---------- */
+  .tblScroll{overflow-x:auto; border:1px solid var(--line); border-radius:8px;}
+  .diffTable{width:100%; border-collapse:collapse; font-size:11.5px;}
+  .diffTable th{position:sticky; top:0; z-index:2; background:var(--panel);
+    text-align:left; font-size:10.5px; font-weight:700; color:var(--text-dim);
+    padding:5px 7px; border-bottom:1px solid var(--line); white-space:nowrap;}
+  .diffTable td{padding:2px 7px; border-bottom:1px solid var(--line); vertical-align:middle;
+    white-space:nowrap; line-height:1.7;}
+  .diffTable tr.tblRow:hover{background:var(--panel-2);}
+  .diffTable .tblSel{width:24px;}
+  .diffTable .tblSel input{width:14px; height:14px; margin:0; accent-color:var(--accent);}
+  .diffTable .tblMono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:10.5px; color:var(--text-dim);}
+  .diffTable .tblName{max-width:280px; overflow:hidden; text-overflow:ellipsis;}
+  .diffTable .tblNum{text-align:right; width:62px; font-variant-numeric:tabular-nums;}
+  .diffTable .tblNum.pos{color:var(--accent);}
+  .diffTable .tblNum.neg{color:var(--danger);}
+  .diffTable .tblSector{color:var(--text-dim); max-width:150px; overflow:hidden; text-overflow:ellipsis;}
+  .diffTable .tblNote{width:170px;}
+  .diffTable .tblNote input{width:100%; font-size:11px; padding:2px 5px; background:transparent;
+    border:1px solid transparent; border-radius:4px; color:var(--text);}
+  .diffTable .tblNote input:hover{border-color:var(--line);}
+  .diffTable .tblNote input:focus{border-color:var(--accent); background:var(--panel);}
+  .diffTable .tblNote input.saved{border-color:var(--accent); background:rgba(62,207,142,.15);}
+  .diffTable .tblActions{white-space:nowrap; text-align:right;}
+  .tblBtn{font-size:11px; padding:1px 6px; line-height:1.5; border-radius:5px; border:1px solid transparent;
+    margin-left:3px; font-weight:600;}
+  .tblBtn.danger{background:var(--danger); color:#fff; border:none; padding:2px 6px;}
+  .tblBtn svg{width:11px; height:11px; vertical-align:-1px;}
+  .diffTable .tblPanelRow td{padding:0; border-bottom:none;}
+  .diffTable .tblPanelCell:empty{display:none;}
+  .diffTable .tblPanelCell .rowPanel{margin:4px 8px 8px;}
+  .diffTable .tag{font-size:9px; padding:0 4px;}
+
+  .act-pair{background:rgba(255,255,255,.08); border-color:rgba(255,255,255,.3); color:#e6e6e6;}
+  .act-pair:hover{background:#e6e6e6; color:#111;}
   .act-details{background:rgba(240,180,41,.14); border-color:rgba(240,180,41,.45); color:#f0c65e;}
   .act-details:hover{background:#c8930f; color:#1a1a1a;}
   .act-details.warn{background:rgba(240,180,41,.26); border-color:var(--warn); color:#ffd27a; font-weight:700;}
@@ -1386,6 +1421,7 @@ function renderFullReport(container, report, opts) {
     ? diff.filter(r => beolvastakE_(r) && r.elteres === 0)
     : diff.filter(r => r.elteres === 0);
   const hatravan = isOpen ? diff.filter(r => !beolvastakE_(r)) : [];
+  buildPairIndex_(diff);
 
   const felelosHtml = buildFelelosHtml_(szektor_felelosok);
 
@@ -1477,6 +1513,9 @@ function renderFullReport(container, report, opts) {
       <div class="row" style="margin-bottom:10px; gap:8px;">
         <button class="btn primary" id="createVerifyBtn">Kiválasztottak ellenőrzése (új QR)</button>
         <button class="btn laurel" id="bulkLiveBtn">Kijelöltek készletének frissítése LKR-ből</button>
+        <button class="btn" id="viewToggleBtn">📋 Táblázat nézet</button>
+        <button class="btn" id="pairModeBtn" style="display:none;">⇄ Párosítás</button>
+        <button class="btn" id="exportBtn" style="display:none;">⇩ Excel export</button>
       </div>
       <div id="bulkLiveResult"></div>
       <!-- A kijelölő pontosan a tétel-sorok checkboxa fölött, azzal egy
@@ -1486,9 +1525,7 @@ function renderFullReport(container, report, opts) {
         <label for="selectAllDiff" style="font-size:13px; cursor:pointer; user-select:none;">Összes kijelölése</label>
         <span class="metaLine" id="selCountLabel" style="margin:0;">0 db kijelölve</span>
       </div>` : ""}
-      <div id="diffListWrap">
-        ${elteresek.slice(0, DIFF_PAGE_SIZE_).map(r => renderDiffRowHtml(r, showActions, isOpen)).join("") || `<p class="emptyNote">Nincs ilyen tétel — minden beolvasott termék készlete stimmel.</p>`}
-      </div>
+      <div id="diffListWrap"></div>
       ${elteresek.length > DIFF_PAGE_SIZE_ ? `
       <div class="row" style="justify-content:center; margin-top:10px;" id="diffLoadMoreWrap">
         <button class="btn" id="diffLoadMoreBtn">Továbbiak betöltése (${elteresek.length - DIFF_PAGE_SIZE_} hátra)</button>
@@ -1560,6 +1597,9 @@ function renderFullReport(container, report, opts) {
 
   container._opts = opts;
   rememberReport_(container, report);
+  if (container._viewMode === undefined) {
+    try { container._viewMode = localStorage.getItem("leltarNezet") || "cards"; } catch (e) { container._viewMode = "cards"; }
+  }
   container._diffFullData = elteresek;
   container._groupSig = elteresek.length + "|" + rendben.length + "|" + hatravan.length;
   container._diffRenderedCount = Math.min(elteresek.length, DIFF_PAGE_SIZE_);
@@ -1634,11 +1674,8 @@ function renderFullReport(container, report, opts) {
       if (lm) lm.style.display = "";
       const vb = container.querySelector("#createVerifyBtn");
       if (vb && vb.parentElement) vb.parentElement.style.display = "";
-      diffWrap.innerHTML = elteresek.slice(0, DIFF_PAGE_SIZE_).map(r => renderDiffRowHtml(r, showActions, isOpen)).join("")
-        || `<p class="emptyNote">Nincs ilyen tétel — minden beolvasott termék készlete stimmel.</p>`;
+      renderRowsInto_(diffWrap, elteresek.slice(0, DIFF_PAGE_SIZE_), showActions, isOpen, leltar.leltar_id, container);
       container._diffRenderedCount = Math.min(elteresek.length, DIFF_PAGE_SIZE_);
-      diffWrap.querySelectorAll(".diffRow").forEach(row => bindDiffRowEvents(row, leltar.leltar_id, container, showActions, isOpen));
-      if (container._updateSelectionUi) container._updateSelectionUi();
     };
 
     // "szektor:143" / "143. szektor" / "sz:143" -> az adott szektorban
@@ -1648,6 +1685,11 @@ function renderFullReport(container, report, opts) {
       return m ? m[1].replace(/\.$/, "") : null;
     };
     const matches_ = (r, q) => {
+      if (q.startsWith("par:")) {
+        const lista = q.slice(4).split(",").map(x => x.trim());
+        return lista.indexOf(String(r.vonalkod).toLowerCase()) !== -1 ||
+               lista.indexOf(String(r.vonalkod)) !== -1;
+      }
       const sect = sectorQuery_(q);
       if (sect !== null) {
         return (r.szektorok || []).some(x => String(x.szektor) === String(sect));
@@ -1687,10 +1729,10 @@ function renderFullReport(container, report, opts) {
           : `Keresés — ${hits.length} találat`;
       }
       const lista = hits.slice(0, 200);
-      diffWrap.innerHTML = lista.map(r => renderDiffRowHtml(r, showActions, isOpen)).join("") +
-        (hits.length > lista.length ? `<p class="emptyNote">…és még ${hits.length - lista.length} találat — pontosíts a keresésen.</p>` : "");
-      diffWrap.querySelectorAll(".diffRow").forEach(row => bindDiffRowEvents(row, leltar.leltar_id, container, showActions, isOpen));
-      if (container._updateSelectionUi) container._updateSelectionUi();
+      renderRowsInto_(diffWrap, lista, showActions, isOpen, leltar.leltar_id, container);
+      if (hits.length > lista.length) {
+        diffWrap.insertAdjacentHTML("beforeend", `<p class="emptyNote">…és még ${hits.length - lista.length} találat — pontosíts a keresésen.</p>`);
+      }
     };
 
     if (clearBtn) {
@@ -1710,6 +1752,59 @@ function renderFullReport(container, report, opts) {
       searchInput.value = prevQuery;
       runSearch_();
     }
+  }
+
+  // A tételek kirajzolása a választott nézetben.
+  {
+    const dw = container.querySelector("#diffListWrap");
+    if (dw) {
+      renderRowsInto_(dw, elteresek.slice(0, DIFF_PAGE_SIZE_), showActions, isOpen, leltar.leltar_id, container);
+      container._diffRenderedCount = Math.min(elteresek.length, DIFF_PAGE_SIZE_);
+    }
+  }
+
+  // ---------- Nézetváltás, párosítás mód, Excel export ----------
+  const viewBtn = container.querySelector("#viewToggleBtn");
+  const pairBtn = container.querySelector("#pairModeBtn");
+  const exportBtn = container.querySelector("#exportBtn");
+  const frissitNezetGombok_ = () => {
+    const tabla = container._viewMode === "table";
+    if (viewBtn) viewBtn.textContent = tabla ? "▤ Kártyás nézet" : "📋 Táblázat nézet";
+    if (pairBtn) pairBtn.style.display = tabla ? "inline-block" : "none";
+    if (exportBtn) exportBtn.style.display = tabla ? "inline-block" : "none";
+    if (pairBtn) {
+      pairBtn.classList.toggle("primary", !!container._pairMode);
+      pairBtn.textContent = container._pairMode ? "⇄ Párosítás: BE" : "⇄ Párosítás";
+    }
+  };
+  if (viewBtn && isOpen) {
+    frissitNezetGombok_();
+    viewBtn.addEventListener("click", () => {
+      container._viewMode = container._viewMode === "table" ? "cards" : "table";
+      try { localStorage.setItem("leltarNezet", container._viewMode); } catch (e) { /* nem kritikus */ }
+      frissitNezetGombok_();
+      const q = (container.querySelector("#reportSearchInput") || {}).value || "";
+      if (q.trim()) container.querySelector("#reportSearchInput").dispatchEvent(new Event("input"));
+      else {
+        const dw = container.querySelector("#diffListWrap");
+        renderRowsInto_(dw, elteresek.slice(0, container._diffRenderedCount || DIFF_PAGE_SIZE_), showActions, isOpen, leltar.leltar_id, container);
+      }
+    });
+  } else if (viewBtn) {
+    viewBtn.style.display = "none";   // lezárt riportnál nincs táblázat nézet
+  }
+  if (pairBtn) {
+    pairBtn.addEventListener("click", () => {
+      container._pairMode = !container._pairMode;
+      container._pairPending = null;
+      frissitNezetGombok_();
+      showToast(container._pairMode
+        ? "Párosítás mód: két egymás utáni sor azonos színt kap."
+        : "Párosítás mód kikapcsolva.", "success");
+    });
+  }
+  if (exportBtn) {
+    exportBtn.addEventListener("click", () => exportDiffToCsv_(diff, leltar));
   }
 
   // ---------- Kijelölés: számláló és "Összes kijelölése" ----------
@@ -2063,6 +2158,289 @@ function rowSignature_(r) {
 const TRASH_ICON_ = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
   stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/><path d="M10 11v6M14 11v6"/></svg>`;
 
+/* ---------- Lehetséges eltérés-párok ----------
+   Ha egy terméktípuson belül van ugyanakkora, de ellentétes előjelű
+   eltérés (pl. az egyik zokniból 2 db többlet, a másikból 2 db hiány),
+   az szinte biztosan elcserélt beolvasás. Ezeket összepárosítjuk, hogy
+   egy kattintással ellenőrizhetők legyenek. */
+let pairIndex_ = {};   // vonalkod -> [párok]
+function buildPairIndex_(diff) {
+  pairIndex_ = {};
+  const elterok = (diff || []).filter(r => r.elteres !== 0);
+  const csoportok = {};
+  elterok.forEach(r => {
+    // Elsődlegesen terméktípus szerint; ha az hiányzik, a modell, végül
+    // a gyártói cikkszám alapján csoportosítunk.
+    const kulcs = (r.termektipus || r.modell || r.gyartoi_cikkszam || "—").toLowerCase();
+    (csoportok[kulcs] = csoportok[kulcs] || []).push(r);
+  });
+  Object.keys(csoportok).forEach(k => {
+    const lista = csoportok[k];
+    lista.forEach(a => {
+      const parok = lista.filter(b =>
+        b.vonalkod !== a.vonalkod &&
+        b.elteres === -a.elteres);            // ugyanakkora, ellentétes előjelű
+      if (parok.length) pairIndex_[a.vonalkod] = parok;
+    });
+  });
+}
+
+/* =========================================================================
+   TÁBLÁZAT NÉZET — Excel-szerű, sűrű lista a munkához (csak futó
+   leltárnál). Ugyanazok a műveletek érhetők el, mint a kártyás nézetben,
+   de a tételek egymás alatt, oszlopokban látszanak, így könnyebb
+   észrevenni az elcserélt termékeket. A sorokat színezni lehet
+   (kézzel vagy párosítás módban), és minden sorhoz írható jegyzet.
+   ========================================================================= */
+const ROW_COLORS_ = ["#c0392b", "#2980b9", "#27ae60", "#8e44ad", "#d35400", "#16a085", "#c2185b", "#7f8c8d"];
+
+function rowColorKey_(leltarId) { return "leltarSorSzinek_" + leltarId; }
+function getRowColors_(leltarId) {
+  try { return JSON.parse(localStorage.getItem(rowColorKey_(leltarId)) || "{}"); } catch (e) { return {}; }
+}
+function setRowColor_(leltarId, barcode, idx) {
+  const m = getRowColors_(leltarId);
+  if (idx === null) delete m[barcode]; else m[barcode] = idx;
+  try { localStorage.setItem(rowColorKey_(leltarId), JSON.stringify(m)); } catch (e) { /* nem kritikus */ }
+}
+
+function renderTableRowHtml_(r, showActions, isOpen, leltarId) {
+  const rowId = "diffrow-" + escapeHtml(r.vonalkod);
+  const cls = r.elteres > 0 ? "pos" : (r.elteres < 0 ? "neg" : "zero");
+  const szinek = getRowColors_(leltarId);
+  const szinIdx = szinek[r.vonalkod];
+  const szin = (szinIdx !== undefined) ? ROW_COLORS_[szinIdx % ROW_COLORS_.length] : "";
+  const parok = pairIndex_[r.vonalkod] || [];
+  const utolsoMegj = (r.tetel_megjegyzesek && r.tetel_megjegyzesek.length)
+    ? r.tetel_megjegyzesek[r.tetel_megjegyzesek.length - 1].megjegyzes : "";
+  const szektorSzoveg = (r.szektorok || []).filter(x => x.szektor)
+    .map(x => x.szektor + ": " + x.mennyiseg).join(", ") || (r.elteres !== 0 ? "— nincs beolvasva" : "");
+
+  const g = [];
+  if (showActions) g.push(`<button class="btn tblBtn act-qty" data-qtymod-toggle="${escapeHtml(r.vonalkod)}" title="Számolt mennyiség módosítása">✎</button>`);
+  if (showActions && (!r.ismeretlen_tobblet || !r.ismeretlen_termek)) g.push(`<button class="btn tblBtn act-laurel" data-refresh-toggle="${escapeHtml(r.vonalkod)}" title="Készlet a Laurelből">⭯</button>`);
+  if (showActions && r.ismeretlen_tobblet) g.push(`<button class="btn tblBtn act-barcode" data-barcode-toggle="${escapeHtml(r.vonalkod)}" title="Vonalkód javítása">⌗</button>`);
+  if (parok.length) g.push(`<button class="btn tblBtn act-pair" data-pair-toggle="${escapeHtml(r.vonalkod)}" title="Lehetséges eltérés-pár (${parok.length})">⇄</button>`);
+  if (showActions && r.ismeretlen_tobblet) g.push(`<button class="btn tblBtn danger" data-delete-unknown="${escapeHtml(r.vonalkod)}" title="Törlés">${TRASH_ICON_}</button>`);
+
+  return `
+    <tr class="diffRow tblRow ${cls}" id="${rowId}-row" data-sig="${escapeHtml(rowSignature_(r))}"
+        data-barcode="${escapeHtml(r.vonalkod)}" style="${szin ? `box-shadow: inset 4px 0 0 ${szin}; background:${szin}22;` : ""}">
+      <td class="tblSel">${showActions ? `<input type="checkbox" class="diffSelect" value="${escapeHtml(r.vonalkod)}"${selectedDiffBarcodes.has(r.vonalkod) ? " checked" : ""}${r.elteres === 0 ? " disabled" : ""}>` : ""}</td>
+      <td class="tblMono">${escapeHtml(r.vonalkod)}</td>
+      <td class="tblMono">${escapeHtml(r.sajat_cikkszam || "—")}</td>
+      <td class="tblName" title="${escapeHtml(r.nev || "")}">${escapeHtml(r.nev || (r.ismeretlen_termek ? "Ismeretlen termék" : "—"))}${r.ismeretlen_tobblet ? ` <span class="tag warn">ISM</span>` : ""}</td>
+      <td class="tblNum">${r.rendszer_mennyiseg}</td>
+      <td class="tblNum">${r.szamolt_mennyiseg}</td>
+      <td class="tblNum ${cls}"><b>${r.elteres > 0 ? "+" : ""}${r.elteres}</b></td>
+      <td class="tblSector">${escapeHtml(szektorSzoveg)}</td>
+      <td class="tblNote"><input type="text" class="rowNoteInput" data-note-for="${escapeHtml(r.vonalkod)}"
+        value="${escapeHtml(utolsoMegj)}" placeholder="jegyzet…"></td>
+      <td class="tblActions">${g.join("")}</td>
+    </tr>
+    <tr class="tblPanelRow"><td colspan="10" class="tblPanelCell" id="${rowId}-panels"></td></tr>`;
+}
+
+// A sorhoz tartozó kinyitható panelek (mennyiség-módosítás, Laurel,
+// vonalkód, megjegyzés, eltérés-pár, részletek). Mindkét nézet — a
+// kártyás és a táblázatos — ugyanezt használja, így a műveletek
+// mindenhol ugyanúgy működnek.
+function buildRowPanels_(r, showCheckbox, isOpen) {
+  const rowId = "diffrow-" + escapeHtml(r.vonalkod);
+  const mask = isOpen ? (html) => `<span class="maskedNum">${html}</span>` : (html) => html;
+  const others = (r.masik_raktar || []).map(o => `${escapeHtml(o.raktar)}: ${mask(o.mennyiseg + " db")}`).join(" · ");
+  const recountCount = (r.ujraszamolasok || []).length;
+  const correctionCount = (r.rendszer_korrekciok || []).length;
+  const noteCount = (r.tetel_megjegyzesek || []).length;
+  const vanSzallitolevel = !!r.nem_veglegesitett_szallitolevel;
+  const reszletDb = recountCount + correctionCount + noteCount + (others ? 1 : 0) + (vanSzallitolevel ? 1 : 0);
+  const parok = pairIndex_[r.vonalkod] || [];
+  const reszletekPanel = reszletDb ? `
+    <div id="${rowId}-details" class="rowPanel" style="display:none;">
+      ${vanSzallitolevel ? `<div class="recountNote" style="color:var(--warn);">⚠ Nem véglegesített szállítólevélen szerepel — szám(ok): ${escapeHtml(r.nem_veglegesitett_szallitolevel.szamok || "ismeretlen")}</div>` : ""}
+      ${others ? `<div class="otherWarehouses">Más raktárak — ${others}</div>` : ""}
+      ${recountCount ? `<div class="recountNote"><b>Újraszámolva/módosítva ${recountCount}×:</b>
+        ${r.ujraszamolasok.map(u => recountLineHtml_(u, mask, "margin-top:2px; padding-left:8px;")).join("")}</div>` : ""}
+      ${correctionCount ? `<div class="recountNote" style="color:var(--accent);"><b>Rendszer-adat javítva ${correctionCount}×:</b>
+        ${r.rendszer_korrekciok.map(c => correctionLineHtml_(c, mask, "margin-top:2px; padding-left:8px;")).join("")}</div>` : ""}
+      <div id="${rowId}-notes-list">${(r.tetel_megjegyzesek || []).map(n =>
+        `<div class="recountNote">💬 ${escapeHtml(n.felhasznalo)}, ${escapeHtml(formatDateTime(n.idobelyeg))}: ${escapeHtml(n.megjegyzes)}</div>`).join("")}</div>
+    </div>` : "";
+
+  const adminQtyPanel = showCheckbox ? `
+    <div id="${rowId}-qtymod" class="rowPanel" style="display:none;">
+      <div class="panelHint">A módosítás naplózva lesz (ki, mikor, mire, miért).</div>
+      <div class="row" style="gap:6px;">
+        <input type="text" inputmode="numeric" pattern="[0-9]*" placeholder="Új mennyiség"
+          id="${rowId}-qtymod-value" value="${r.szamolt_mennyiseg}" style="flex:0 0 110px;">
+        <input type="text" placeholder="Indoklás (nem kötelező)" id="${rowId}-qtymod-note" style="flex:1 1 auto;">
+        <button class="btn primary rowActionBtn" data-qtymod-save="${escapeHtml(r.vonalkod)}">Mentés</button>
+      </div>
+    </div>` : "";
+
+  const refreshPanel = (showCheckbox && (!r.ismeretlen_tobblet || !r.ismeretlen_termek)) ? `
+    <div id="${rowId}-form" class="rowPanel" style="display:none;">
+      <div class="panelHint" id="${rowId}-loaded">Betöltés…</div>
+      <div class="row" style="gap:6px;">
+        <input type="text" inputmode="numeric" id="${rowId}-qty" style="flex:0 0 110px; font-weight:700;">
+        <input type="text" placeholder="Megjegyzés (nem kötelező)" id="${rowId}-note" style="flex:1 1 auto;">
+        <button class="btn rowActionBtn" data-refresh-reload="${escapeHtml(r.vonalkod)}">🔄</button>
+        <button class="btn primary rowActionBtn" data-refresh-save="${escapeHtml(r.vonalkod)}">Mentés</button>
+      </div>
+    </div>` : "";
+
+  const barcodePanel = (showCheckbox && r.ismeretlen_tobblet) ? `
+    <div id="${rowId}-barcodepanel" class="rowPanel" style="display:none;">
+      <div class="panelHint">Ha a vonalkód hibásan lett beolvasva, itt javítható. A beolvasások átkerülnek a helyes termékhez.</div>
+      <div class="row" style="gap:6px;">
+        <input type="text" inputmode="numeric" pattern="[0-9]*" id="${rowId}-newbarcode"
+          value="${escapeHtml(r.vonalkod)}" style="flex:1 1 auto; font-weight:700;">
+        <button class="btn primary rowActionBtn" data-barcode-save="${escapeHtml(r.vonalkod)}">Mentés</button>
+      </div>
+    </div>` : "";
+
+  const notePanel = (showCheckbox && r.ismeretlen_tobblet) ? `
+    <div id="${rowId}-notepanel" class="rowPanel" style="display:none;">
+      <div class="row" style="gap:6px;">
+        <input type="text" placeholder="Megjegyzés ehhez a tételhez" id="${rowId}-itemnote" style="flex:1 1 auto;">
+        <button class="btn primary rowActionBtn" data-add-note="${escapeHtml(r.vonalkod)}">Mentés</button>
+      </div>
+    </div>` : "";
+
+  const pairPanel = parok.length ? `
+    <div id="${rowId}-pairs" class="rowPanel" style="display:none;">
+      <div class="panelHint">Ugyanebben a terméktípusban ennyi, pontosan ellentétes eltérés van — könnyen lehet, hogy ezek lettek elcserélve:</div>
+      ${parok.map(p => `
+        <div style="font-size:11.5px; padding:4px 0; border-bottom:1px solid var(--line);">
+          <b>${escapeHtml(p.nev || p.vonalkod)}</b>
+          <span style="color:${p.elteres > 0 ? "var(--accent)" : "var(--danger)"}; font-weight:700;"> ${p.elteres > 0 ? "+" : ""}${p.elteres} db</span>
+          <div style="color:var(--text-dim);">
+            ${escapeHtml(p.vonalkod)} · ${escapeHtml(p.sajat_cikkszam || "—")}
+            · Rendszer ${p.rendszer_mennyiseg} · Számolt ${p.szamolt_mennyiseg}
+            ${(p.szektorok || []).length ? " · " + p.szektorok.filter(x => x.szektor).map(x => escapeHtml(x.szektor) + ". sz. " + x.mennyiseg).join(", ") : " · nincs beolvasva"}
+          </div>
+        </div>`).join("")}
+      <button class="btn rowActionBtn act-pair" data-pair-search="${escapeHtml(r.vonalkod)}">Megnyitás a listában</button>
+    </div>` : "";
+
+  return `${adminQtyPanel}${refreshPanel}${barcodePanel}${notePanel}${pairPanel}${reszletekPanel}`;
+}
+
+// A tételek kirajzolása a kiválasztott nézetben. A táblázatos nézet
+// csak futó leltárnál érhető el (a munkához való), a lezárt riport
+// mindig kártyás.
+// Teljes lista mentése Excelben megnyitható fájlba (pontosvesszős CSV,
+// magyar Excelhez, BOM-mal — így az ékezetek is helyesek).
+function exportDiffToCsv_(diff, leltar) {
+  const fej = ["Vonalkód", "Saját cikkszám", "Gyártói cikkszám", "Név", "Terméktípus",
+    "Rendszer", "Számolt", "Eltérés", "Eltérés érték", "Szektor", "Állapot", "Megjegyzés"];
+  const esc = (v) => {
+    const t = String(v == null ? "" : v).replace(/"/g, '""');
+    return /[";\n]/.test(t) ? `"${t}"` : t;
+  };
+  const sorok = diff.map(r => {
+    const szektor = (r.szektorok || []).filter(x => x.szektor).map(x => x.szektor + ": " + x.mennyiseg).join(", ");
+    const allapot = r.ismeretlen_tobblet ? "ismeretlen"
+      : (r.elteres === 0 ? "rendben" : ((r.szektorok || []).length ? "eltérés" : "nincs beolvasva"));
+    const megj = (r.tetel_megjegyzesek || []).map(n => n.megjegyzes).join(" | ");
+    return [r.vonalkod, r.sajat_cikkszam || "", r.gyartoi_cikkszam || "", r.nev || "", r.termektipus || "",
+      r.rendszer_mennyiseg, r.szamolt_mennyiseg, r.elteres, Math.round(r.elteres_ertek || 0),
+      szektor, allapot, megj].map(esc).join(";");
+  });
+  const csv = "\ufeff" + [fej.join(";")].concat(sorok).join("\r\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  const d = new Date();
+  a.download = `leltar_${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}.csv`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  showToast(`${diff.length} tétel exportálva.`, "success");
+}
+
+function renderRowsInto_(wrap, rows, showActions, isOpen, leltarId, container) {
+  const tablaNezet = isOpen && container._viewMode === "table";
+  if (!rows.length) {
+    wrap.innerHTML = `<p class="emptyNote">Nincs ilyen tétel.</p>`;
+    return;
+  }
+  if (!tablaNezet) {
+    wrap.innerHTML = rows.map(r => renderDiffRowHtml(r, showActions, isOpen)).join("");
+  } else {
+    wrap.innerHTML = `
+      <div class="tblScroll">
+      <table class="diffTable">
+        <thead><tr>
+          <th></th><th>Vonalkód</th><th>Cikkszám</th><th>Név</th>
+          <th class="tblNum">Rendszer</th><th class="tblNum">Számolt</th><th class="tblNum">Eltérés</th>
+          <th>Szektor</th><th>Jegyzet</th><th></th>
+        </tr></thead>
+        <tbody>${rows.map(r => renderTableRowHtml_(r, showActions, isOpen, leltarId)).join("")}</tbody>
+      </table></div>`;
+    // A kinyitható panelek a sor alatti cellába kerülnek.
+    rows.forEach(r => {
+      const cell = wrap.querySelector("#diffrow-" + CSS.escape(r.vonalkod) + "-panels");
+      if (cell) cell.innerHTML = buildRowPanels_(r, showActions, isOpen);
+    });
+  }
+  wrap.querySelectorAll(".diffRow").forEach(row => bindDiffRowEvents(row, leltarId, container, showActions, isOpen));
+  if (tablaNezet) bindTableExtras_(wrap, leltarId, container);
+  if (container._updateSelectionUi) container._updateSelectionUi();
+}
+
+// A táblázat extrái: sor-színezés, párosítás mód, jegyzet mentése.
+function bindTableExtras_(wrap, leltarId, container) {
+  wrap.querySelectorAll("tr.tblRow").forEach(tr => {
+    tr.addEventListener("click", (ev) => {
+      if (ev.target.closest("button, input, a")) return;
+      const bc = tr.dataset.barcode;
+      if (container._pairMode) {
+        // Párosítás mód: két egymás utáni kattintás AZONOS színt kap,
+        // utána a következő párnak új szín jár.
+        if (container._pairPending === undefined) container._pairPending = null;
+        const szinIdx = container._pairColorIdx || 0;
+        setRowColor_(leltarId, bc, szinIdx);
+        if (container._pairPending === null) {
+          container._pairPending = bc;
+        } else {
+          container._pairPending = null;
+          container._pairColorIdx = (szinIdx + 1) % ROW_COLORS_.length;
+        }
+      } else {
+        // Sima kattintás: színt vált, körbeérve törli.
+        const m = getRowColors_(leltarId);
+        const most = m[bc];
+        const kov = (most === undefined) ? 0 : (most + 1 >= ROW_COLORS_.length ? null : most + 1);
+        setRowColor_(leltarId, bc, kov);
+      }
+      alkalmazSorSzin_(tr, leltarId, bc);
+    });
+  });
+  // Jegyzet mentése, ha elhagyjuk a mezőt és változott.
+  wrap.querySelectorAll(".rowNoteInput").forEach(inp => {
+    inp.dataset.orig = inp.value;
+    inp.addEventListener("blur", async () => {
+      const uj = (inp.value || "").trim();
+      if (uj === (inp.dataset.orig || "").trim()) return;
+      inp.dataset.orig = uj;
+      if (!uj) return;
+      try {
+        await apiPost({ action: "add_item_note", leltar_id: leltarId, barcode: inp.dataset.noteFor, megjegyzes: uj });
+        inp.classList.add("saved");
+        setTimeout(() => inp.classList.remove("saved"), 1200);
+      } catch (e) { showToast("A jegyzet mentése nem sikerült: " + e.message, "error"); }
+    });
+  });
+}
+
+function alkalmazSorSzin_(tr, leltarId, bc) {
+  const idx = getRowColors_(leltarId)[bc];
+  if (idx === undefined) { tr.style.boxShadow = ""; tr.style.background = ""; return; }
+  const szin = ROW_COLORS_[idx % ROW_COLORS_.length];
+  tr.style.boxShadow = `inset 4px 0 0 ${szin}`;
+  tr.style.background = szin + "22";
+}
+
 function renderDiffRowHtml(r, showCheckbox, isOpen) {
   const cls = r.elteres > 0 ? "pos" : (r.elteres < 0 ? "neg" : "zero");
   const sign = r.elteres > 0 ? "+" : "";
@@ -2112,49 +2490,14 @@ function renderDiffRowHtml(r, showCheckbox, isOpen) {
   }
   if (showCheckbox && r.ismeretlen_tobblet) g.push(`<button class="btn rowActionBtn act-barcode" data-barcode-toggle="${escapeHtml(r.vonalkod)}">Vonalkód javítása</button>`);
   if (showCheckbox && r.ismeretlen_tobblet) g.push(`<button class="btn rowActionBtn act-note" data-note-toggle="${escapeHtml(r.vonalkod)}">Megjegyzés</button>`);
+  const parok = pairIndex_[r.vonalkod] || [];
+  if (parok.length) {
+    g.push(`<button class="btn rowActionBtn act-pair" data-pair-toggle="${escapeHtml(r.vonalkod)}">⇄ Lehetséges eltérés-pár (${parok.length})</button>`);
+  }
   if (reszletDb) g.push(`<button class="btn rowActionBtn act-details${vanSzallitolevel ? " warn" : ""}" data-details-toggle="${escapeHtml(r.vonalkod)}">${vanSzallitolevel ? "⚠ " : ""}Részletek (${reszletDb})</button>`);
   const actionsHtml = g.length ? `<div class="rowActions">${g.join("")}</div>` : "";
 
-  // ---- Kinyitható panelek ----
-  const adminQtyPanel = showCheckbox ? `
-    <div id="${rowId}-qtymod" class="rowPanel" style="display:none;">
-      <div class="panelHint">A módosítás naplózva lesz (ki, mikor, mire, miért).</div>
-      <div class="row" style="gap:6px;">
-        <input type="text" inputmode="numeric" pattern="[0-9]*" placeholder="Új mennyiség"
-          id="${rowId}-qtymod-value" value="${r.szamolt_mennyiseg}" style="flex:0 0 110px;">
-        <input type="text" placeholder="Indoklás (nem kötelező)" id="${rowId}-qtymod-note" style="flex:1 1 auto;">
-        <button class="btn primary rowActionBtn" data-qtymod-save="${escapeHtml(r.vonalkod)}">Mentés</button>
-      </div>
-    </div>` : "";
-
-  const refreshPanel = (showCheckbox && (!r.ismeretlen_tobblet || !r.ismeretlen_termek)) ? `
-    <div id="${rowId}-form" class="rowPanel" style="display:none;">
-      <div class="panelHint" id="${rowId}-loaded">Betöltés…</div>
-      <div class="row" style="gap:6px;">
-        <input type="text" inputmode="numeric" id="${rowId}-qty" style="flex:0 0 110px; font-weight:700;">
-        <input type="text" placeholder="Megjegyzés (nem kötelező)" id="${rowId}-note" style="flex:1 1 auto;">
-        <button class="btn rowActionBtn" data-refresh-reload="${escapeHtml(r.vonalkod)}">🔄</button>
-        <button class="btn primary rowActionBtn" data-refresh-save="${escapeHtml(r.vonalkod)}">Mentés</button>
-      </div>
-    </div>` : "";
-
-  const barcodePanel = (showCheckbox && r.ismeretlen_tobblet) ? `
-    <div id="${rowId}-barcodepanel" class="rowPanel" style="display:none;">
-      <div class="panelHint">Ha a vonalkód hibásan lett beolvasva, itt javítható. A beolvasások átkerülnek a helyes termékhez.</div>
-      <div class="row" style="gap:6px;">
-        <input type="text" inputmode="numeric" pattern="[0-9]*" id="${rowId}-newbarcode"
-          value="${escapeHtml(r.vonalkod)}" style="flex:1 1 auto; font-weight:700;">
-        <button class="btn primary rowActionBtn" data-barcode-save="${escapeHtml(r.vonalkod)}">Mentés</button>
-      </div>
-    </div>` : "";
-
-  const notePanel = (showCheckbox && r.ismeretlen_tobblet) ? `
-    <div id="${rowId}-notepanel" class="rowPanel" style="display:none;">
-      <div class="row" style="gap:6px;">
-        <input type="text" placeholder="Megjegyzés ehhez a tételhez" id="${rowId}-itemnote" style="flex:1 1 auto;">
-        <button class="btn primary rowActionBtn" data-add-note="${escapeHtml(r.vonalkod)}">Mentés</button>
-      </div>
-    </div>` : "";
+  const rowPanels = buildRowPanels_(r, showCheckbox, isOpen);
 
   const eyeBtn = isOpen ? `<button class="rowEyeBtn" aria-label="Tartsd lenyomva a számok megtekintéséhez">👁</button>` : "";
 
@@ -2183,7 +2526,7 @@ function renderDiffRowHtml(r, showCheckbox, isOpen) {
         </div>
       </div>
       ${actionsHtml}
-      ${adminQtyPanel}${refreshPanel}${barcodePanel}${notePanel}${reszletekPanel}
+      ${rowPanels}
     </div>`;
 }
 
@@ -2327,6 +2670,27 @@ function bindDiffRowRefreshButtons(wrapEl, leltarId, targetContainer) {
   });
 
   // Panel-nyitó gombok (részletek, vonalkód).
+  wrapEl.querySelectorAll("[data-pair-toggle]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const panel = document.getElementById("diffrow-" + btn.dataset.pairToggle + "-pairs");
+      if (panel) panel.style.display = panel.style.display !== "flex" ? "flex" : "none";
+    });
+  });
+  // "Megnyitás a listában": a párokat a keresőbe töltjük, hogy egymás
+  // mellett, teljes adatokkal (szektor, előzmény) legyenek láthatók.
+  wrapEl.querySelectorAll("[data-pair-search]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const bc = btn.dataset.pairSearch;
+      const parok = pairIndex_[bc] || [];
+      const cont = targetContainer || document.getElementById("reportContainer");
+      const input = cont.querySelector("#reportSearchInput");
+      if (!input) return;
+      input.value = "par:" + [bc].concat(parok.map(p => p.vonalkod)).join(",");
+      cont._searchQuery = input.value;
+      input.dispatchEvent(new Event("input"));
+    });
+  });
+
   wrapEl.querySelectorAll("[data-details-toggle]").forEach(btn => {
     btn.addEventListener("click", () => {
       const panel = document.getElementById("diffrow-" + btn.dataset.detailsToggle + "-details");
@@ -2646,6 +3010,7 @@ function updateReportLiveInPlace_(leltarId, container, report, opts) {
   // (ezek úgyis csak felsorolások, nincs bennük interaktív elem).
   // A szűrő UGYANAZ, mint a renderFullReport-ban (lásd beolvastakE_).
   const beolvasva_ = r => (r.szektorok && r.szektorok.length > 0) || (r.ujraszamolasok && r.ujraszamolasok.length > 0);
+  buildPairIndex_(diff);
   const elteresekLive = diff.filter(r => beolvasva_(r) && r.elteres !== 0);
   const rendbenLive = diff.filter(r => beolvasva_(r) && r.elteres === 0);
   const hatravanLive = diff.filter(r => !beolvasva_(r));
