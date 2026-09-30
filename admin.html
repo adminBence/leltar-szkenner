@@ -2186,7 +2186,30 @@ function bindConflictButtons_(wrapEl, leltarId, container, opts) {
   });
 }
 
+// A sor paneljeit az első kattintáskor építjük fel (lásd renderDiffRowHtml).
+function ensureRowPanels_(rowEl, container, isOpen, leltarId) {
+  const host = rowEl.querySelector(".rowPanelHost");
+  if (!host || host.innerHTML) return;
+  const bc = (rowEl.id || "").replace(/^diffrow-/, "").replace(/-row$/, "");
+  const forras = (container._exportRows && container._exportRows.length ? container._exportRows : null)
+    || container._tableRows || (container._report && container._report.diff) || [];
+  let sor = forras.find(x => String(x.vonalkod) === bc);
+  if (!sor && container._report) sor = (container._report.diff || []).find(x => String(x.vonalkod) === bc);
+  if (!sor) return;
+  host.innerHTML = buildRowPanels_(sor, true, isOpen);
+  // A most létrejött panelek gombjait (mentés, megnyitás a listában…)
+  // is be kell kötni — enélkül nem történne semmi a kattintásukra.
+  bindDiffRowRefreshButtons(host, leltarId, container);
+}
+
 function bindDiffRowEvents(rowEl, leltarId, targetContainer, showActions, isOpen) {
+  // Kattintás esetén elsőként a paneleket építjük fel, hogy a gombok
+  // kezelői már megtalálják őket.
+  rowEl.addEventListener("click", (ev) => {
+    if (ev.target.closest("[data-qtymod-toggle],[data-refresh-toggle],[data-barcode-toggle],[data-note-toggle],[data-pair-toggle],[data-details-toggle]")) {
+      ensureRowPanels_(rowEl, targetContainer, isOpen, leltarId);
+    }
+  }, true);
   if (isOpen) {
     const eyeBtn = rowEl.querySelector(".rowEyeBtn");
     if (eyeBtn) {
@@ -2257,21 +2280,22 @@ let pairIndex_ = {};   // vonalkod -> [párok]
 function buildPairIndex_(diff) {
   pairIndex_ = {};
   const elterok = (diff || []).filter(r => r.elteres !== 0);
-  const csoportok = {};
+  // TELJESÍTMÉNY: kereső-táblát építünk (terméktípus + eltérés kulccsal),
+  // és abból olvassuk ki az ellentétes párokat. Korábban minden tételt
+  // minden tétellel összevetettünk, ami egy nagy leltárnál milliós
+  // nagyságrendű összehasonlítást jelentett — minden egyes
+  // újrarajzolásnál és élő frissítésnél.
+  const tipusa = (r) => String(r.termektipus || r.fo_csoport || r.modell || r.gyartoi_cikkszam || "—").toLowerCase();
+  const tabla = {};
   elterok.forEach(r => {
-    // Elsődlegesen terméktípus szerint; ha az hiányzik, a modell, végül
-    // a gyártói cikkszám alapján csoportosítunk.
-    const kulcs = (r.termektipus || r.modell || r.gyartoi_cikkszam || "—").toLowerCase();
-    (csoportok[kulcs] = csoportok[kulcs] || []).push(r);
+    const k = tipusa(r) + "|" + r.elteres;
+    (tabla[k] = tabla[k] || []).push(r);
   });
-  Object.keys(csoportok).forEach(k => {
-    const lista = csoportok[k];
-    lista.forEach(a => {
-      const parok = lista.filter(b =>
-        b.vonalkod !== a.vonalkod &&
-        b.elteres === -a.elteres);            // ugyanakkora, ellentétes előjelű
-      if (parok.length) pairIndex_[a.vonalkod] = parok;
-    });
+  elterok.forEach(r => {
+    const ellen = tabla[tipusa(r) + "|" + (-r.elteres)];
+    if (!ellen || !ellen.length) return;
+    const parok = ellen.filter(b => b.vonalkod !== r.vonalkod);
+    if (parok.length) pairIndex_[r.vonalkod] = parok;
   });
 }
 
@@ -2394,10 +2418,12 @@ function tblAlkalmazRendezes_(rows, container, leltarId) {
   });
 }
 
-function renderTableRowHtml_(r, showActions, isOpen, leltarId) {
+function renderTableRowHtml_(r, showActions, isOpen, leltarId, szinekElore) {
   const rowId = "diffrow-" + escapeHtml(r.vonalkod);
   const cls = r.elteres > 0 ? "pos" : (r.elteres < 0 ? "neg" : "zero");
-  const szinek = getRowColors_(leltarId);
+  // A színeket a hívó egyszer olvassa be és adja át — soronkénti
+  // beolvasás több száz sornál érezhetően lassítana.
+  const szinek = szinekElore || getRowColors_(leltarId);
   const szinIdx = szinek[r.vonalkod];
   const szin = (szinIdx !== undefined) ? ROW_COLORS_[szinIdx % ROW_COLORS_.length] : "";
   const parok = pairIndex_[r.vonalkod] || [];
@@ -2706,7 +2732,8 @@ function renderRowsInto_(wrap, rows, showActions, isOpen, leltarId, container) {
       <div class="tblScroll">
       <table class="diffTable">
         <thead><tr><th class="tblSel"></th>${fejek}<th></th></tr></thead>
-        <tbody>${rows.map(r => renderTableRowHtml_(r, showActions, isOpen, leltarId)).join("")}</tbody>
+        <tbody>${(() => { const sz = getRowColors_(leltarId);
+          return rows.map(r => renderTableRowHtml_(r, showActions, isOpen, leltarId, sz)).join(""); })()}</tbody>
       </table></div>`;
     // A kinyitható panelek CSAK kattintásra készülnek el (lásd
     // bindTableExtras_) — így több száz soros listánál is gyors marad.
@@ -2845,7 +2872,10 @@ function bindTableExtras_(wrap, leltarId, container) {
     const cella = wrap.querySelector("#diffrow-" + CSS.escape(bc) + "-panels");
     if (cella && !cella.innerHTML) {
       const sor = (container._exportRows || []).find(x => String(x.vonalkod) === String(bc));
-      if (sor) cella.innerHTML = buildRowPanels_(sor, !!container._opts && container._opts.showActions !== false, true);
+      if (sor) {
+        cella.innerHTML = buildRowPanels_(sor, !!container._opts && container._opts.showActions !== false, true);
+        bindDiffRowRefreshButtons(cella, leltarId, container);
+      }
     }
   }, true);
 
@@ -2972,7 +3002,9 @@ function renderDiffRowHtml(r, showCheckbox, isOpen) {
   if (reszletDb) g.push(`<button class="btn rowActionBtn act-details${vanSzallitolevel ? " warn" : ""}" data-details-toggle="${escapeHtml(r.vonalkod)}">${vanSzallitolevel ? "⚠ " : ""}Részletek (${reszletDb})</button>`);
   const actionsHtml = g.length ? `<div class="rowActions">${g.join("")}</div>` : "";
 
-  const rowPanels = buildRowPanels_(r, showCheckbox, isOpen);
+  // A panelek (szerkesztő mezők, részletek) CSAK kattintásra készülnek
+  // el — így egy több száz soros lista sokkal gyorsabban jelenik meg.
+  const rowPanels = `<div class="rowPanelHost" id="${rowId}-panels"></div>`;
 
   const eyeBtn = isOpen ? `<button class="rowEyeBtn" aria-label="Tartsd lenyomva a számok megtekintéséhez">👁</button>` : "";
 
