@@ -179,25 +179,27 @@
     border-radius:3px; line-height:1;}
   .diffTable .thFilter:hover{background:var(--line); color:var(--text);}
   .diffTable .thFilter.on{color:var(--accent); background:rgba(62,207,142,.15);}
-  .thFilterMenu{position:absolute; z-index:1500; width:260px; background:var(--panel);
-    border:1px solid var(--line); border-radius:8px; box-shadow:0 8px 28px rgba(0,0,0,.5); padding:8px;
-    display:flex; flex-direction:column; gap:6px;}
-  .thFilterSearch{width:100%; font-size:12px; padding:5px 7px;}
-  .thFilterAll{font-size:11px; padding:3px 8px; align-self:flex-start;}
-  .thFilterList{max-height:220px; overflow-y:auto; display:flex; flex-direction:column; gap:1px;
+  .thFilterMenu{position:absolute; z-index:1500; width:380px; max-width:92vw; background:var(--panel);
+    border:1px solid var(--line); border-radius:10px; box-shadow:0 10px 34px rgba(0,0,0,.6); padding:10px;
+    display:flex; flex-direction:column; gap:8px;}
+  .thFilterSearch{width:100%; font-size:13px; padding:7px 9px;}
+  .thFilterAll{font-size:12px; padding:5px 10px; align-self:flex-start;}
+  .thFilterList{max-height:320px; overflow-y:auto; display:block;
     border-top:1px solid var(--line); border-bottom:1px solid var(--line); padding:4px 0;}
-  .thFilterList label{display:flex; align-items:center; gap:6px; font-size:12px; padding:2px 4px;
-    cursor:pointer; border-radius:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .thFilterList label{display:flex !important; align-items:center; gap:8px; font-size:13px;
+    line-height:1.5; min-height:26px; padding:3px 6px; cursor:pointer; border-radius:4px;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--text);}
   .thFilterList label:hover{background:var(--panel-2);}
-  .thFilterList input{width:14px; height:14px; accent-color:var(--accent); flex:0 0 auto;}
+  .thFilterList input[type=checkbox]{width:15px; height:15px; min-width:15px; accent-color:var(--accent); flex:0 0 auto; margin:0;}
+  .thFilterList .ertekSzoveg{overflow:hidden; text-overflow:ellipsis;}
   .thFilterFoot{display:flex; justify-content:flex-end; gap:6px;}
   .thFilterFoot .btn{font-size:11px; padding:4px 10px;}
 
   /* Színválasztó a táblázat fölött */
-  .colorPicker{display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin-bottom:8px;}
-  .colorPicker .label{font-size:12px; color:var(--text-dim); margin-right:2px;}
-  .colorDot{width:22px; height:22px; border-radius:6px; border:2px solid transparent; cursor:pointer;
-    padding:0; display:inline-flex; align-items:center; justify-content:center; font-size:12px; color:#fff;}
+  .colorPicker{display:flex; align-items:center; gap:4px; flex-wrap:wrap; margin-bottom:8px;}
+  .colorPicker .label{font-size:12px; color:var(--text-dim); margin-right:2px; flex:0 0 auto;}
+  .colorDot{width:17px; height:17px; border-radius:4px; border:2px solid transparent; cursor:pointer;
+    padding:0; display:inline-flex; align-items:center; justify-content:center; font-size:11px; color:#fff;}
   .colorDot.active{border-color:#fff; box-shadow:0 0 0 2px rgba(255,255,255,.25);}
   .colorDot.eraser{background:var(--panel); border:1px dashed var(--line); color:var(--text-dim);}
   .colorDot.eraser.active{border-color:#fff; border-style:solid;}
@@ -1847,8 +1849,8 @@ function renderFullReport(container, report, opts) {
   if (pairBtn) {
     pairBtn.addEventListener("click", () => {
       container._pairMode = !container._pairMode;
-      container._pairPending = null;
       frissitNezetGombok_();
+      if (container._frissitSzinValaszto) container._frissitSzinValaszto();
       showToast(container._pairMode
         ? "Párosítás mód: két egymás utáni sor azonos színt kap."
         : "Párosítás mód kikapcsolva.", "success");
@@ -1859,8 +1861,13 @@ function renderFullReport(container, report, opts) {
   const frissitSzinValaszto_ = () => {
     if (!colorPicker) return;
     colorPicker.style.display = (container._viewMode === "table" && isOpen) ? "flex" : "none";
+    // Párosítás módban azt a színt emeljük ki, amivel a következő
+    // kattintás jelölni fog — így mindig látszik, hol tart a rendszer.
+    const kiemelt = container._pairMode
+      ? kovetkezoParSzin_(leltar.leltar_id)
+      : (container._activeColorIdx || 0);
     colorPicker.querySelectorAll(".colorDot").forEach(d => {
-      d.classList.toggle("active", !container._pairMode && Number(d.dataset.color) === (container._activeColorIdx || 0));
+      d.classList.toggle("active", Number(d.dataset.color) === kiemelt);
     });
   };
   if (colorPicker) {
@@ -1875,6 +1882,7 @@ function renderFullReport(container, report, opts) {
     });
     frissitSzinValaszto_();
   }
+  container._frissitSzinValaszto = frissitSzinValaszto_;
   if (colorSortBtn) {
     colorSortBtn.addEventListener("click", () => {
       container._colorSort = !container._colorSort;
@@ -2272,7 +2280,33 @@ function buildPairIndex_(diff) {
    észrevenni az elcserélt termékeket. A sorokat színezni lehet
    (kézzel vagy párosítás módban), és minden sorhoz írható jegyzet.
    ========================================================================= */
-const ROW_COLORS_ = ["#c0392b", "#2980b9", "#27ae60", "#8e44ad", "#d35400", "#16a085", "#c2185b", "#7f8c8d"];
+// Sok, egymástól jól megkülönböztethető jelölőszín — több száz tételnél
+// nyolc kevés lenne. A színek egyenletesen oszlanak el a színkörön,
+// váltakozó világossággal, hogy a szomszédosak se legyenek
+// összetéveszthetők.
+const ROW_COLORS_ = (() => {
+  const szinek = [];
+  const lepes = 360 / 15;
+  for (let kor = 0; kor < 2; kor++) {
+    for (let i = 0; i < 15; i++) {
+      const h = Math.round((i * lepes + (kor ? lepes / 2 : 0)) % 360);
+      const sl = kor ? { s: 45, l: 62 } : { s: 62, l: 45 };
+      szinek.push(hslToHex_(h, sl.s, sl.l));
+    }
+  }
+  return szinek;
+})();
+
+function hslToHex_(h, s, l) {
+  s /= 100; l /= 100;
+  const k = n => (n + h / 30) % 12;
+  const a = s * Math.min(l, 1 - l);
+  const f = n => {
+    const v = l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+    return Math.round(255 * v).toString(16).padStart(2, "0");
+  };
+  return "#" + f(0) + f(8) + f(4);
+}
 
 function rowColorKey_(leltarId) { return "leltarSorSzinek_" + leltarId; }
 function getRowColors_(leltarId) {
@@ -2290,16 +2324,38 @@ function setRowColor_(leltarId, barcode, idx) {
    több szektorban is szerepelhet — ilyenkor a szűrő akkor mutatja a
    sort, ha BÁRMELYIK szektora ki van választva. */
 const TBL_COLS_ = [
-  { key: "vonalkod",   cim: "Vonalkód",  ertekek: r => [String(r.vonalkod)] },
-  { key: "cikkszam",   cim: "Cikkszám",  ertekek: r => [r.sajat_cikkszam || "—"] },
-  { key: "nev",        cim: "Név",       ertekek: r => [r.nev || "Ismeretlen termék"] },
-  { key: "rendszer",   cim: "Rendszer",  szam: true, num: r => r.rendszer_mennyiseg, ertekek: r => [String(r.rendszer_mennyiseg)] },
-  { key: "szamolt",    cim: "Számolt",   szam: true, num: r => r.szamolt_mennyiseg, ertekek: r => [String(r.szamolt_mennyiseg)] },
-  { key: "elteres",    cim: "Eltérés",   szam: true, num: r => r.elteres, ertekek: r => [String(r.elteres)] },
-  { key: "szektor",    cim: "Szektor",   num: r => { const sz = (r.szektorok || []).filter(x => x.szektor); return sz.length ? (parseInt(sz[0].szektor, 10) || 0) : 999999; },
-    ertekek: r => { const sz = (r.szektorok || []).filter(x => x.szektor).map(x => String(x.szektor)); return sz.length ? sz : ["— nincs beolvasva"]; } },
-  { key: "megjegyzes", cim: "Megjegyzés", ertekek: r => {
-      const n = r.tetel_megjegyzesek || []; return [n.length ? n[n.length - 1].megjegyzes : "(üres)"]; } },
+  { key: "vonalkod", cim: "Vonalkód", ertekek: r => [String(r.vonalkod)],
+    cell: r => `<td class="tblMono">${escapeHtml(r.vonalkod)}</td>` },
+  { key: "cikkszam", cim: "Cikkszám", ertekek: r => [r.sajat_cikkszam || "—"],
+    cell: r => `<td class="tblMono">${escapeHtml(r.sajat_cikkszam || "—")}</td>` },
+  { key: "nev", cim: "Név", ertekek: r => [r.nev || "Ismeretlen termék"],
+    cell: r => `<td class="tblName" title="${escapeHtml(r.nev || "")}">${escapeHtml(r.nev || (r.ismeretlen_termek ? "Ismeretlen termék" : "—"))}${r.ismeretlen_tobblet ? ` <span class="tag warn">ISM</span>` : ""}</td>` },
+  { key: "tipus", cim: "Terméktípus", ertekek: r => [r.termektipus || "—"],
+    cell: r => `<td class="tblType">${escapeHtml(r.termektipus || "—")}</td>` },
+  { key: "rendszer", cim: "Rendszer", szam: true, num: r => r.rendszer_mennyiseg,
+    ertekek: r => [String(r.rendszer_mennyiseg)],
+    cell: r => `<td class="tblNum">${r.rendszer_mennyiseg}</td>` },
+  { key: "szamolt", cim: "Számolt", szam: true, num: r => r.szamolt_mennyiseg,
+    ertekek: r => [String(r.szamolt_mennyiseg)],
+    cell: r => `<td class="tblNum">${r.szamolt_mennyiseg}</td>` },
+  { key: "elteres", cim: "Eltérés", szam: true, num: r => r.elteres,
+    ertekek: r => [String(r.elteres)],
+    cell: r => `<td class="tblNum ${r.elteres > 0 ? "pos" : (r.elteres < 0 ? "neg" : "zero")}"><b>${r.elteres > 0 ? "+" : ""}${r.elteres}</b></td>` },
+  { key: "szektor", cim: "Szektor",
+    num: r => { const sz = (r.szektorok || []).filter(x => x.szektor); return sz.length ? (parseInt(sz[0].szektor, 10) || 0) : 999999; },
+    ertekek: r => { const sz = (r.szektorok || []).filter(x => x.szektor).map(x => String(x.szektor)); return sz.length ? sz : ["— nincs beolvasva"]; },
+    cell: r => {
+      const sz = (r.szektorok || []).filter(x => x.szektor).map(x => x.szektor + ": " + x.mennyiseg).join(", ");
+      return `<td class="tblSector">${escapeHtml(sz || (r.elteres !== 0 ? "— nincs beolvasva" : ""))}</td>`;
+    } },
+  { key: "megjegyzes", cim: "Megjegyzés",
+    ertekek: r => { const n = r.tetel_megjegyzesek || []; return [n.length ? n[n.length - 1].megjegyzes : "(üres)"]; },
+    cell: r => {
+      const n = r.tetel_megjegyzesek || [];
+      const utolso = n.length ? n[n.length - 1].megjegyzes : "";
+      return `<td class="tblNote"><input type="text" class="rowNoteInput" data-note-for="${escapeHtml(r.vonalkod)}"
+        value="${escapeHtml(utolso)}" placeholder="megjegyzés…"></td>`;
+    } },
 ];
 const TBL_COL_MAP_ = {}; TBL_COLS_.forEach(c => { TBL_COL_MAP_[c.key] = c; });
 
@@ -2359,18 +2415,10 @@ function renderTableRowHtml_(r, showActions, isOpen, leltarId) {
     <tr class="diffRow tblRow ${cls}" id="${rowId}-row" data-sig="${escapeHtml(rowSignature_(r))}"
         data-barcode="${escapeHtml(r.vonalkod)}" style="${szin ? `box-shadow: inset 4px 0 0 ${szin}; background:${szin}22;` : ""}">
       <td class="tblSel">${showActions ? `<input type="checkbox" class="diffSelect" value="${escapeHtml(r.vonalkod)}"${selectedDiffBarcodes.has(r.vonalkod) ? " checked" : ""}${r.elteres === 0 ? " disabled" : ""}>` : ""}</td>
-      <td class="tblMono">${escapeHtml(r.vonalkod)}</td>
-      <td class="tblMono">${escapeHtml(r.sajat_cikkszam || "—")}</td>
-      <td class="tblName" title="${escapeHtml(r.nev || "")}">${escapeHtml(r.nev || (r.ismeretlen_termek ? "Ismeretlen termék" : "—"))}${r.ismeretlen_tobblet ? ` <span class="tag warn">ISM</span>` : ""}</td>
-      <td class="tblNum">${r.rendszer_mennyiseg}</td>
-      <td class="tblNum">${r.szamolt_mennyiseg}</td>
-      <td class="tblNum ${cls}"><b>${r.elteres > 0 ? "+" : ""}${r.elteres}</b></td>
-      <td class="tblSector">${escapeHtml(szektorSzoveg)}</td>
-      <td class="tblNote"><input type="text" class="rowNoteInput" data-note-for="${escapeHtml(r.vonalkod)}"
-        value="${escapeHtml(utolsoMegj)}" placeholder="megjegyzés…"></td>
+      ${TBL_COLS_.map(c => c.cell(r)).join("")}
       <td class="tblActions">${g.join("")}</td>
     </tr>
-    <tr class="tblPanelRow"><td colspan="10" class="tblPanelCell" id="${rowId}-panels"></td></tr>`;
+    <tr class="tblPanelRow"><td colspan="${TBL_COLS_.length + 2}" class="tblPanelCell" id="${rowId}-panels"></td></tr>`;
 }
 
 // A sorhoz tartozó kinyitható panelek (mennyiség-módosítás, Laurel,
@@ -2461,71 +2509,163 @@ function buildRowPanels_(r, showCheckbox, isOpen) {
 // A tételek kirajzolása a kiválasztott nézetben. A táblázatos nézet
 // csak futó leltárnál érhető el (a munkához való), a lezárt riport
 // mindig kártyás.
-// Excel-export: SpreadsheetML formátum (.xls), amit minden Excel
-// megnyit — és ami a CSV-vel ellentétben a SOROK SZÍNÉT is átviszi.
-// A sorrend pontosan az, ami a képernyőn látszik (a szín szerinti
-// rendezést is beleértve).
+/* ---------- Excel-export (valódi .xlsx) ----------
+   Az xlsx egy ZIP-csomag, ezért itt egy minimális ZIP-írót használunk
+   (tömörítés nélkül, CRC32-vel). Így a fájl kiterjesztése és tartalma
+   egyezik — az Excel figyelmeztetés nélkül nyitja meg —, és a sorok
+   színezése is átkerül. */
+const CRC_TABLA_ = (() => {
+  const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+    t[n] = c >>> 0;
+  }
+  return t;
+})();
+function crc32_(bytes) {
+  let c = 0xFFFFFFFF;
+  for (let i = 0; i < bytes.length; i++) c = CRC_TABLA_[(c ^ bytes[i]) & 0xFF] ^ (c >>> 8);
+  return (c ^ 0xFFFFFFFF) >>> 0;
+}
+function zipCsomag_(fajlok) {
+  const enc = new TextEncoder();
+  const darabok = [], kozponti = [];
+  let eltolas = 0;
+  const u16 = (v) => [v & 0xFF, (v >>> 8) & 0xFF];
+  const u32 = (v) => [v & 0xFF, (v >>> 8) & 0xFF, (v >>> 16) & 0xFF, (v >>> 24) & 0xFF];
+  fajlok.forEach(f => {
+    const nev = enc.encode(f.nev);
+    const adat = enc.encode(f.tartalom);
+    const crc = crc32_(adat);
+    const fej = [].concat(u32(0x04034b50), u16(20), u16(0x0800), u16(0), u16(0), u16(0),
+      u32(crc), u32(adat.length), u32(adat.length), u16(nev.length), u16(0));
+    darabok.push(new Uint8Array(fej), nev, adat);
+    kozponti.push({ nev, crc, meret: adat.length, eltolas });
+    eltolas += fej.length + nev.length + adat.length;
+  });
+  const kozpontiDarabok = [];
+  let kozpontiMeret = 0;
+  kozponti.forEach(k => {
+    const fej = [].concat(u32(0x02014b50), u16(20), u16(20), u16(0x0800), u16(0), u16(0), u16(0),
+      u32(k.crc), u32(k.meret), u32(k.meret), u16(k.nev.length), u16(0), u16(0), u16(0), u16(0),
+      u32(0), u32(k.eltolas));
+    kozpontiDarabok.push(new Uint8Array(fej), k.nev);
+    kozpontiMeret += fej.length + k.nev.length;
+  });
+  const veg = new Uint8Array([].concat(u32(0x06054b50), u16(0), u16(0),
+    u16(kozponti.length), u16(kozponti.length), u32(kozpontiMeret), u32(eltolas), u16(0)));
+  return new Blob(darabok.concat(kozpontiDarabok, [veg]),
+    { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+}
+
 function exportDiffToExcel_(rows, leltar, leltarId) {
   const szinek = getRowColors_(leltarId);
-  const esc = (v) => String(v == null ? "" : v)
-    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  const cell = (v, tipus, styleId) => {
-    const t = tipus === "Number" ? "Number" : "String";
-    return `<Cell${styleId ? ` ss:StyleID="${styleId}"` : ""}><Data ss:Type="${t}">${esc(v)}</Data></Cell>`;
+  const xesc = (v) => String(v == null ? "" : v)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, "");
+  const oszlopBetu = (i) => {
+    let s = "", n = i + 1;
+    while (n > 0) { const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26); }
+    return s;
   };
+
   const fej = ["Vonalkód", "Saját cikkszám", "Gyártói cikkszám", "Név", "Terméktípus",
     "Rendszer", "Számolt", "Eltérés", "Eltérés érték", "Szektor", "Állapot", "Jelölés", "Megjegyzés"];
+  const szelesseg = [16, 22, 18, 42, 16, 10, 10, 10, 14, 22, 16, 10, 40];
 
-  const stilusok = ROW_COLORS_.map((c, i) =>
-    `<Style ss:ID="c${i}"><Interior ss:Color="${c}" ss:Pattern="Solid"/><Font ss:Color="#FFFFFF"/></Style>`).join("");
+  // A használt színekhez stílus (kitöltés) készül; a 0. és 1. stílus a
+  // normál és a fejléc.
+  const hasznaltSzinek = [];
+  rows.forEach(r => {
+    const i = szinek[r.vonalkod];
+    if (i !== undefined && hasznaltSzinek.indexOf(i) === -1) hasznaltSzinek.push(i);
+  });
+  const fills = hasznaltSzinek.map(i =>
+    `<fill><patternFill patternType="solid"><fgColor rgb="FF${ROW_COLORS_[i % ROW_COLORS_.length].slice(1).toUpperCase()}"/><bgColor indexed="64"/></patternFill></fill>`).join("");
+  const xfs = hasznaltSzinek.map((i, idx) =>
+    `<xf numFmtId="0" fontId="0" fillId="${idx + 2}" borderId="0" applyFill="1"/>`).join("");
+  const stilusIndex = {};
+  hasznaltSzinek.forEach((i, idx) => { stilusIndex[i] = idx + 2; });   // 0: normál, 1: fejléc
 
-  const sorok = rows.map(r => {
-    const idx = szinek[r.vonalkod];
-    const st = (idx === undefined) ? "" : "c" + (idx % ROW_COLORS_.length);
+  const styles = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+<fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts>
+<fills count="${2 + hasznaltSzinek.length}"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill>${fills}</fills>
+<borders count="1"><border/></borders>
+<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
+<cellXfs count="${2 + hasznaltSzinek.length}">
+<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
+<xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/>
+${xfs}</cellXfs>
+<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
+</styleSheet>`;
+
+  const cella = (ertek, sorIdx, oszlopIdx, stilus, szam) => {
+    const hiv = oszlopBetu(oszlopIdx) + sorIdx;
+    const st = stilus ? ` s="${stilus}"` : "";
+    if (szam) return `<c r="${hiv}"${st}><v>${Number(ertek) || 0}</v></c>`;
+    return `<c r="${hiv}"${st} t="inlineStr"><is><t xml:space="preserve">${xesc(ertek)}</t></is></c>`;
+  };
+
+  const sorokXml = [`<row r="1">${fej.map((h, i) => cella(h, 1, i, 1, false)).join("")}</row>`];
+  rows.forEach((r, idx) => {
+    const sorSzam = idx + 2;
+    const szinIdx = szinek[r.vonalkod];
+    const st = (szinIdx === undefined) ? 0 : stilusIndex[szinIdx];
     const szektor = (r.szektorok || []).filter(x => x.szektor).map(x => x.szektor + ": " + x.mennyiseg).join(", ");
     const allapot = r.ismeretlen_tobblet ? "ismeretlen"
       : (r.elteres === 0 ? "rendben" : ((r.szektorok || []).length ? "eltérés" : "nincs beolvasva"));
     const megj = (r.tetel_megjegyzesek || []).map(n => n.megjegyzes).join(" | ");
-    return `<Row>${[
-      cell(r.vonalkod, "String", st), cell(r.sajat_cikkszam || "", "String", st),
-      cell(r.gyartoi_cikkszam || "", "String", st), cell(r.nev || "", "String", st),
-      cell(r.termektipus || "", "String", st),
-      cell(r.rendszer_mennyiseg, "Number", st), cell(r.szamolt_mennyiseg, "Number", st),
-      cell(r.elteres, "Number", st), cell(Math.round(r.elteres_ertek || 0), "Number", st),
-      cell(szektor, "String", st), cell(allapot, "String", st),
-      cell(idx === undefined ? "" : (idx + 1) + ". szín", "String", st),
-      cell(megj, "String", st),
-    ].join("")}</Row>`;
-  }).join("");
+    const ertekek = [
+      [r.vonalkod, false], [r.sajat_cikkszam || "", false], [r.gyartoi_cikkszam || "", false],
+      [r.nev || "", false], [r.termektipus || "", false],
+      [r.rendszer_mennyiseg, true], [r.szamolt_mennyiseg, true], [r.elteres, true],
+      [Math.round(r.elteres_ertek || 0), true],
+      [szektor, false], [allapot, false],
+      [szinIdx === undefined ? "" : (szinIdx + 1) + ". szín", false], [megj, false],
+    ];
+    sorokXml.push(`<row r="${sorSzam}">${ertekek.map((e, i) => cella(e[0], sorSzam, i, st, e[1])).join("")}</row>`);
+  });
 
-  const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<?mso-application progid="Excel.Sheet"?>
-<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
- xmlns:o="urn:schemas-microsoft-com:office:office"
- xmlns:x="urn:schemas-microsoft-com:office:excel"
- xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
- <Styles>
-  <Style ss:ID="Default" ss:Name="Normal"><Alignment ss:Vertical="Bottom"/></Style>
-  <Style ss:ID="fej"><Font ss:Bold="1"/><Interior ss:Color="#DDDDDD" ss:Pattern="Solid"/></Style>
-  ${stilusok}
- </Styles>
- <Worksheet ss:Name="Leltár">
-  <Table>
-   <Row>${fej.map(h => cell(h, "String", "fej")).join("")}</Row>
-   ${sorok}
-  </Table>
-  <WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel">
-   <FreezePanes/><SplitHorizontal>1</SplitHorizontal><TopRowBottomPane>1</TopRowBottomPane>
-   <ActivePane>2</ActivePane>
-  </WorksheetOptions>
- </Worksheet>
-</Workbook>`;
+  const sheet = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+<sheetViews><sheetView tabSelected="1" workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>
+<cols>${szelesseg.map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`).join("")}</cols>
+<sheetData>${sorokXml.join("")}</sheetData>
+<autoFilter ref="A1:${oszlopBetu(fej.length - 1)}${rows.length + 1}"/>
+</worksheet>`;
 
-  const blob = new Blob([xml], { type: "application/vnd.ms-excel" });
+  const fajlok = [
+    { nev: "[Content_Types].xml", tartalom: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+<Default Extension="xml" ContentType="application/xml"/>
+<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
+</Types>` },
+    { nev: "_rels/.rels", tartalom: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+</Relationships>` },
+    { nev: "xl/workbook.xml", tartalom: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+<sheets><sheet name="Leltár" sheetId="1" r:id="rId1"/></sheets></workbook>` },
+    { nev: "xl/_rels/workbook.xml.rels", tartalom: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+</Relationships>` },
+    { nev: "xl/styles.xml", tartalom: styles },
+    { nev: "xl/worksheets/sheet1.xml", tartalom: sheet },
+  ];
+
+  const blob = zipCsomag_(fajlok);
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
   const d = new Date();
-  a.download = `leltar_${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}.xls`;
+  a.download = `leltar_${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}.xlsx`;
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 2000);
   showToast(`${rows.length} tétel exportálva (a lista sorrendjében, színekkel).`, "success");
@@ -2648,7 +2788,7 @@ function bindTableHead_(wrap, leltarId, container, ujraRajzol) {
         <button class="btn thFilterAll">${mindKi ? "Mindet törli" : "Mindet kijelöli"}</button>
         <div class="thFilterList">
           ${ertekek.map((v, i) => `
-            <label><input type="checkbox" value="${escapeHtml(v)}"${benne(v) ? " checked" : ""}> ${escapeHtml(v)}</label>`).join("")
+            <label><input type="checkbox" value="${escapeHtml(v)}"${benne(v) ? " checked" : ""}><span class="ertekSzoveg">${escapeHtml(v)}</span></label>`).join("")
             || `<div class="emptyNote">Nincs érték.</div>`}
         </div>
         <div class="thFilterFoot">
@@ -2716,12 +2856,17 @@ function bindTableExtras_(wrap, leltarId, container) {
       const aktiv = container._pairMode ? kovetkezoParSzin_(leltarId) : (container._activeColorIdx || 0);
       const radir = !container._pairMode && container._activeColorIdx === -1;
 
-      // Jelölés levétele: ha radír van kiválasztva, vagy a sor már pont
-      // ezzel a színnel van jelölve.
-      if (most !== undefined && (radir || most === aktiv)) {
+      // Jelölés levétele. Párosítás módban MINDEN már jelölt sor
+      // kattintása levétel — akkor is, ha a rendszer időközben már a
+      // következő színnél tart (egy kész pár tagjára visszakattintva is
+      // egyszerűen lekerül a jelölés, nem kap új színt). Színválasztóval
+      // dolgozva a levétel az azonos színre és a radírra vonatkozik; más
+      // színnel az átszínezés a logikus.
+      if (most !== undefined && (container._pairMode || radir || most === aktiv)) {
         const tarsak = szinnelJeloltek_(leltarId, most).filter(x => x !== bc);
         setRowColor_(leltarId, bc, null);
         alkalmazSorSzin_(tr, leltarId, bc);
+        if (container._frissitSzinValaszto) container._frissitSzinValaszto();
         if (tarsak.length) {
           const mind = await showConfirm(
             `Ehhez a jelöléshez még ${tarsak.length} másik tétel tartozik. Azokról is levegyem a színt?`,
@@ -2732,6 +2877,7 @@ function bindTableExtras_(wrap, leltarId, container) {
               const sor = wrap.querySelector(`tr.tblRow[data-barcode="${CSS.escape(x)}"]`);
               if (sor) alkalmazSorSzin_(sor, leltarId, x);
             });
+            if (container._frissitSzinValaszto) container._frissitSzinValaszto();
           }
         }
         return;
@@ -2739,6 +2885,7 @@ function bindTableExtras_(wrap, leltarId, container) {
       if (radir) return;                 // színtelen sor + radír: nincs teendő
       setRowColor_(leltarId, bc, aktiv);
       alkalmazSorSzin_(tr, leltarId, bc);
+      if (container._frissitSzinValaszto) container._frissitSzinValaszto();
     });
   });
 
