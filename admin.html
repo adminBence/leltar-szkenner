@@ -324,6 +324,8 @@
   /* ---------- Értesítési panel (alert() helyett) ---------- */
   #toastContainer{position:fixed; bottom:20px; right:20px; left:20px; z-index:2000;
     display:flex; flex-direction:column; align-items:flex-end; gap:10px; pointer-events:none;}
+  .verzioJel{font-size:10.5px; color:var(--text-dim); margin-right:10px;
+    border:1px solid var(--line); border-radius:5px; padding:1px 6px;}
   .toast{pointer-events:auto; max-width:380px; width:100%; background:var(--panel);
     border:1px solid var(--line); border-left:4px solid var(--accent); border-radius:10px;
     padding:14px 34px 14px 16px; box-shadow:0 8px 24px rgba(0,0,0,0.45); font-size:14px;
@@ -3994,7 +3996,7 @@ function decodeJwtPayload_(token) {
 function onLoginVerified_() {
   el("authGateOverlay").classList.add("hide");
   el("authGateError").style.display = "none";
-  el("signedInAs").innerHTML = `${escapeHtml(googleUserName || googleUserEmail)} <button id="signOutBtn">Kijelentkezés</button>`;
+  el("signedInAs").innerHTML = `${backendVersion_ ? `<span class="verzioJel" title="A telepített szerver-verzió">szerver: ${escapeHtml(backendVersion_)}</span>` : ""}${escapeHtml(googleUserName || googleUserEmail)} <button id="signOutBtn">Kijelentkezés</button>`;
   el("signOutBtn").addEventListener("click", () => {
     googleIdToken = null;
     googleUserEmail = null;
@@ -4047,6 +4049,7 @@ async function handleGoogleCredential(response) {
   showLoginLoading_(true);
   try {
     const result = await apiPost({ action: "verify_login" });
+    if (result && result.backend_version) backendVersion_ = result.backend_version;
     if (result.error) {
       googleIdToken = null;
       showLoginLoading_(false);
@@ -4070,6 +4073,10 @@ async function handleGoogleCredential(response) {
 // Oldal-frissítéskor ELŐSZÖR ezt próbáljuk: ha van még érvényes,
 // korábban elmentett munkamenet, azzal jelentkezünk be újra —
 // megbízhatóbb, mint a Google csendes prompt-ja.
+// A telepített szerver-verzió (a fejlécben látszik) — így azonnal
+// kiderül, ha a böngészőben friss felület fut, de a szerveren régi kód.
+let backendVersion_ = null;
+
 async function trySilentSessionRestore_() {
   const stored = loadTokenFromStorage_();
   if (!stored) return false;
@@ -4079,6 +4086,7 @@ async function trySilentSessionRestore_() {
   scheduleTokenRefresh_({ exp: stored.exp });
   try {
     const result = await apiPost({ action: "verify_login" });
+    if (result && result.backend_version) backendVersion_ = result.backend_version;
     if (result.error) {
       // Csak akkor dobjuk el a munkamenetet, ha a szerver VALÓDI
       // jogosultsági hibát jelzett — ha csak átmeneti (pl. időtúllépés,
