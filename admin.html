@@ -161,6 +161,8 @@
   .recountNote{font-size:11px; color:var(--warn); margin-top:2px;}
 
   /* ---------- Haladás ("Eddig beolvasott adatok") ---------- */
+  .sectorLink{cursor:pointer;}
+  .sectorLink:hover{background:var(--panel-2);}
   .progressRow{display:flex; align-items:center; justify-content:space-between;
     padding:10px 14px; background:var(--panel-2); border:1px solid var(--line); border-radius:10px; margin-bottom:6px; font-size:14px;}
   .progressRow .meta{font-size:11px; color:var(--text-dim);}
@@ -1145,10 +1147,12 @@ function renderProgressHtml(progress) {
     if (!isNaN(na) && !isNaN(nb) && na !== nb) return na - nb;
     return String(a.szektor).localeCompare(String(b.szektor), "hu");
   });
+  // A sorra kattintva kilistázzuk, milyen termékek vannak az adott
+  // szektorban — így ellenőrizhető, mi került bele és mi hiányzik.
   return sorted.map(p => `
-    <div class="progressRow">
+    <div class="progressRow sectorLink" data-sector="${escapeHtml(p.szektor)}" title="Kattints a szektor tételeinek megtekintéséhez">
       <span><b>${escapeHtml(p.szektor)}. szektor</b> — ${p.tetel_fajta} féle tétel, ${p.db_osszesen} db összesen</span>
-      <span class="meta">${escapeHtml(formatDateTime(p.utolso_beolvasas))}</span>
+      <span class="meta">${escapeHtml(formatDateTime(p.utolso_beolvasas))} ›</span>
     </div>
   `).join("");
 }
@@ -1297,6 +1301,25 @@ function buildConflictsHtml_(szektor_konfliktusok, showActions) {
     </div>` : "";
 }
 
+// A "Szektoronkénti haladás" soraira kattintva a keresőbe írjuk a
+// szektort, és kilistázzuk a benne lévő tételeket.
+function bindSectorLinks_(root) {
+  root.querySelectorAll(".sectorLink").forEach(row => {
+    if (row._sectorBound) return;
+    row._sectorBound = true;
+    row.addEventListener("click", () => {
+      const cont = row.closest("#reportContainer, #historyReportContainer") || document.getElementById("reportContainer");
+      const input = cont && cont.querySelector("#reportSearchInput");
+      if (!input) return;
+      input.value = "szektor:" + row.dataset.sector;
+      cont._searchQuery = input.value;
+      input.dispatchEvent(new Event("input"));
+      const card = cont.querySelector("#elteresekCard");
+      if (card) card.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  });
+}
+
 // Összecsukható szekciók bekötése. Külön függvényben, mert az élő
 // frissítés egyes részeket (pl. a szektor-ütközéseket) újrarajzol —
 // ilyenkor az új fejlécekre újra be kell kötni a kattintást.
@@ -1411,7 +1434,7 @@ function renderFullReport(container, report, opts) {
     <div class="card" id="reportSearchCard">
       <div class="cardTitle">Keresés a tételek között</div>
       <div class="row" style="gap:8px;">
-        <input type="text" id="reportSearchInput" placeholder="Vonalkód, cikkszám vagy terméknév…"
+        <input type="text" id="reportSearchInput" placeholder="Vonalkód, cikkszám, terméknév vagy „szektor:143”…"
           style="flex:1 1 auto; font-size:14px; padding:10px 12px;">
         <button class="btn" id="reportSearchClearBtn" style="display:none;">Vissza</button>
       </div>
@@ -1559,6 +1582,7 @@ function renderFullReport(container, report, opts) {
   // rendben) alapból csukva vannak, hogy a lényeg — az eltérések —
   // legyen szem előtt. A ki-/becsukott állapot megjegyződik.
   bindCollapsibles_(container);
+  bindSectorLinks_(container);
 
   const searchInput = container.querySelector("#reportSearchInput");
   if (searchInput) {
@@ -1598,7 +1622,17 @@ function renderFullReport(container, report, opts) {
       if (container._updateSelectionUi) container._updateSelectionUi();
     };
 
+    // "szektor:143" / "143. szektor" / "sz:143" -> az adott szektorban
+    // beolvasott tételek listája.
+    const sectorQuery_ = (q) => {
+      const m = q.match(/^(?:szektor|sz)\s*[:\s]\s*(\S+)$/i) || q.match(/^(\S+)\.?\s*szektor$/i);
+      return m ? m[1].replace(/\.$/, "") : null;
+    };
     const matches_ = (r, q) => {
+      const sect = sectorQuery_(q);
+      if (sect !== null) {
+        return (r.szektorok || []).some(x => String(x.szektor) === String(sect));
+      }
       const qNorm = q.replace(/^0+/, "");
       const vk = String(r.vonalkod || "").toLowerCase();
       // A NÉV helyett a megjelenített nevet nézzük: az ismeretlen
@@ -1627,7 +1661,12 @@ function renderFullReport(container, report, opts) {
         diffWrap.innerHTML = `<p class="emptyNote">Nincs találat erre: "${escapeHtml(searchInput.value)}"</p>`;
         return;
       }
-      if (titleEl) titleEl.textContent = `Keresés — ${hits.length} találat`;
+      const sectLabel = sectorQuery_(q);
+      if (titleEl) {
+        titleEl.textContent = sectLabel !== null
+          ? `${sectLabel}. szektor — ${hits.length} tétel`
+          : `Keresés — ${hits.length} találat`;
+      }
       const lista = hits.slice(0, 200);
       diffWrap.innerHTML = lista.map(r => renderDiffRowHtml(r, showActions, isOpen)).join("") +
         (hits.length > lista.length ? `<p class="emptyNote">…és még ${hits.length - lista.length} találat — pontosíts a keresésen.</p>` : "");
@@ -2552,7 +2591,7 @@ function updateReportLiveInPlace_(leltarId, container, report, opts) {
   if (container._progressSig !== progressSig) {
     container._progressSig = progressSig;
     const progressWrap = container.querySelector("#progressWrap");
-    if (progressWrap) progressWrap.innerHTML = renderProgressHtml(progress);
+    if (progressWrap) { progressWrap.innerHTML = renderProgressHtml(progress); bindSectorLinks_(progressWrap); }
   }
 
   const felelosWrap = container.querySelector("#felelosWrap");
