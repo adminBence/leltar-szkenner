@@ -100,10 +100,11 @@
   .diffRow .rowQty .kv b{color:var(--text); font-weight:700;}
   .diffRow .rowQty .chip{font-style:normal; background:var(--panel); border:1px solid var(--line);
     border-radius:5px; padding:0 6px; margin-right:4px; font-size:10.5px;}
-  .diffRow .tag{font-size:9.5px; font-weight:700; letter-spacing:.03em; padding:1px 5px;
-    border-radius:4px; flex:0 0 auto;}
-  .diffRow .tag.warn{background:#4a3a17; color:var(--warn);}
-  .diffRow .tag.danger{background:#4a1f1b; color:var(--danger);}
+  .tag{display:inline-block; font-size:9.5px; font-weight:700; letter-spacing:.03em;
+    padding:1px 5px; border-radius:4px; flex:0 0 auto; white-space:nowrap;}
+  .tag.warn{background:#4a3a17; color:var(--warn);}
+  .tag.danger{background:#4a1f1b; color:var(--danger);}
+  .progressRow .tag{margin-left:6px;}
   /* Törlés a termék neve mellett — jól látható, piros kuka. */
   .rowDeleteBtn{flex:0 0 auto; width:25px; height:25px; border-radius:7px; padding:0; border:none;
     background:var(--danger); color:#fff; font-size:13px; line-height:1; cursor:pointer;
@@ -1140,7 +1141,20 @@ async function loadActiveLeltarak() {
   }
 }
 
-function renderProgressHtml(progress) {
+// Szektoronként megszámolja, hány ISMERETLEN tétel van benne — így a
+// haladás-listán egy pillantásra látszik, melyik szektorban van
+// tisztázatlan beolvasás.
+function unknownBySector_(diff) {
+  const m = {};
+  (diff || []).filter(r => r.ismeretlen_tobblet).forEach(r => {
+    (r.szektorok || []).forEach(sz => {
+      if (sz.szektor) m[sz.szektor] = (m[sz.szektor] || 0) + 1;
+    });
+  });
+  return m;
+}
+
+function renderProgressHtml(progress, ismeretlenek) {
   if (!progress.length) return `<p class="emptyNote">Még nincs egyetlen beolvasás sem ebben a leltárban.</p>`;
   const sorted = [...progress].sort((a, b) => {
     const na = parseInt(a.szektor, 10), nb = parseInt(b.szektor, 10);
@@ -1151,7 +1165,8 @@ function renderProgressHtml(progress) {
   // szektorban — így ellenőrizhető, mi került bele és mi hiányzik.
   return sorted.map(p => `
     <div class="progressRow sectorLink" data-sector="${escapeHtml(p.szektor)}" title="Kattints a szektor tételeinek megtekintéséhez">
-      <span><b>${escapeHtml(p.szektor)}. szektor</b> — ${p.tetel_fajta} féle tétel, ${p.db_osszesen} db összesen</span>
+      <span><b>${escapeHtml(p.szektor)}. szektor</b> — ${p.tetel_fajta} féle tétel, ${p.db_osszesen} db összesen
+        ${(ismeretlenek && ismeretlenek[p.szektor]) ? `<span class="tag warn" title="Ismeretlen termék ebben a szektorban">⚠ ${ismeretlenek[p.szektor]} ismeretlen</span>` : ""}</span>
       <span class="meta">${escapeHtml(formatDateTime(p.utolso_beolvasas))} ›</span>
     </div>
   `).join("");
@@ -1420,8 +1435,12 @@ function renderFullReport(container, report, opts) {
         <div class="summaryBox"><div class="num">${formatFt(osszesito.osszes_rendszer_ertek)}</div><div class="lbl">teljes készlet értéke (rendszer szerint)</div></div>
       </div>` : ""}
 
-      <div class="cardTitle collapsible collapsed" data-collapse="progressWrap"><span class="arrow">▾</span>Szektoronkénti haladás</div>
-      <div id="progressWrap" class="collapseBody collapsed">${renderProgressHtml(progress)}</div>
+      <div class="cardTitle collapsible collapsed" data-collapse="progressWrap"><span class="arrow">▾</span>Szektoronkénti haladás${(() => {
+        const u = unknownBySector_(diff);
+        const db = Object.keys(u).length;
+        return db ? ` <span class="tag warn">⚠ ${db} szektorban ismeretlen</span>` : "";
+      })()}</div>
+      <div id="progressWrap" class="collapseBody collapsed">${renderProgressHtml(progress, unknownBySector_(diff))}</div>
 
       <div class="cardTitle collapsible collapsed" style="margin-top:16px;" data-collapse="felelosWrap"><span class="arrow">▾</span>Ki mit csinált</div>
       <div id="felelosWrap" class="collapseBody collapsed">${felelosHtml}</div>
@@ -2591,7 +2610,7 @@ function updateReportLiveInPlace_(leltarId, container, report, opts) {
   if (container._progressSig !== progressSig) {
     container._progressSig = progressSig;
     const progressWrap = container.querySelector("#progressWrap");
-    if (progressWrap) { progressWrap.innerHTML = renderProgressHtml(progress); bindSectorLinks_(progressWrap); }
+    if (progressWrap) { progressWrap.innerHTML = renderProgressHtml(progress, unknownBySector_(diff)); bindSectorLinks_(progressWrap); }
   }
 
   const felelosWrap = container.querySelector("#felelosWrap");
