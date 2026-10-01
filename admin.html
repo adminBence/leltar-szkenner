@@ -1496,7 +1496,11 @@ function renderFullReport(container, report, opts) {
   const rendben = isOpen
     ? diff.filter(r => beolvastakE_(r) && r.elteres === 0)
     : diff.filter(r => r.elteres === 0);
-  const hatravan = isOpen ? diff.filter(r => !beolvastakE_(r)) : [];
+  // A beolvasásra váró lista: amit még nem olvastak be ÉS a rendszer
+  // szerint van is belőle készlet. Ha a készletét 0-ra javították (pl.
+  // mert a leltár alatt elfogyott), nincs mire várni — a tétel átkerül
+  // a "Rendben" közé.
+  const hatravan = isOpen ? diff.filter(r => !beolvastakE_(r) && r.elteres !== 0) : [];
   buildPairIndex_(diff);
 
   const felelosHtml = buildFelelosHtml_(szektor_felelosok);
@@ -1618,9 +1622,14 @@ function renderFullReport(container, report, opts) {
     <div class="card" id="pendingCard">
       <div class="cardTitle collapsible collapsed" data-collapse="pendingBody"><span class="arrow">▾</span>Beolvasásra vár (${hatravan.length} tétel)</div>
       <div id="pendingBody" class="collapseBody collapsed">
-      <div class="metaLine" style="margin-bottom:10px;">Ezeket még egyetlen szektorban sem olvasták be.</div>
+      <div class="metaLine" style="margin-bottom:8px;">Ezeket még egyetlen szektorban sem olvasták be.</div>
+      ${showActions ? `<div class="row" style="margin-bottom:10px; gap:8px; align-items:center;">
+        <button class="btn laurel" id="pendingLaurelBtn">⭯ Frissítés Laurelből</button>
+        <span class="metaLine" id="pendingLaurelMsg" style="margin:0;">Megnézi az élő készletet; amit a leltár alatt eladtatok (0 db), az kikerül a listából.</span>
+      </div>` : ""}
       <div id="pendingListWrap" style="max-height:340px; overflow-y:auto;">
-        ${hatravan.slice(0, PENDING_PAGE_SIZE_).map(r => pendingListRowHtml_(r)).join("")}
+        ${(() => { const tm = buildTarsMeretMap_(diff);
+          return hatravan.slice(0, PENDING_PAGE_SIZE_).map(r => pendingListRowHtml_(r, tm)).join(""); })()}
       </div>
       ${hatravan.length > PENDING_PAGE_SIZE_ ? `
       <div class="row" style="justify-content:center; margin-top:10px;" id="pendingLoadMoreWrap">
@@ -1973,6 +1982,41 @@ function renderFullReport(container, report, opts) {
   }
   updateSelectionUi_();
 
+  // "Frissítés Laurelből" a beolvasásra váró tételekre.
+  const pendingBtn = container.querySelector("#pendingLaurelBtn");
+  if (pendingBtn) {
+    pendingBtn.addEventListener("click", async () => {
+      if (!(await showConfirm(
+        `Megnézzem a beolvasásra váró ${hatravan.length} tétel élő készletét a Laurelben? ` +
+        `Amelyikből már nincs készlet (0 db), annál a rendszer szerinti mennyiséget 0-ra javítom — ` +
+        `naplózva, így utólag is látszik —, és kikerül a listából.`,
+        { yesLabel: "Mehet", positive: true }))) return;
+      pendingBtn.disabled = true;
+      const eredeti = pendingBtn.textContent;
+      pendingBtn.innerHTML = `<span class="spinner" style="width:12px; height:12px; border-width:2px; display:inline-block; vertical-align:middle; margin-right:6px;"></span>Ellenőrzés folyamatban…`;
+      const msg = container.querySelector("#pendingLaurelMsg");
+      try {
+        const res = await apiPost({ action: "check_pending_laurel", leltar_id: leltar.leltar_id });
+        if (res.error) {
+          showToast("Hiba: " + res.error, "error");
+        } else {
+          showToast(res.nullazva
+            ? `${res.nullazva} tétel kikerült a listából (a Laurel szerint elfogytak).`
+            : "Egyetlen tételnél sem fogyott el a készlet.", "success");
+          if (msg) {
+            msg.innerHTML = `Ellenőrizve: ${res.ellenorizve} tétel · elfogyott: <b>${res.nullazva}</b>`
+              + (res.nincs_laurelben ? ` · a Laurelben nem szerepel: ${res.nincs_laurelben}` : "");
+          }
+          refreshSingleDiffRow(leltar.leltar_id, null, container);
+        }
+      } catch (e) {
+        showToast("Hiba: " + e.message, "error");
+      }
+      pendingBtn.disabled = false;
+      pendingBtn.textContent = eredeti;
+    });
+  }
+
   // Tömeges készlet-frissítés az LKR-ből a KIJELÖLT tételekre.
   const bulkBtn = container.querySelector("#bulkLiveBtn");
   if (bulkBtn) {
@@ -2120,12 +2164,40 @@ function okListRowHtml_(r) {
 // A "beolvasásra vár" lista sora — VAKLELTÁR: itt SZÁNDÉKOSAN nem
 // mutatjuk a rendszer szerinti mennyiséget, mert a beolvasás még
 // hátravan, és az előre látott darabszám befolyásolná a számolást.
-function pendingListRowHtml_(r) {
+function pendingListRowHtml_(r, tarsMap) {
+  const info = r.hatralevo_info;
+  const tarsak = (tarsMap && r.gyartoi_cikkszam) ? (tarsMap[r.gyartoi_cikkszam] || []) : [];
+  const reszek = [];
+  if (info && info.laurel_keszlet !== null && info.laurel_keszlet !== undefined) {
+    reszek.push(`<span class="tag" style="background:rgba(178,132,255,.16); color:#c3a4ff;">Laurel: ${info.laurel_keszlet} db</span>`);
+  }
+  if (info && info.utolso_szektor) {
+    reszek.push(`<span style="color:var(--text-dim);">Korábbi leltárban utoljára a ${escapeHtml(info.utolso_szektor)}. szektorban</span>`);
+  }
+  if (tarsak.length) {
+    reszek.push(`<span style="color:var(--text-dim);">Más méret ugyanebből: ${tarsak.map(t =>
+      `${escapeHtml(t.meret)} → ${escapeHtml(t.szektorok)}. szektor`).join(", ")}</span>`);
+  }
   return `
     <div style="padding:7px 10px; border-bottom:1px solid var(--line); font-size:12px;">
       <b>${escapeHtml(r.nev || "Ismeretlen termék")}</b>
       <span style="color:var(--text-dim);"> — ${escapeHtml(r.sajat_cikkszam || "—")} · ${escapeHtml(r.vonalkod)}</span>
+      ${reszek.length ? `<div style="margin-top:3px; display:flex; flex-wrap:wrap; gap:8px; align-items:center; font-size:11px;">${reszek.join("")}</div>` : ""}
     </div>`;
+}
+
+// Azonos gyártói cikkszámú (= ugyanaz a termék más méretben) tételek,
+// amiket MÁR beolvastak — segít megtalálni, hol lehet a hiányzó méret.
+function buildTarsMeretMap_(diff) {
+  const m = {};
+  (diff || []).forEach(r => {
+    if (!r.gyartoi_cikkszam) return;
+    const szektorok = (r.szektorok || []).filter(x => x.szektor).map(x => x.szektor);
+    if (!szektorok.length) return;
+    const meret = (r.sajat_cikkszam || "").split("-").pop() || r.vonalkod;
+    (m[r.gyartoi_cikkszam] = m[r.gyartoi_cikkszam] || []).push({ meret: meret, szektorok: szektorok.join(", ") });
+  });
+  return m;
 }
 
 // Egyszerű felsorolás-sor a "beolvasásra vár" / "rendben" listákhoz.
