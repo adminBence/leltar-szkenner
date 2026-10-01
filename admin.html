@@ -1428,6 +1428,7 @@ function bindCollapsibles_(root) {
 }
 
 function renderFullReport(container, report, opts) {
+  normalizeDiffRows_(report && report.diff);
   const { leltar, diff, osszesito, szektor_felelosok, progress, torolt_ismeretlen, szektor_konfliktusok } = report;
   const isOpen = leltar.statusz === "folyamatban";
   const showActions = !!opts.showActions && isOpen;
@@ -1685,6 +1686,15 @@ function renderFullReport(container, report, opts) {
   // legyen szem előtt. A ki-/becsukott állapot megjegyződik.
   bindCollapsibles_(container);
   bindSectorLinks_(container);
+
+  // A szerver által mért időket kiírjuk — így egy lassulás oka azonnal
+  // látszik, nem kell találgatni.
+  if (report.meres_ms) {
+    const m = report.meres_ms;
+    const reszek = Object.keys(m).filter(k => k !== "osszesen").map(k => `${k.replace(/_/g, " ")}: ${(m[k] / 1000).toFixed(1)} mp`);
+    container.insertAdjacentHTML("beforeend",
+      `<p class="metaLine" style="text-align:right; opacity:.7;">Riport elkészítése: ${(m.osszesen / 1000).toFixed(1)} mp (${reszek.join(" · ")})</p>`);
+  }
 
   const searchInput = container.querySelector("#reportSearchInput");
   if (searchInput) {
@@ -2187,6 +2197,37 @@ function bindConflictButtons_(wrapEl, leltarId, container, opts) {
 }
 
 // A sor paneljeit az első kattintáskor építjük fel (lásd renderDiffRowHtml).
+// A tétel kiegészítő adatai (készlet a többi raktárban, nem
+// véglegesített szállítólevél) — ezek NEM a riporttal jönnek, mert ott
+// minden tételre lefutva nagyon lassúak voltak. Itt egyetlen tételre
+// kérjük le, akkor, amikor tényleg megnézik.
+const itemExtraCache_ = {};
+async function loadItemExtra_(barcode) {
+  const doboz = document.getElementById("diffrow-" + barcode + "-extra");
+  if (!doboz || doboz.dataset.loaded) return;
+  doboz.dataset.loaded = "1";
+  const kiir = (adat) => {
+    const reszek = [];
+    if (adat.nem_veglegesitett_szallitolevel) {
+      reszek.push(`<div class="recountNote" style="color:var(--warn);">⚠ Nem véglegesített szállítólevélen szerepel — szám(ok): ${escapeHtml(adat.nem_veglegesitett_szallitolevel.szamok || "ismeretlen")}</div>`);
+    }
+    const mr = adat.masik_raktar || [];
+    reszek.push(mr.length
+      ? `<div class="otherWarehouses">Más raktárak — ${mr.map(o => `${escapeHtml(o.raktar)}: ${o.mennyiseg} db`).join(" · ")}</div>`
+      : `<div class="otherWarehouses">Más raktárban nincs készlet.</div>`);
+    doboz.innerHTML = reszek.join("");
+  };
+  if (itemExtraCache_[barcode]) { kiir(itemExtraCache_[barcode]); return; }
+  try {
+    const adat = await apiGet({ action: "item_extra", barcode: barcode });
+    if (adat && !adat.error) { itemExtraCache_[barcode] = adat; kiir(adat); }
+    else doboz.innerHTML = `<span class="panelHint">A kiegészítő adatok nem érhetők el.</span>`;
+  } catch (e) {
+    doboz.dataset.loaded = "";
+    doboz.innerHTML = `<span class="panelHint">A kiegészítő adatok betöltése nem sikerült.</span>`;
+  }
+}
+
 function ensureRowPanels_(rowEl, container, isOpen, leltarId) {
   const host = rowEl.querySelector(".rowPanelHost");
   if (!host || host.innerHTML) return;
@@ -2437,6 +2478,7 @@ function renderTableRowHtml_(r, showActions, isOpen, leltarId, szinekElore) {
   if (showActions && (!r.ismeretlen_tobblet || !r.ismeretlen_termek)) g.push(`<button class="btn tblBtn act-laurel" data-refresh-toggle="${escapeHtml(r.vonalkod)}" title="Készlet a Laurelből">⭯</button>`);
   if (showActions && r.ismeretlen_tobblet) g.push(`<button class="btn tblBtn act-barcode" data-barcode-toggle="${escapeHtml(r.vonalkod)}" title="Vonalkód javítása">⌗</button>`);
   if (parok.length) g.push(`<button class="btn tblBtn act-pair" data-pair-toggle="${escapeHtml(r.vonalkod)}" title="Lehetséges eltérés-pár (${parok.length})">⇄</button>`);
+  g.push(`<button class="btn tblBtn act-details" data-details-toggle="${escapeHtml(r.vonalkod)}" title="Részletek">ⓘ</button>`);
   if (showActions && r.ismeretlen_tobblet) g.push(`<button class="btn tblBtn danger" data-delete-unknown="${escapeHtml(r.vonalkod)}" title="Törlés">${TRASH_ICON_}</button>`);
 
   return `
@@ -2456,24 +2498,23 @@ function renderTableRowHtml_(r, showActions, isOpen, leltarId, szinekElore) {
 function buildRowPanels_(r, showCheckbox, isOpen) {
   const rowId = "diffrow-" + escapeHtml(r.vonalkod);
   const mask = isOpen ? (html) => `<span class="maskedNum">${html}</span>` : (html) => html;
-  const others = (r.masik_raktar || []).map(o => `${escapeHtml(o.raktar)}: ${mask(o.mennyiseg + " db")}`).join(" · ");
   const recountCount = (r.ujraszamolasok || []).length;
   const correctionCount = (r.rendszer_korrekciok || []).length;
   const noteCount = (r.tetel_megjegyzesek || []).length;
-  const vanSzallitolevel = !!r.nem_veglegesitett_szallitolevel;
-  const reszletDb = recountCount + correctionCount + noteCount + (others ? 1 : 0) + (vanSzallitolevel ? 1 : 0);
+  const reszletDb = recountCount + correctionCount + noteCount;
   const parok = pairIndex_[r.vonalkod] || [];
-  const reszletekPanel = reszletDb ? `
+  const reszletekPanel = `
     <div id="${rowId}-details" class="rowPanel" style="display:none;">
-      ${vanSzallitolevel ? `<div class="recountNote" style="color:var(--warn);">⚠ Nem véglegesített szállítólevélen szerepel — szám(ok): ${escapeHtml(r.nem_veglegesitett_szallitolevel.szamok || "ismeretlen")}</div>` : ""}
-      ${others ? `<div class="otherWarehouses">Más raktárak — ${others}</div>` : ""}
+      <div id="${rowId}-extra" class="itemExtra" data-barcode="${escapeHtml(r.vonalkod)}">
+        <span class="panelHint">Készlet a többi raktárban, szállítólevél — betöltés…</span>
+      </div>
       ${recountCount ? `<div class="recountNote"><b>Újraszámolva/módosítva ${recountCount}×:</b>
         ${r.ujraszamolasok.map(u => recountLineHtml_(u, mask, "margin-top:2px; padding-left:8px;")).join("")}</div>` : ""}
       ${correctionCount ? `<div class="recountNote" style="color:var(--accent);"><b>Rendszer-adat javítva ${correctionCount}×:</b>
         ${r.rendszer_korrekciok.map(c => correctionLineHtml_(c, mask, "margin-top:2px; padding-left:8px;")).join("")}</div>` : ""}
       <div id="${rowId}-notes-list">${(r.tetel_megjegyzesek || []).map(n =>
         `<div class="recountNote">💬 ${escapeHtml(n.felhasznalo)}, ${escapeHtml(formatDateTime(n.idobelyeg))}: ${escapeHtml(n.megjegyzes)}</div>`).join("")}</div>
-    </div>` : "";
+    </div>`;
 
   const adminQtyPanel = showCheckbox ? `
     <div id="${rowId}-qtymod" class="rowPanel" style="display:none;">
@@ -2966,23 +3007,22 @@ function renderDiffRowHtml(r, showCheckbox, isOpen) {
   const nincsBeolvasva = (r.elteres !== 0 && !beolvasottSzektorok.length);
 
   // ---- Részletek (ritkán kell, ezért gomb mögött) ----
-  const others = (r.masik_raktar || []).map(o => `${escapeHtml(o.raktar)}: ${mask(o.mennyiseg + " db")}`).join(" · ");
   const recountCount = (r.ujraszamolasok || []).length;
   const correctionCount = (r.rendszer_korrekciok || []).length;
   const noteCount = (r.tetel_megjegyzesek || []).length;
-  const vanSzallitolevel = !!r.nem_veglegesitett_szallitolevel;
-  const reszletDb = recountCount + correctionCount + noteCount + (others ? 1 : 0) + (vanSzallitolevel ? 1 : 0);
-  const reszletekPanel = reszletDb ? `
+  const reszletDb = recountCount + correctionCount + noteCount;
+  const reszletekPanel = `
     <div id="${rowId}-details" class="rowPanel" style="display:none;">
-      ${vanSzallitolevel ? `<div class="recountNote" style="color:var(--warn);">⚠ Nem véglegesített szállítólevélen szerepel — szám(ok): ${escapeHtml(r.nem_veglegesitett_szallitolevel.szamok || "ismeretlen")}</div>` : ""}
-      ${others ? `<div class="otherWarehouses">Más raktárak — ${others}</div>` : ""}
+      <div id="${rowId}-extra" class="itemExtra" data-barcode="${escapeHtml(r.vonalkod)}">
+        <span class="panelHint">Készlet a többi raktárban, szállítólevél — betöltés…</span>
+      </div>
       ${recountCount ? `<div class="recountNote"><b>Újraszámolva/módosítva ${recountCount}×:</b>
         ${r.ujraszamolasok.map(u => recountLineHtml_(u, mask, "margin-top:2px; padding-left:8px;")).join("")}</div>` : ""}
       ${correctionCount ? `<div class="recountNote" style="color:var(--accent);"><b>Rendszer-adat javítva ${correctionCount}×:</b>
         ${r.rendszer_korrekciok.map(c => correctionLineHtml_(c, mask, "margin-top:2px; padding-left:8px;")).join("")}</div>` : ""}
       <div id="${rowId}-notes-list">${(r.tetel_megjegyzesek || []).map(n =>
         `<div class="recountNote">💬 ${escapeHtml(n.felhasznalo)}, ${escapeHtml(formatDateTime(n.idobelyeg))}: ${escapeHtml(n.megjegyzes)}</div>`).join("")}</div>
-    </div>` : "";
+    </div>`;
 
   // ---- Műveleti gombok (egy sorban, kis pill-gombok) ----
   const g = [];
@@ -2999,7 +3039,7 @@ function renderDiffRowHtml(r, showCheckbox, isOpen) {
   if (parok.length) {
     g.push(`<button class="btn rowActionBtn act-pair" data-pair-toggle="${escapeHtml(r.vonalkod)}">⇄ Lehetséges eltérés-pár (${parok.length})</button>`);
   }
-  if (reszletDb) g.push(`<button class="btn rowActionBtn act-details${vanSzallitolevel ? " warn" : ""}" data-details-toggle="${escapeHtml(r.vonalkod)}">${vanSzallitolevel ? "⚠ " : ""}Részletek (${reszletDb})</button>`);
+  g.push(`<button class="btn rowActionBtn act-details" data-details-toggle="${escapeHtml(r.vonalkod)}">Részletek${reszletDb ? ` (${reszletDb})` : ""}</button>`);
   const actionsHtml = g.length ? `<div class="rowActions">${g.join("")}</div>` : "";
 
   // A panelek (szerkesztő mezők, részletek) CSAK kattintásra készülnek
@@ -3200,8 +3240,12 @@ function bindDiffRowRefreshButtons(wrapEl, leltarId, targetContainer) {
 
   wrapEl.querySelectorAll("[data-details-toggle]").forEach(btn => {
     btn.addEventListener("click", () => {
-      const panel = document.getElementById("diffrow-" + btn.dataset.detailsToggle + "-details");
-      if (panel) panel.style.display = panel.style.display !== "flex" ? "flex" : "none";
+      const bc = btn.dataset.detailsToggle;
+      const panel = document.getElementById("diffrow-" + bc + "-details");
+      if (!panel) return;
+      const nyit = panel.style.display !== "flex";
+      panel.style.display = nyit ? "flex" : "none";
+      if (nyit) loadItemExtra_(bc);
     });
   });
 
@@ -3344,8 +3388,23 @@ function isReportBusy_() {
 // ezeket fésüljük bele a megtartott riportba, az összesítőt pedig
 // helyben számoljuk újra. Így egy több ezer tételes leltárnál sem kell
 // minden frissítésnél az egész riportot újraszámolni.
+// A szerver a helytakarékosság miatt nem küldi el az ÜRES mezőket (egy
+// több ezer tételes riportnál ez sok száz kilobájt különbség). Itt egy
+// helyen pótoljuk őket, hogy a megjelenítés mindenhol számíthasson
+// rájuk.
+function normalizeDiffRows_(diff) {
+  (diff || []).forEach(r => {
+    if (!r.szektorok) r.szektorok = [];
+    if (!r.ujraszamolasok) r.ujraszamolasok = [];
+    if (!r.rendszer_korrekciok) r.rendszer_korrekciok = [];
+    if (!r.tetel_megjegyzesek) r.tetel_megjegyzesek = [];
+  });
+  return diff;
+}
+
 function rememberReport_(container, report) {
   if (!container || !report || !report.diff) return;
+  normalizeDiffRows_(report.diff);
   container._report = report;
   container._lastSyncClientMs = Date.now();
   if (report.generated_ms) container._sinceMs = report.generated_ms;
@@ -3382,6 +3441,7 @@ function computeOsszesito_(diff) {
 // régi sorai kikerülnek, a frissek bekerülnek (ha egy tétel nem jött
 // vissza — pl. törölt ismeretlen többlet —, az így el is tűnik).
 function mergeDelta_(base, delta) {
+  normalizeDiffRows_(delta.rows);
   const changed = new Set((delta.changed_barcodes || []).map(normBc_));
   let diff = base.diff.filter(r => !changed.has(normBc_(r.vonalkod)));
   diff = diff.concat(delta.rows || []);
