@@ -148,8 +148,9 @@
   .act-note{background:rgba(47,212,196,.13); border-color:rgba(47,212,196,.42); color:#5fdccf;}
   .act-note:hover{background:#1e9e92; color:#fff;}
   /* ---------- Excel-szerű táblázat nézet ---------- */
-  .tblScroll{border:1px solid var(--line); border-radius:8px;}
-  .diffTable{width:100%; table-layout:auto; border-collapse:collapse; font-size:11.5px;}
+  .tblScroll{border:1px solid var(--line); border-radius:8px; overflow-x:auto;}
+  .diffTable{width:100%; table-layout:fixed; border-collapse:collapse; font-size:11.5px;}
+  .diffTable td, .diffTable th{overflow:hidden; text-overflow:ellipsis;}
   .diffTable th{position:sticky; top:0; z-index:2; background:var(--panel);
     text-align:left; font-size:10.5px; font-weight:700; color:var(--text-dim);
     padding:5px 7px; border-bottom:1px solid var(--line); white-space:nowrap;}
@@ -164,13 +165,22 @@
   .diffTable .tblNum.pos{color:var(--accent);}
   .diffTable .tblNum.neg{color:var(--danger);}
   .diffTable .tblSector{color:var(--text-dim); overflow:hidden; text-overflow:ellipsis;}
-  .diffTable .tblNote{width:34%; min-width:240px;}
+  .diffTable .tblNote{position:relative; overflow:visible;}
   .diffTable .tblNote input{width:100%; font-size:11px; padding:2px 5px; background:transparent;
-    border:1px solid transparent; border-radius:4px; color:var(--text);}
+    border:1px solid transparent; border-radius:4px; color:var(--text); text-overflow:ellipsis;}
+  /* A teljes megjegyzés buborékban, ha fölé viszed az egeret vagy
+     belekattintasz — a mező maga szűk maradhat. */
+  .diffTable .tblNote[data-full]:not([data-full=""]):hover::after,
+  .diffTable .tblNote[data-full]:not([data-full=""]):focus-within::after{
+    content:attr(data-full); position:absolute; left:0; top:100%; margin-top:2px; z-index:80;
+    min-width:240px; max-width:420px; white-space:normal; text-align:left;
+    background:var(--panel); border:1px solid var(--line); border-radius:7px;
+    padding:7px 9px; font-size:12px; line-height:1.45; color:var(--text);
+    box-shadow:0 8px 24px rgba(0,0,0,.55);}
   .diffTable .tblNote input:hover{border-color:var(--line);}
   .diffTable .tblNote input:focus{border-color:var(--accent); background:var(--panel);}
   .diffTable .tblNote input.saved{border-color:var(--accent); background:rgba(62,207,142,.15);}
-  .diffTable .tblActions{white-space:nowrap; text-align:right;}
+  .diffTable .tblActions{white-space:nowrap; text-align:right; overflow:visible;}
   .diffTable th.tblHead{position:relative; padding-right:20px;}
   .diffTable .thLabel{cursor:pointer; user-select:none;}
   .diffTable .thLabel:hover{color:var(--text);}
@@ -2391,37 +2401,39 @@ function setRowColor_(leltarId, barcode, idx) {
    több szektorban is szerepelhet — ilyenkor a szűrő akkor mutatja a
    sort, ha BÁRMELYIK szektora ki van választva. */
 const TBL_COLS_ = [
-  { key: "vonalkod", cim: "Vonalkód", ertekek: r => [String(r.vonalkod)],
+  { key: "vonalkod", cim: "Vonalkód", szel: "112px", ertekek: r => [String(r.vonalkod)],
     cell: r => `<td class="tblMono">${escapeHtml(r.vonalkod)}</td>` },
-  { key: "cikkszam", cim: "Cikkszám", ertekek: r => [r.sajat_cikkszam || "—"],
+  { key: "cikkszam", cim: "Cikkszám", szel: "148px", ertekek: r => [r.sajat_cikkszam || "—"],
     cell: r => `<td class="tblMono">${escapeHtml(r.sajat_cikkszam || "—")}</td>` },
-  { key: "nev", cim: "Név", ertekek: r => [r.nev || "Ismeretlen termék"],
+  { key: "nev", cim: "Név", szel: "", ertekek: r => [r.nev || "Ismeretlen termék"],
     cell: r => `<td class="tblName" title="${escapeHtml(r.nev || "")}">${escapeHtml(r.nev || (r.ismeretlen_termek ? "Ismeretlen termék" : "—"))}${r.ismeretlen_tobblet ? ` <span class="tag warn">ISM</span>` : ""}</td>` },
-  { key: "tipus", cim: "Terméktípus", ertekek: r => [r.termektipus || "—"],
+  { key: "tipus", cim: "Terméktípus", szel: "98px", ertekek: r => [r.termektipus || "—"],
     cell: r => `<td class="tblType">${escapeHtml(r.termektipus || "—")}</td>` },
-  { key: "rendszer", cim: "Rendszer", szam: true, num: r => r.rendszer_mennyiseg,
+  { key: "rendszer", cim: "Rendszer", szam: true, szel: "68px", num: r => r.rendszer_mennyiseg,
     ertekek: r => [String(r.rendszer_mennyiseg)],
     cell: r => `<td class="tblNum">${r.rendszer_mennyiseg}</td>` },
-  { key: "szamolt", cim: "Számolt", szam: true, num: r => r.szamolt_mennyiseg,
+  { key: "szamolt", cim: "Számolt", szam: true, szel: "64px", num: r => r.szamolt_mennyiseg,
     ertekek: r => [String(r.szamolt_mennyiseg)],
     cell: r => `<td class="tblNum">${r.szamolt_mennyiseg}</td>` },
-  { key: "elteres", cim: "Eltérés", szam: true, num: r => r.elteres,
+  { key: "elteres", cim: "Eltérés", szam: true, szel: "62px", num: r => r.elteres,
     ertekek: r => [String(r.elteres)],
     cell: r => `<td class="tblNum ${r.elteres > 0 ? "pos" : (r.elteres < 0 ? "neg" : "zero")}"><b>${r.elteres > 0 ? "+" : ""}${r.elteres}</b></td>` },
-  { key: "szektor", cim: "Szektor",
+  { key: "szektor", cim: "Szektor", szel: "128px",
     num: r => { const sz = (r.szektorok || []).filter(x => x.szektor); return sz.length ? (parseInt(sz[0].szektor, 10) || 0) : 999999; },
     ertekek: r => { const sz = (r.szektorok || []).filter(x => x.szektor).map(x => String(x.szektor)); return sz.length ? sz : ["— nincs beolvasva"]; },
     cell: r => {
       const sz = (r.szektorok || []).filter(x => x.szektor).map(x => x.szektor + ": " + x.mennyiseg).join(", ");
       return `<td class="tblSector">${escapeHtml(sz || (r.elteres !== 0 ? "— nincs beolvasva" : ""))}</td>`;
     } },
-  { key: "megjegyzes", cim: "Megjegyzés",
+  { key: "megjegyzes", cim: "Megjegyzés", szel: "150px",
     ertekek: r => { const n = r.tetel_megjegyzesek || []; return [n.length ? n[n.length - 1].megjegyzes : "(üres)"]; },
     cell: r => {
       const n = r.tetel_megjegyzesek || [];
       const utolso = n.length ? n[n.length - 1].megjegyzes : "";
-      return `<td class="tblNote"><input type="text" class="rowNoteInput" data-note-for="${escapeHtml(r.vonalkod)}"
-        value="${escapeHtml(utolso)}" placeholder="megjegyzés…"></td>`;
+      // A mező szűk, a teljes szöveg buborékban jelenik meg, ha fölé
+      // viszed az egeret vagy belekattintasz.
+      return `<td class="tblNote" data-full="${escapeHtml(utolso)}"><input type="text" class="rowNoteInput"
+        data-note-for="${escapeHtml(r.vonalkod)}" value="${escapeHtml(utolso)}" placeholder="megjegyzés…"></td>`;
     } },
 ];
 const TBL_COL_MAP_ = {}; TBL_COLS_.forEach(c => { TBL_COL_MAP_[c.key] = c; });
@@ -2769,9 +2781,15 @@ function renderRowsInto_(wrap, rows, showActions, isOpen, leltarId, container) {
         <button class="thFilter${aktivSzuro ? " on" : ""}" data-filter="${c.key}" title="Szűrés">▾</button>
       </th>`;
     }).join("");
+    // Fix oszlopszélességek: így a táblázat pontosan a rendelkezésre álló
+    // szélességbe fér (nem lóg ki), a hosszú szöveg pedig levágódik.
+    const colgroup = `<colgroup><col style="width:30px">${
+      TBL_COLS_.map(c => `<col${c.szel ? ` style="width:${c.szel}"` : ""}>`).join("")
+    }<col style="width:${showActions ? 140 : 40}px"></colgroup>`;
     wrap.innerHTML = `
       <div class="tblScroll">
       <table class="diffTable">
+        ${colgroup}
         <thead><tr><th class="tblSel"></th>${fejek}<th></th></tr></thead>
         <tbody>${(() => { const sz = getRowColors_(leltarId);
           return rows.map(r => renderTableRowHtml_(r, showActions, isOpen, leltarId, sz)).join(""); })()}</tbody>
@@ -2965,6 +2983,12 @@ function bindTableExtras_(wrap, leltarId, container) {
   // Megjegyzés mentése, ha elhagyjuk a mezőt és változott.
   wrap.querySelectorAll(".rowNoteInput").forEach(inp => {
     inp.dataset.orig = inp.value;
+    // A buborék a cella data-full értékét mutatja — gépelés közben is
+    // együtt kell mozognia a mezővel.
+    inp.addEventListener("input", () => {
+      const cella = inp.closest(".tblNote");
+      if (cella) cella.dataset.full = inp.value;
+    });
     inp.addEventListener("blur", async () => {
       const uj = (inp.value || "").trim();
       if (uj === (inp.dataset.orig || "").trim()) return;
@@ -2972,6 +2996,8 @@ function bindTableExtras_(wrap, leltarId, container) {
       if (!uj) return;
       try {
         await apiPost({ action: "add_item_note", leltar_id: leltarId, barcode: inp.dataset.noteFor, megjegyzes: uj });
+        const cella = inp.closest(".tblNote");
+        if (cella) cella.dataset.full = uj;
         inp.classList.add("saved");
         setTimeout(() => inp.classList.remove("saved"), 1200);
       } catch (e) { showToast("A megjegyzés mentése nem sikerült: " + e.message, "error"); }
