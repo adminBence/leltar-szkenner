@@ -830,14 +830,25 @@ function sleep_(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
 // háttér-frissítését futtatja), ez automatikusan újrapróbálja a
 // kérést — így a felhasználónak nem kell kézzel újra kattintania egy
 // egyszerű, magától is megoldódó átmeneti hiba miatt.
+// Az oldal elhagyásakor (frissítés, bezárás, másik oldal) a még futó
+// kéréseket megszakítjuk. Enélkül a böngésző megvárja/befejezi őket, és
+// az újratöltés után indulók mellé torlódva lassítják az egészet.
+let kerésVezérlő_ = (typeof AbortController !== "undefined") ? new AbortController() : null;
+window.addEventListener("pagehide", () => { try { if (kerésVezérlő_) kerésVezérlő_.abort(); } catch (e) {} });
+window.addEventListener("beforeunload", () => { try { if (kerésVezérlő_) kerésVezérlő_.abort(); } catch (e) {} });
+
 async function fetchWithRetry_(url, options, maxRetries) {
   maxRetries = maxRetries === undefined ? 2 : maxRetries;
   let lastErr;
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
-      const res = await fetch(url, options);
+      const res = await fetch(url, kerésVezérlő_
+        ? Object.assign({}, options, { signal: kerésVezérlő_.signal })
+        : options);
       return await parseApiResponse_(res);
     } catch (e) {
+      // Az oldal elhagyásakor megszakított kérést nem próbáljuk újra.
+      if (e && e.name === "AbortError") throw e;
       lastErr = e;
       if (attempt < maxRetries) await sleep_(1200 * (attempt + 1));
     }
@@ -1272,6 +1283,23 @@ async function openReport(leltarId, container, opts, trackForPolling) {
   if (trackForPolling) currentOpenReport = { leltarId, container, opts: opts || {} };
   container._report = null;
   container._sinceMs = null;
+
+  // 1) Ha van helyben tárolt állapot (pl. most frissítetted az oldalt),
+  //    AZONNAL kirajzoljuk, hogy ne kelljen a teljes riportra várni.
+  const helyi = loadReportLocal_(leltarId);
+  if (helyi) {
+    try {
+      renderFullReport(container, helyi, opts || {});
+      container.insertAdjacentHTML("afterbegin",
+        `<div class="card" id="riportFrissitesJelzo"><div class="inlineLoading"><div class="spinner"></div>Frissítés a legutóbbi állapot óta…</div></div>`);
+      // 2) …és a háttérben CSAK a változásokat kérjük le.
+      await applyDeltaTo_(leltarId, container, opts || {});
+      const jelzo = container.querySelector("#riportFrissitesJelzo");
+      if (jelzo) jelzo.remove();
+      return;
+    } catch (e) { /* ha nem sikerül, jöhet a teljes betöltés */ }
+  }
+
   try {
     const report = await apiGet({ action: "full_report", leltar_id: leltarId });
     if (report.error) { container.innerHTML = `<div class="card"><p class="emptyNote">Hiba: ${escapeHtml(report.error)}</p></div>`; return; }
@@ -3428,9 +3456,32 @@ function normalizeDiffRows_(diff) {
   return diff;
 }
 
+// A riportot helyben is eltároljuk: egy oldalfrissítés után azonnal
+// megjelenik a legutóbb látott állapot, és közben a háttérben csak a
+// VÁLTOZÁSOK töltődnek le — nem kell újra megvárni a teljes riportot.
+function reportCacheKey_(leltarId) { return "leltarRiport_" + leltarId; }
+function saveReportLocal_(leltarId, report) {
+  try {
+    sessionStorage.setItem(reportCacheKey_(leltarId), JSON.stringify({
+      mentve: Date.now(), report: report,
+    }));
+  } catch (e) { /* ha nem fér el, egyszerűen nem gyorsítótárazunk */ }
+}
+function loadReportLocal_(leltarId) {
+  try {
+    const nyers = sessionStorage.getItem(reportCacheKey_(leltarId));
+    if (!nyers) return null;
+    const adat = JSON.parse(nyers);
+    // Fél óránál régebbi állapotot nem használunk fel.
+    if (!adat || !adat.report || Date.now() - adat.mentve > 1800000) return null;
+    return adat.report;
+  } catch (e) { return null; }
+}
+
 function rememberReport_(container, report) {
   if (!container || !report || !report.diff) return;
   normalizeDiffRows_(report.diff);
+  if (report.leltar && report.leltar.leltar_id) saveReportLocal_(report.leltar.leltar_id, report);
   container._report = report;
   container._lastSyncClientMs = Date.now();
   if (report.generated_ms) container._sinceMs = report.generated_ms;
