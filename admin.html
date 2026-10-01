@@ -242,6 +242,14 @@
   .recountNote{font-size:11px; color:var(--warn); margin-top:2px;}
 
   /* ---------- Haladás ("Eddig beolvasott adatok") ---------- */
+  /* Szektor-ütközés: amíg nincs eldöntve, melyik számolás az érvényes,
+     a szekció és az érintett szektorok pirossal kiemelve. */
+  .card.conflictAlert{border-color:var(--danger); box-shadow:0 0 0 1px rgba(255,107,92,.25);}
+  .card.conflictAlert > .cardTitle{color:var(--danger);}
+  .conflictNotice{background:rgba(255,107,92,.1); border:1px solid var(--danger);
+    border-radius:8px; padding:10px 12px; margin-bottom:14px; font-size:12.5px; line-height:1.5;}
+  .conflictPending{background:rgba(255,107,92,.07); border-left:3px solid var(--danger);
+    padding-left:10px; border-radius:6px;}
   .sectorLink{cursor:pointer;}
   .sectorLink:hover{background:var(--panel-2);}
   .progressRow{display:flex; align-items:center; justify-content:space-between;
@@ -1375,10 +1383,29 @@ function buildFelelosHtml_(szektor_felelosok) {
 }
 
 function buildConflictsHtml_(szektor_konfliktusok, showActions) {
+  // Döntésre vár az a szektor, ahol több, EGYMÁSTÓL ELTÉRŐ beolvasás-
+  // csoport van, és még egyiket sem választották ki. Amíg ez fennáll, a
+  // leltár számolása bizonytalan ezekben a szektorokban, ezért a
+  // szekciót és az érintett szektorokat pirossal emeljük ki.
+  const dontesreVar = (c) => {
+    const cs = c.csoportok || [];
+    return !c.mind_egyezik && cs.length > 1 && !cs.some(g => g.valasztott);
+  };
+  const varakozok = (szektor_konfliktusok || []).filter(dontesreVar);
   return (szektor_konfliktusok && szektor_konfliktusok.length) ? `
-    <div class="card">
-      <div class="cardTitle collapsible collapsed" data-collapse="conflictsBody"><span class="arrow">▾</span>⚠ Szektor-ütközések (${szektor_konfliktusok.length})</div>
+    <div class="card${varakozok.length ? " conflictAlert" : ""}">
+      <div class="cardTitle collapsible collapsed" data-collapse="conflictsBody">
+        <span class="arrow">▾</span>⚠ Szektor-ütközések (${szektor_konfliktusok.length})
+        ${varakozok.length ? `<span class="tag danger">${varakozok.length} szektorban döntés szükséges</span>` : ""}
+      </div>
       <div id="conflictsBody" class="collapseBody collapsed">
+      ${varakozok.length ? `<div class="conflictNotice">
+        <b>Döntés szükséges.</b> Ezekben a szektorokban többen is számoltak, és a beolvasásaik
+        eltérnek egymástól — ezért a rendszer nem tudja, melyik számolás az érvényes.
+        Válaszd ki szektoronként, melyik számolást fogadjuk el; addig az érintett tételek
+        mennyisége bizonytalan a riportban.
+        <div style="margin-top:4px;">Érintett szektorok: ${varakozok.map(c => escapeHtml(c.szektor) + ".").join(", ")}</div>
+      </div>` : ""}
       ${szektor_konfliktusok.map(c => {
         const csoportok = c.csoportok || [];
         if (c.mind_egyezik || csoportok.length <= 1) {
@@ -1399,9 +1426,13 @@ function buildConflictsHtml_(szektor_konfliktusok, showActions) {
               </div>
             `).join("")}
           </div>` : "";
+        const varakozik = dontesreVar(c);
         return `
-          <div style="margin-bottom:14px; padding-bottom:14px; border-bottom:1px solid var(--line);">
-            <div style="font-weight:700; margin-bottom:8px;">${escapeHtml(c.szektor)}. szektor — ${csoportok.length} eltérő beolvasás-csoport</div>
+          <div class="${varakozik ? "conflictPending" : ""}" style="margin-bottom:14px; padding-bottom:14px; border-bottom:1px solid var(--line);">
+            <div style="font-weight:700; margin-bottom:8px;">
+              ${escapeHtml(c.szektor)}. szektor — ${csoportok.length} eltérő beolvasás-csoport
+              ${varakozik ? `<span class="tag danger">választás szükséges</span>` : ""}
+            </div>
             ${csoportok.map((g, gi) => {
               const sessionek = g.sessionek || [];
               if (!sessionek.length) return "";
@@ -2166,7 +2197,9 @@ function okListRowHtml_(r) {
 // hátravan, és az előre látott darabszám befolyásolná a számolást.
 function pendingListRowHtml_(r, tarsMap) {
   const info = r.hatralevo_info;
-  const tarsak = (tarsMap && r.gyartoi_cikkszam) ? (tarsMap[r.gyartoi_cikkszam] || []) : [];
+  const tarsak = (tarsMap && r.gyartoi_cikkszam) ? (tarsMap[r.gyartoi_cikkszam] || {}) : {};
+  const tarsSzektorok = Object.keys(tarsak).sort((a, b) =>
+    String(a).localeCompare(String(b), "hu", { numeric: true }));
   const reszek = [];
   if (info && info.laurel_keszlet !== null && info.laurel_keszlet !== undefined) {
     reszek.push(`<span class="tag" style="background:rgba(178,132,255,.16); color:#c3a4ff;">Laurel: ${info.laurel_keszlet} db</span>`);
@@ -2174,9 +2207,13 @@ function pendingListRowHtml_(r, tarsMap) {
   if (info && info.utolso_szektor) {
     reszek.push(`<span style="color:var(--text-dim);">Korábbi leltárban utoljára a ${escapeHtml(info.utolso_szektor)}. szektorban</span>`);
   }
-  if (tarsak.length) {
-    reszek.push(`<span style="color:var(--text-dim);">Más méret ugyanebből: ${tarsak.map(t =>
-      `${escapeHtml(t.meret)} → ${escapeHtml(t.szektorok)}. szektor`).join(", ")}</span>`);
+  if (tarsSzektorok.length) {
+    reszek.push(`<div style="color:var(--text-dim); width:100%;">
+      <div style="margin-bottom:1px;">Más méret ugyanebből:</div>
+      ${tarsSzektorok.map(sz => `<div style="padding-left:10px;">
+        <b>${escapeHtml(sz)}. szektor:</b> ${tarsak[sz].map(escapeHtml).join(", ")}
+      </div>`).join("")}
+    </div>`);
   }
   return `
     <div style="padding:7px 10px; border-bottom:1px solid var(--line); font-size:12px;">
@@ -2188,14 +2225,27 @@ function pendingListRowHtml_(r, tarsMap) {
 
 // Azonos gyártói cikkszámú (= ugyanaz a termék más méretben) tételek,
 // amiket MÁR beolvastak — segít megtalálni, hol lehet a hiányzó méret.
+// SZEKTORONKÉNT csoportosítva: egy szektor egyszer szerepel, mellette a
+// benne talált méretekkel (így nem ismétlődik ugyanaz a szektor
+// méretenként újra és újra).
 function buildTarsMeretMap_(diff) {
   const m = {};
   (diff || []).forEach(r => {
     if (!r.gyartoi_cikkszam) return;
-    const szektorok = (r.szektorok || []).filter(x => x.szektor).map(x => x.szektor);
+    const szektorok = (r.szektorok || []).filter(x => x.szektor).map(x => String(x.szektor));
     if (!szektorok.length) return;
     const meret = (r.sajat_cikkszam || "").split("-").pop() || r.vonalkod;
-    (m[r.gyartoi_cikkszam] = m[r.gyartoi_cikkszam] || []).push({ meret: meret, szektorok: szektorok.join(", ") });
+    const csoport = (m[r.gyartoi_cikkszam] = m[r.gyartoi_cikkszam] || {});
+    szektorok.forEach(sz => {
+      if (!csoport[sz]) csoport[sz] = [];
+      if (csoport[sz].indexOf(meret) === -1) csoport[sz].push(meret);
+    });
+  });
+  // Szektoronként rendezett méretlista
+  Object.keys(m).forEach(gy => {
+    Object.keys(m[gy]).forEach(sz => {
+      m[gy][sz].sort((a, b) => String(a).localeCompare(String(b), "hu", { numeric: true }));
+    });
   });
   return m;
 }
