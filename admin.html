@@ -509,6 +509,18 @@
   </div>
 </div>
 
+<div id="promptModalOverlay" style="display:none; position:fixed; inset:0; z-index:1650; background:rgba(0,0,0,0.6);
+  align-items:center; justify-content:center; padding:20px;">
+  <div class="card" style="max-width:420px; width:100%; margin:0;">
+    <div id="promptModalMessage" style="font-size:14px; line-height:1.5; margin-bottom:12px;"></div>
+    <input type="text" id="promptModalInput" style="width:100%; font-size:15px; padding:9px 11px; margin-bottom:16px;">
+    <div class="row" style="justify-content:flex-end; gap:8px;">
+      <button class="btn" id="promptModalNoBtn">Mégse</button>
+      <button class="btn primary" id="promptModalOkBtn">Mentés</button>
+    </div>
+  </div>
+</div>
+
 <div id="confirmModalOverlay" style="display:none; position:fixed; inset:0; z-index:1600; background:rgba(0,0,0,0.6);
   align-items:center; justify-content:center; padding:20px;">
   <div style="background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:24px; max-width:400px; width:100%;">
@@ -1022,6 +1034,30 @@ function showConfirm(message, opts) {
   });
 }
 
+// Szöveges bekérés (pl. új szektorszám). Visszatérés: a beírt szöveg,
+// vagy null, ha a felhasználó megszakította.
+function showPrompt(message, opts) {
+  opts = opts || {};
+  return new Promise(resolve => {
+    const modal = el("promptModalOverlay");
+    const input = el("promptModalInput");
+    const okBtn = el("promptModalOkBtn");
+    el("promptModalMessage").textContent = message;
+    input.value = opts.value || "";
+    input.placeholder = opts.placeholder || "";
+    okBtn.textContent = opts.okLabel || "Mentés";
+    modal.style.display = "flex";
+    setTimeout(() => input.focus(), 30);
+    const zar = (ertek) => { modal.style.display = "none"; input.onkeydown = null; resolve(ertek); };
+    okBtn.onclick = () => zar(input.value);
+    el("promptModalNoBtn").onclick = () => zar(null);
+    input.onkeydown = (ev) => {
+      if (ev.key === "Enter") { ev.preventDefault(); zar(input.value); }
+      if (ev.key === "Escape") { ev.preventDefault(); zar(null); }
+    };
+  });
+}
+
 function showStartLeltarModal(frissDatum, items) {
   return new Promise(resolve => {
     const modal = el("negStockModal");
@@ -1382,7 +1418,7 @@ function buildFelelosHtml_(szektor_felelosok) {
     }).join("") || `<p class="emptyNote">Nincs adat.</p>`;
 }
 
-function buildConflictsHtml_(szektor_konfliktusok, showActions) {
+function buildConflictsHtml_(szektor_konfliktusok, showActions, atnevezesek) {
   // Döntésre vár az a szektor, ahol több, EGYMÁSTÓL ELTÉRŐ beolvasás-
   // csoport van, és még egyiket sem választották ki. Amíg ez fennáll, a
   // leltár számolása bizonytalan ezekben a szektorokban, ezért a
@@ -1405,6 +1441,11 @@ function buildConflictsHtml_(szektor_konfliktusok, showActions) {
         Válaszd ki szektoronként, melyik számolást fogadjuk el; addig az érintett tételek
         mennyisége bizonytalan a riportban.
         <div style="margin-top:4px;">Érintett szektorok: ${varakozok.map(c => escapeHtml(c.szektor) + ".").join(", ")}</div>
+        <div style="margin-top:6px; color:var(--text-dim);">
+          Ha az ütközés oka az, hogy valaki <b>rossz szektorszámot</b> adott meg, nem kell választani:
+          az „Átnevezem a szektort" gombbal átteheted az ő beolvasásait a helyes szektorba, és
+          <b>mindkét számolás megmarad</b>.
+        </div>
       </div>` : ""}
       ${szektor_konfliktusok.map(c => {
         const csoportok = c.csoportok || [];
@@ -1444,15 +1485,33 @@ function buildConflictsHtml_(szektor_konfliktusok, showActions) {
                   <span>${gi + 1}. csoport — ${nevek} (${escapeHtml(formatDateTime(rep.kezdete))}) — ${rep.tetel_fajta} féle tétel, ${rep.db_osszesen} db</span>
                   ${g.valasztott
                     ? `<span class="permPill">kiválasztva</span>`
-                    : (showActions ? `<button class="btn" style="font-size:11px; padding:6px 10px;"
-                        data-resolve-sector="${escapeHtml(c.szektor)}" data-resolve-user="${escapeHtml(rep.felhasznalo)}"
-                        data-resolve-kezdete="${rep.kezdete_ms || ""}"
-                        data-resolve-vege="${(() => { const d = parseBqTimestamp_(rep.vege); return d ? d.getTime() : ""; })()}">Ezt választom</button>` : `<span class="meta">kizárva</span>`)}
+                    : (showActions ? `<span class="row" style="gap:6px;">
+                        <button class="btn" style="font-size:11px; padding:6px 10px;"
+                          data-resolve-sector="${escapeHtml(c.szektor)}" data-resolve-user="${escapeHtml(rep.felhasznalo)}"
+                          data-resolve-kezdete="${rep.kezdete_ms || ""}"
+                          data-resolve-vege="${(() => { const d = parseBqTimestamp_(rep.vege); return d ? d.getTime() : ""; })()}">Ezt választom</button>
+                        <button class="btn act-barcode" style="font-size:11px; padding:6px 10px;"
+                          data-rename-sector="${escapeHtml(c.szektor)}"
+                          data-rename-sessions="${encodeURIComponent(JSON.stringify(sessionek.map(sv => ({
+                            felhasznalo: sv.felhasznalo,
+                            kezdete_ms: sv.kezdete_ms || (() => { const d = parseBqTimestamp_(sv.kezdete); return d ? d.getTime() : 0; })(),
+                            vege_ms: (() => { const d = parseBqTimestamp_(sv.vege); return d ? d.getTime() : 0; })(),
+                          }))))}">Átnevezem a szektort</button>
+                      </span>` : `<span class="meta">kizárva</span>`)}
                 </div>`;
             }).join("")}
             ${elteresekHtml}
           </div>`;
       }).join("")}
+      ${(atnevezesek && atnevezesek.length) ? `
+        <div style="margin-top:4px; padding-top:10px; border-top:1px solid var(--line);">
+          <div style="font-weight:700; font-size:12.5px; margin-bottom:6px;">Korábbi szektor-átnevezések</div>
+          ${atnevezesek.map(a => `<div class="metaLine">
+            ${escapeHtml(a.regi_szektor)}. → <b>${escapeHtml(a.uj_szektor)}. szektor</b>
+            — ${escapeHtml(a.erintett_felhasznalo || "")} ${a.erintett_sorok} beolvasása
+            · ${escapeHtml(formatDateTime(a.idobelyeg))} · ${escapeHtml(a.felhasznalo || "")}
+          </div>`).join("")}
+        </div>` : ""}
       </div>
     </div>` : "";
 }
@@ -1540,7 +1599,7 @@ function renderFullReport(container, report, opts) {
     ? `<div class="metaLine" style="margin-bottom:14px;">Kiválasztott terméktípusok: ${leltar.termektipusok.map(escapeHtml).join(", ")}</div>`
     : "";
 
-  const conflictsHtml = buildConflictsHtml_(szektor_konfliktusok, showActions);
+  const conflictsHtml = buildConflictsHtml_(szektor_konfliktusok, showActions, report.szektor_atnevezesek);
 
   container.innerHTML = `
     <div class="card">
@@ -2304,6 +2363,40 @@ function loadMoreDiffRows_(container, leltarId, showActions, isOpen) {
 }
 
 function bindConflictButtons_(wrapEl, leltarId, container, opts) {
+  // Szektor átnevezése: ha valaki rossz szektorszámot adott meg, az ő
+  // beolvasásai átkerülnek a helyes szektorba — mindkét számolás
+  // megmarad, az ütközés pedig megszűnik.
+  wrapEl.querySelectorAll("[data-rename-sector]").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const regi = btn.dataset.renameSector;
+      let sessionek = [];
+      try { sessionek = JSON.parse(decodeURIComponent(btn.dataset.renameSessions || "%5B%5D")); } catch (e) { sessionek = []; }
+      const kik = [...new Set(sessionek.map(x => x.felhasznalo))].join(", ");
+      const uj = await showPrompt(
+        `${kik} beolvasásai jelenleg a(z) ${regi}. szektorban vannak. Melyik szektorba kerüljenek át?`,
+        { placeholder: "Helyes szektorszám", okLabel: "Átnevezem" });
+      if (uj === null) return;
+      const ujSzam = String(uj).trim();
+      if (!ujSzam) { showToast("Add meg az új szektorszámot.", "warn"); return; }
+      if (ujSzam === regi) { showToast("Ez ugyanaz a szektorszám.", "warn"); return; }
+      btn.disabled = true; btn.textContent = "Átnevezés…";
+      try {
+        const res = await apiPost({ action: "rename_sector_group", leltar_id: leltarId,
+          regi_szektor: regi, uj_szektor: ujSzam, sessionek: sessionek });
+        if (res.error) {
+          showToast("Hiba: " + res.error, "error");
+          btn.disabled = false; btn.textContent = "Átnevezem a szektort";
+        } else {
+          showToast(`${res.atnevezve} beolvasás átkerült: ${regi}. → ${ujSzam}. szektor`, "success");
+          refreshSingleDiffRow(leltarId, null, container);
+        }
+      } catch (e) {
+        showToast("Hiba: " + e.message, "error");
+        btn.disabled = false; btn.textContent = "Átnevezem a szektort";
+      }
+    });
+  });
+
   wrapEl.querySelectorAll("[data-resolve-sector]").forEach(btn => {
     btn.addEventListener("click", async () => {
       const szektor = btn.dataset.resolveSector;
@@ -3751,7 +3844,7 @@ function updateReportLiveInPlace_(leltarId, container, report, opts) {
     container._conflictsSig = conflictsSig;
     const conflictsWrap = container.querySelector("#conflictsWrap");
     if (conflictsWrap) {
-      conflictsWrap.innerHTML = buildConflictsHtml_(szektor_konfliktusok, showActions);
+      conflictsWrap.innerHTML = buildConflictsHtml_(szektor_konfliktusok, showActions, report.szektor_atnevezesek);
       bindConflictButtons_(conflictsWrap, leltarId, container, opts);
       bindCollapsibles_(conflictsWrap);
     }
