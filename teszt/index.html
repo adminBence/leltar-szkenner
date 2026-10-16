@@ -183,7 +183,7 @@
        képpont nem világít, tehát nem is fogyaszt — a képernyő pedig a
        leltározás alatt végig be van kapcsolva, ezért ez a legnagyobb
        egyedi megtakarítás. A maradék halvány kontúr elég a célzáshoz. */
-    box-shadow:0 0 0 9999px rgba(0,0,0,0.92);
+    box-shadow:0 0 0 4px rgba(62,207,142,0), 0 0 0 9999px rgba(0,0,0,0.92);
     transition:border-color .15s ease, box-shadow .15s ease;}
   .guide.active{border-color:var(--accent);
     box-shadow:0 0 0 4px rgba(62,207,142,0.25), 0 0 0 9999px rgba(0,0,0,0.92);}
@@ -1062,7 +1062,7 @@ async function startCamera() {
   }
 }
 
-const APP_VERSION = "v77";
+const APP_VERSION = "v78";
 let frameCount = 0, detectCount = 0;
 function debugLog(msg) {
   // A felületen csak a verziószám látszik (lásd lent) — a részletes
@@ -1086,7 +1086,7 @@ const cropCtx = cropCanvas.getContext("2d", { willReadFrequently: true });
 // — a feldolgozandó képpontok száma a négyzetével nő, tehát ez önmagában
 // a felére csökkenti a felismerés munkáját. 1080p-s képnél a vonalkód
 // így is bőven olvasható marad.
-function captureGuideCrop(upscale = 2.0) {
+function captureGuideCrop(upscale = 2.2) {
   const vw = video.videoWidth, vh = video.videoHeight;
   if (!vw || !vh) return null;
 
@@ -1156,7 +1156,8 @@ let kameraSzunetel_ = false;
 function tevekenysegVolt_() {
   utolsoTevekenyseg_ = Date.now();
   if (kameraSzunetel_) kameraFolytatas_();
-  if (scanningHeld) ebresztSzkennelest_();
+  // A felismerést itt NEM ébresztjük: a gomb lenyomása maga indítja,
+  // az első friss képkockán (lásd bindHoldScanButton_).
 }
 ["touchstart", "mousedown", "keydown"].forEach(ev =>
   document.addEventListener(ev, tevekenysegVolt_, { passive: true }));
@@ -1191,6 +1192,17 @@ function elonezetFolytatas_() {
   if (jelzo) jelzo.style.display = "none";
   kepkockaSzam_(20);
   try { const p = video.play(); if (p && p.catch) p.catch(() => {}); } catch (e) { /* nem kritikus */ }
+}
+
+// Az első friss képkocka megérkezésekor hívja a függvényt (a böngésző
+// képkocka-jelzése alapján; ha ilyen nincs, rövid várakozás után).
+function frissKepkockaUtan_(fn) {
+  let lefutott = false;
+  const futtat = () => { if (lefutott) return; lefutott = true; if (scanningHeld) fn(); };
+  try {
+    if (video.requestVideoFrameCallback) video.requestVideoFrameCallback(() => futtat());
+  } catch (e) { /* nem minden böngésző ismeri */ }
+  setTimeout(futtat, 180);   // tartalék
 }
 
 function kepkockaSzam_(fps) {
@@ -1709,10 +1721,15 @@ function commitPending() {
     lastAcceptedCode = null;
     scanningHeld = true;
     btn.classList.add("active");
-    // A kamera/előnézet felébresztése és a felismerés azonnali indítása.
+    // A kamera/előnézet felébresztése. Ha a kép eddig állt, a felismerés
+    // csak az első FRISS képkockán indul — különben a megfagyott, régi
+    // képen futna (ami elmosódott lehet, vagy épp egy másik vonalkódot
+    // mutat a keretben).
     tevekenysegVolt_();
+    const alltAKep = elonezetAll_;
     elonezetFolytatas_();
-    ebresztSzkennelest_();
+    if (alltAKep) frissKepkockaUtan_(ebresztSzkennelest_);
+    else ebresztSzkennelest_();
   };
   const stop = () => {
     scanningHeld = false;
