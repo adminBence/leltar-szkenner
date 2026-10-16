@@ -149,8 +149,10 @@
   /* Kamera-szünet jelző: tétlenség vagy háttérbe kerülés után. */
   /* Az előnézet szünetel: a kamera fut, csak a kép áll — a gomb
      lenyomására azonnal folytatódik. */
-  #elonezetJelzo{display:none; position:absolute; left:0; right:0; bottom:14px; z-index:7;
-    align-items:center; justify-content:center; pointer-events:none;}
+  /* A keret közepén jelenik meg (a megfagyott kép fölött) — így nem
+     takarja el a képernyő alján lévő beolvasási sávot és a darabszámot. */
+  #elonezetJelzo{display:none; position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
+    z-index:4; align-items:center; justify-content:center; pointer-events:none;}
   #elonezetJelzo span{background:rgba(0,0,0,0.75); color:var(--text-dim); font-size:11px;
     padding:5px 12px; border-radius:999px; border:1px solid var(--line);}
   #kameraSzunetJelzo{display:none; position:absolute; inset:0; z-index:8;
@@ -183,10 +185,10 @@
        képpont nem világít, tehát nem is fogyaszt — a képernyő pedig a
        leltározás alatt végig be van kapcsolva, ezért ez a legnagyobb
        egyedi megtakarítás. A maradék halvány kontúr elég a célzáshoz. */
-    box-shadow:0 0 0 4px rgba(62,207,142,0), 0 0 0 9999px rgba(0,0,0,0.92);
+    box-shadow:0 0 0 4px rgba(62,207,142,0), 0 0 0 9999px rgba(0,0,0,0.78);
     transition:border-color .15s ease, box-shadow .15s ease;}
   .guide.active{border-color:var(--accent);
-    box-shadow:0 0 0 4px rgba(62,207,142,0.25), 0 0 0 9999px rgba(0,0,0,0.92);}
+    box-shadow:0 0 0 4px rgba(62,207,142,0.25), 0 0 0 9999px rgba(0,0,0,0.78);}
   .guide::before,.guide::after{content:""; position:absolute; width:22px; height:22px;
     border-color:var(--accent); border-style:solid;}
   .guide::before{top:-2px; left:-2px; border-width:3px 0 0 3px; border-top-left-radius:16px;}
@@ -233,7 +235,7 @@
 
   /* ---------- Aktuális találat kártya ---------- */
   #hit{
-    position:absolute; left:12px; right:12px; bottom:12px;
+    position:absolute; left:12px; right:12px; bottom:12px; z-index:9;
     background:var(--panel); border:1px solid var(--line); border-radius:var(--radius);
     padding:14px; display:none; box-shadow:0 8px 24px rgba(0,0,0,0.4);
     transform:translateY(12px); opacity:0; transition:transform .18s ease, opacity .18s ease;}
@@ -1062,7 +1064,7 @@ async function startCamera() {
   }
 }
 
-const APP_VERSION = "v78";
+const APP_VERSION = "v79";
 let frameCount = 0, detectCount = 0;
 function debugLog(msg) {
   // A felületen csak a verziószám látszik (lásd lent) — a részletes
