@@ -1064,7 +1064,7 @@ async function startCamera() {
   }
 }
 
-const APP_VERSION = "v79";
+const APP_VERSION = "v80";
 let frameCount = 0, detectCount = 0;
 function debugLog(msg) {
   // A felületen csak a verziószám látszik (lásd lent) — a részletes
@@ -1147,6 +1147,7 @@ function captureGuideCrop(upscale = 2.2) {
    és a kamera felfüggesztése, ha az alkalmazás háttérbe kerül vagy
    hosszabb ideig nem történik semmi.
    ========================================================================= */
+let zaroltKod_ = null;              // az előző lenyomás utolsó kódja — amíg látszik, nem olvassuk be újra
 let scanLoopFut_ = false;           // fut-e épp a felismerési ciklus
 let szkennelesCiklus_ = null;       // melyik ciklust kell ébreszteni (natív / tartalék)
 const SCAN_INTERVAL_MS_ = 100;      // legfeljebb 10 felismerési kísérlet / mp
@@ -1481,6 +1482,10 @@ function handleDetections(codes) {
   if (!codes.length) {
     candidateCode = null;
     candidateCount = 0;
+    // A kamera most semmit nem lát: az előző lenyomásnál beolvasott kód
+    // eltűnt a képből, tehát ha legközelebb újra megjelenik, az már egy
+    // másik (ugyanolyan) doboz — újra beolvasható.
+    zaroltKod_ = null;
     // Csak akkor számít ténylegesen "eltűntnek" a kód, ha egy ideje
     // (kb. fél másodperce) folyamatosan nem látja — így egy-egy
     // véletlenül kihagyott képkocka (gyakori a gyors, natív ciklusnál)
@@ -1501,6 +1506,14 @@ function handleDetections(codes) {
   // kiürül — tehát ugyanazt a vonalkódot (egy másik, ugyanolyan
   // terméket) egyszerűen újra meg lehet nyomni, NEM kell kivinni a
   // képből és visszahozni.
+  // ZÁROLÁS: az előző lenyomás utoljára beolvasott kódját addig nem
+  // fogadjuk el újra, amíg el nem tűnik a képből. Ha a telefon nem
+  // mozdult el az előző termékről, a kamera a lenyomás pillanatában
+  // még azt látja — ez ugyanaz a doboz, nem egy újabb darab.
+  if (zaroltKod_) {
+    if (code === zaroltKod_) return;
+    zaroltKod_ = null;            // másik kód látszik — a zárolás feloldva
+  }
   if (pressAcceptedCodes_.has(code)) return;
   pressAcceptedCodes_.add(code);
 
@@ -1734,6 +1747,9 @@ function commitPending() {
     else ebresztSzkennelest_();
   };
   const stop = () => {
+    // Az ennél a lenyomásnál utoljára beolvasott kód zárolva marad, amíg
+    // el nem tűnik a képből (lásd handleDetections).
+    if (scanningHeld && lastAcceptedCode) zaroltKod_ = lastAcceptedCode;
     scanningHeld = false;
     btn.classList.remove("active");
     // Elengedéskor a kép azonnal megfagy: a kamera fut tovább (a
