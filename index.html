@@ -146,6 +146,20 @@
   #camWrap{position:relative; flex:1 1 auto; min-height:0; background:#000; overflow:hidden;}
   video{width:100%; height:100%; object-fit:cover; display:block;}
 
+  /* Kamera-szünet jelző: tétlenség vagy háttérbe kerülés után. */
+  /* Az előnézet szünetel: a kamera fut, csak a kép áll — a gomb
+     lenyomására azonnal folytatódik. */
+  #elonezetJelzo{display:none; position:absolute; left:0; right:0; bottom:14px; z-index:7;
+    align-items:center; justify-content:center; pointer-events:none;}
+  #elonezetJelzo span{background:rgba(0,0,0,0.75); color:var(--text-dim); font-size:11px;
+    padding:5px 12px; border-radius:999px; border:1px solid var(--line);}
+  #kameraSzunetJelzo{display:none; position:absolute; inset:0; z-index:8;
+    background:#000; align-items:center; justify-content:center; text-align:center; padding:24px;}
+  #kameraSzunetJelzo .szunetDoboz{max-width:260px;}
+  #kameraSzunetJelzo .szunetOk{font-size:14px; line-height:1.5; margin-bottom:10px;}
+  #kameraSzunetJelzo .szunetTipp{font-size:12px; color:var(--muted);}
+  .listInfoSor{padding:8px 12px; font-size:12px; color:var(--muted);
+    border-bottom:1px solid var(--line); background:var(--panel-2);}
   #torchBtn{position:absolute; top:8px; right:8px; width:40px; height:40px; z-index:6;
     border-radius:50%; border:1px solid rgba(255,255,255,0.3); background:rgba(0,0,0,0.5);
     color:#fff; font-size:18px; display:none; align-items:center; justify-content:center;
@@ -157,12 +171,22 @@
     line-height:1; padding:0;}
   canvas#overlay{position:absolute; inset:0; width:100%; height:100%; pointer-events:none;}
 
+  /* A kereten kívüli kameraképet elsötétítjük. Egyrészt így jobban
+     látszik, hová kell célozni, másrészt a telefonok OLED-kijelzőjén a
+     sötét képpont alig fogyaszt — a képernyő pedig a leltározás alatt
+     végig be van kapcsolva, tehát ez érdemi megtakarítás. */
   .guide{
     position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
     width:78%; max-width:420px; aspect-ratio:16/9;
     border:2px solid rgba(255,255,255,0.28); border-radius:16px; pointer-events:none;
+    /* A kereten kívül szinte teljesen fekete: OLED-kijelzőn a fekete
+       képpont nem világít, tehát nem is fogyaszt — a képernyő pedig a
+       leltározás alatt végig be van kapcsolva, ezért ez a legnagyobb
+       egyedi megtakarítás. A maradék halvány kontúr elég a célzáshoz. */
+    box-shadow:0 0 0 9999px rgba(0,0,0,0.92);
     transition:border-color .15s ease, box-shadow .15s ease;}
-  .guide.active{border-color:var(--accent); box-shadow:0 0 0 4px rgba(62,207,142,0.25);}
+  .guide.active{border-color:var(--accent);
+    box-shadow:0 0 0 4px rgba(62,207,142,0.25), 0 0 0 9999px rgba(0,0,0,0.92);}
   .guide::before,.guide::after{content:""; position:absolute; width:22px; height:22px;
     border-color:var(--accent); border-style:solid;}
   .guide::before{top:-2px; left:-2px; border-width:3px 0 0 3px; border-top-left-radius:16px;}
@@ -284,6 +308,30 @@
     border-bottom:1px solid var(--line); background:var(--panel-2); flex:0 0 auto;}
   #listPanel.expanded #listCloseBar{display:block;}
 
+  #torlesSav{display:none; align-items:center; gap:8px; padding:8px 16px; flex-wrap:wrap;
+    border-bottom:1px solid var(--line); background:var(--panel-2); font-size:12px;}
+  #torlesSav button{padding:6px 11px; border-radius:8px; font-size:12px;
+    background:var(--panel); border:1px solid var(--line); color:var(--text);}
+  #torlesSav button.danger{background:var(--danger); border-color:var(--danger); color:#fff;}
+  .torlesBox{width:18px; height:18px; accent-color:var(--danger); flex:0 0 auto;}
+  #resetSectorWrap{padding:0 16px 10px;}
+  #resetSectorBtn{width:100%; padding:10px; border-radius:10px; font-size:13px;
+    background:rgba(255,107,92,.12); border:1px solid rgba(255,107,92,.45); color:#ff9b90;}
+  #promptOverlay{display:none; position:fixed; inset:0; z-index:1700; background:rgba(0,0,0,0.7);
+    align-items:center; justify-content:center; padding:20px;}
+  #promptOverlay.show{display:flex;}
+  #promptBox{background:var(--panel); border:1px solid var(--line); border-radius:14px;
+    padding:18px; width:100%; max-width:380px;}
+  #promptMsg{font-size:14px; line-height:1.5; margin-bottom:12px; white-space:pre-line;}
+  #promptInput{width:100%; font-size:17px; padding:11px 12px; border-radius:10px;
+    background:var(--panel-2); border:1px solid var(--line); color:var(--text); margin-bottom:14px;}
+  .promptBtns{display:flex; gap:8px; justify-content:flex-end;}
+  .promptBtns button{padding:9px 16px; border-radius:10px; border:1px solid var(--line);
+    background:var(--panel-2); color:var(--text); font-size:14px;}
+  .promptBtns button.primary{background:var(--accent); border-color:var(--accent); color:#06281c; font-weight:700;}
+  .rowItem.ismeretlenSor{border-left:3px solid var(--warn); background:rgba(240,180,41,.07);}
+  .javitBtn{margin-top:4px; font-size:11px; padding:3px 8px; border-radius:6px;
+    background:rgba(240,180,41,.15); border:1px solid rgba(240,180,41,.5); color:#f0c65e;}
   .rowItem{display:flex; align-items:center; gap:10px; padding:10px 16px; border-bottom:1px solid var(--line);}
   .rowItem .info{flex:1; min-width:0;}
   .rowItem .info b{display:block; font-size:14px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
@@ -317,7 +365,10 @@
     font-weight:700; background:var(--accent); color:#06231a; margin-top:16px;}
 
   /* ---------- Törlés megerősítő ablak ---------- */
-  #confirmOverlay{display:none; position:fixed; inset:0; z-index:50;
+  /* A megerősítő ablaknak a kinyitott tétel-lista FÖLÖTT kell lennie —
+     korábban a lista (z-index 60) eltakarta, ezért a törlés jóváhagyása
+     csak a listából kilépve jelent meg. */
+  #confirmOverlay{display:none; position:fixed; inset:0; z-index:1600;
     background:rgba(0,0,0,0.55); align-items:center; justify-content:center; padding:24px;}
   #confirmOverlay.show{display:flex;}
   #confirmBox{background:var(--panel-2); border:1px solid var(--line); border-radius:14px;
@@ -414,9 +465,27 @@
     <div class="dot" id="netDot" title="Kapcsolat állapota"></div>
     <div class="stat">
       <b id="itemCount">0</b>
-      <span>tétel</span>
+      <span id="itemCountLabel">db</span>
     </div>
   </header>
+
+  <!-- Szektor újrakezdése -->
+  <div id="torlesSav"></div>
+  <div id="resetSectorWrap" style="display:none;">
+    <button id="resetSectorBtn">↺ Szektor újrakezdése</button>
+  </div>
+
+  <!-- Szövegbekérő ablak (vonalkód javítása) -->
+  <div id="promptOverlay">
+    <div id="promptBox">
+      <div id="promptMsg"></div>
+      <input type="text" id="promptInput" inputmode="numeric">
+      <div class="promptBtns">
+        <button id="promptCancel">Mégse</button>
+        <button id="promptOk" class="primary">Mentés</button>
+      </div>
+    </div>
+  </div>
 
   <!-- Hamburgermenü -->
   <div id="menuOverlay">
@@ -488,6 +557,14 @@
     </div>
     <button id="manualBtn" aria-label="Vonalkód beírása kézzel">⌨️</button>
     <button id="torchBtn" aria-label="Vaku">🔦</button>
+    <div id="elonezetJelzo"><span>A kép szünetel — koppints vagy nyomd a gombot</span></div>
+    <div id="kameraSzunetJelzo">
+      <div class="szunetDoboz">
+        <div style="font-size:30px; margin-bottom:8px;">🔋</div>
+        <div class="szunetOk">A kamera szünetel az akkumulátor kímélése miatt.</div>
+        <div class="szunetTipp">Koppints a képernyőre a folytatáshoz</div>
+      </div>
+    </div>
     <div id="debugBar" style="position:absolute; top:6px; left:8px; font-size:9px;
       color:rgba(255,255,255,0.35); font-family:monospace; pointer-events:none; z-index:2;"></div>
 
@@ -660,6 +737,71 @@ let currentSector = "";
 let activeLeltar = null;       // { leltar_id, code, tipus, raktar }
 let userEmail = "";            // kötelezően megadott név (lásd nameGateOverlay)
 let scanned = [];              // { barcode, name, qty, ts }
+
+/* A beolvasások HELYI mentése. Egy több órás műszak alatt előfordul,
+   hogy a telefon böngészője memóriahiány miatt újratölti a lapot — a
+   még nem szinkronizált tételek enélkül elvesznének. A mentés
+   késleltetve fut (nem minden egyes beolvasásnál), így nem lassít. */
+const SESSION_KEY_ = "leltarMunkamenet";
+const SCAN_STORE_KEY_ = "leltarBeolvasasok";
+
+/* A CSATLAKOZÁS megőrzése. A QR-kódot elég EGYSZER beolvasni: a leltár
+   adatait eltároljuk, így egy oldalfrissítés (vagy ha a telefon
+   böngészője újratölti a lapot) után a munka ott folytatódik, ahol
+   abbamaradt — nem kell újra QR-kódot keresni. */
+function munkamenetMentes_() {
+  try {
+    if (!activeLeltar) { localStorage.removeItem(SESSION_KEY_); return; }
+    localStorage.setItem(SESSION_KEY_, JSON.stringify({
+      leltar: activeLeltar, sector: currentSector || "", user: userEmail || "", mentve: Date.now(),
+    }));
+  } catch (e) { /* nem kritikus */ }
+}
+function munkamenetVisszaallit_() {
+  try {
+    const nyers = localStorage.getItem(SESSION_KEY_);
+    if (!nyers) return false;
+    const adat = JSON.parse(nyers);
+    if (!adat || !adat.leltar || !adat.leltar.leltar_id) return false;
+    // 16 óránál régebbi munkamenetet nem folytatunk automatikusan.
+    if (Date.now() - (adat.mentve || 0) > 57600000) return false;
+    activeLeltar = adat.leltar;
+    currentSector = adat.sector || "";
+    if (adat.user) userEmail = adat.user;
+    debugLog("munkamenet folytatva: " + activeLeltar.leltar_id + (currentSector ? (" · " + currentSector + ". szektor") : ""));
+    return true;
+  } catch (e) { return false; }
+}
+let scanStoreTimer_ = null;
+function scansDirty_() {
+  if (scanStoreTimer_) return;
+  scanStoreTimer_ = setTimeout(() => {
+    scanStoreTimer_ = null;
+    try {
+      localStorage.setItem(SCAN_STORE_KEY_, JSON.stringify({
+        leltarId: (activeLeltar && activeLeltar.leltar_id) || null,
+        sector: currentSector || null,
+        mentve: Date.now(), tetelek: scanned,
+      }));
+    } catch (e) { /* ha nem fér el, a munkát attól még lehet folytatni */ }
+  }, 2500);
+}
+function restoreScans_() {
+  try {
+    const nyers = localStorage.getItem(SCAN_STORE_KEY_);
+    if (!nyers) return;
+    const adat = JSON.parse(nyers);
+    // Csak akkor állítjuk vissza, ha ugyanahhoz a leltárhoz tartozik, és
+    // nem túl régi (12 óra).
+    if (!adat || !adat.tetelek || !adat.tetelek.length) return;
+    const mostaniId = (activeLeltar && activeLeltar.leltar_id) || null;
+    if (adat.leltarId && mostaniId && adat.leltarId !== mostaniId) return;
+    if (Date.now() - (adat.mentve || 0) > 43200000) return;
+    scanned = adat.tetelek;
+    if (!currentSector && adat.sector) currentSector = adat.sector;
+    debugLog(`visszaállítva ${scanned.length} korábbi tétel`);
+  } catch (e) { /* sérült adat esetén egyszerűen üresen indulunk */ }
+}
 let pendingHit = null;         // amit épp visszaigazolásra vár a kártya
 let lastAcceptedCode = null;
 let lastAcceptedAt = 0;
@@ -711,9 +853,18 @@ const guide = el("guide");
 /* =========================================================================
    HANG / REZGÉS VISSZAJELZÉS
    ========================================================================= */
+// A hangrendszert csak a csipogás idejére ébresztjük fel — egyébként
+// felfüggesztve tartjuk, így nem jár a háttérben.
 const audioCtx = window.AudioContext ? new AudioContext() : null;
+let audioSuspendTimer_ = null;
 function beep(freq = 880, dur = 0.06) {
   if (!audioCtx) return;
+  try { if (audioCtx.state === "suspended") audioCtx.resume(); } catch (e) { /* nem kritikus */ }
+  if (audioSuspendTimer_) clearTimeout(audioSuspendTimer_);
+  audioSuspendTimer_ = setTimeout(() => {
+    audioSuspendTimer_ = null;
+    try { audioCtx.suspend(); } catch (e) { /* nem kritikus */ }
+  }, 1500);
   const o = audioCtx.createOscillator();
   const g = audioCtx.createGain();
   o.frequency.value = freq;
@@ -783,7 +934,60 @@ function productCacheSave_() {
 }
 setInterval(productCacheSave_, 10000);
 
+/* ---------- Termékkatalógus (egyszer letöltve) ----------
+   Csatlakozás után egyetlen kéréssel lehozzuk a leltár összes termékének
+   vonalkód–név párját. Onnantól a terméknév AZONNAL megjelenik, hálózat
+   nélkül: nincs várakozás, a mobil rádió nem ébred fel minden
+   becsipogásnál (ez a telefon fogyasztásának jelentős része), és a
+   beolvasás gyenge térerőnél is működik. */
+const CATALOG_KEY_ = "leltarKatalogus";
+let katalogus_ = null;          // { leltarId, tetelek: { vonalkod: nev } }
+
+function katalogusBetolt_() {
+  try {
+    const nyers = localStorage.getItem(CATALOG_KEY_);
+    if (!nyers) return;
+    const adat = JSON.parse(nyers);
+    if (!adat || !adat.tetelek) return;
+    katalogus_ = adat;
+  } catch (e) { katalogus_ = null; }
+}
+
+async function katalogusFrissit_() {
+  const lid = activeLeltar && activeLeltar.leltar_id;
+  if (!lid) return;
+  if (katalogus_ && katalogus_.leltarId === lid) return;   // már megvan
+  try {
+    debugLog("termékkatalógus letöltése…");
+    const data = await apiGet({ action: "catalog", leltar_id: lid });
+    if (!data || !data.tetelek) return;
+    const map = {};
+    data.tetelek.forEach(t => {
+      map[t.b] = t.n;
+      // A vezető nullák nélküli alakra is, mert a beolvasott kód és a
+      // törzsben tárolt alak eltérhet.
+      const mag = String(t.b).replace(/^0+/, "");
+      if (mag && mag !== t.b) map[mag] = t.n;
+    });
+    katalogus_ = { leltarId: lid, tetelek: map, letoltve: Date.now() };
+    try { localStorage.setItem(CATALOG_KEY_, JSON.stringify(katalogus_)); }
+    catch (e) { /* ha nem fér el, memóriában akkor is használható */ }
+    debugLog(`termékkatalógus kész: ${data.tetelek.length} tétel`);
+  } catch (e) {
+    debugLog("katalógus letöltés sikertelen (a nevek egyenként jönnek): " + (e && e.message ? e.message : e));
+  }
+}
+
+function katalogusbolNev_(barcode) {
+  if (!katalogus_ || !katalogus_.tetelek) return null;
+  const bc = String(barcode);
+  return katalogus_.tetelek[bc] || katalogus_.tetelek[bc.replace(/^0+/, "")] || null;
+}
+
 async function lookupProduct(barcode) {
+  // 1) A letöltött katalógusból — azonnali, hálózat nélkül.
+  const katNev = katalogusbolNev_(barcode);
+  if (katNev) return { found: true, name: katNev, checked: null, matchedBarcode: barcode };
   const cached = productCache_[barcode];
   if (cached) return { found: !!cached.n, name: cached.n || null, checked: null, matchedBarcode: cached.b || barcode };
   const result = await lookupProductRaw_(barcode);
@@ -814,7 +1018,13 @@ async function startCamera() {
   debugLog("getUserMedia hívása (natív út)...");
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: "environment", width: { ideal: 4096 }, height: { ideal: 2160 },
+      video: { facingMode: "environment",
+        // ENERGIA: 1080p a korábbi 4K helyett. A 4K-s kép a kamera és a
+        // képfeldolgozó egység fogyasztását nagyjából megduplázza,
+        // miközben a kivágott területen 1080p-nél is 5-7 képpont jut egy
+        // vonalkód-vonalra — ez bőven elég a biztos olvasáshoz.
+        width: { ideal: 1920 }, height: { ideal: 1080 },
+        frameRate: { ideal: 20, max: 24 },
         advanced: [{ focusMode: "continuous" }] },
       audio: false,
     });
@@ -839,7 +1049,8 @@ async function startCamera() {
     setCamMsg("");
     refreshTorchButton();
     debugLog(`natív mód · formátumok: ${formats.join(", ")}`);
-    requestAnimationFrame(nativeScanLoop);
+    szkennelesCiklus_ = nativeScanLoop;
+    if (!scanLoopFut_) { scanLoopFut_ = true; nativeScanLoop(); }
   } catch (e) {
     debugLog("natív BarcodeDetector hiba, ZXing tartalék indítása: " + e.message);
     if (activeStream) { activeStream.getTracks().forEach(t => t.stop()); activeStream = null; }
@@ -847,7 +1058,7 @@ async function startCamera() {
   }
 }
 
-const APP_VERSION = "v71";
+const APP_VERSION = "v76";
 let frameCount = 0, detectCount = 0;
 function debugLog(msg) {
   // A felületen csak a verziószám látszik (lásd lent) — a részletes
@@ -867,7 +1078,11 @@ function debugLog(msg) {
 const cropCanvas = document.createElement("canvas");
 const cropCtx = cropCanvas.getContext("2d", { willReadFrequently: true });
 
-function captureGuideCrop(upscale = 2.2) {
+// A kivágott terület nagyítása. ENERGIA: 2,2-szeres helyett 1,4-szeres
+// — a feldolgozandó képpontok száma a négyzetével nő, tehát ez önmagában
+// a felére csökkenti a felismerés munkáját. 1080p-s képnél a vonalkód
+// így is bőven olvasható marad.
+function captureGuideCrop(upscale = 1.4) {
   const vw = video.videoWidth, vh = video.videoHeight;
   if (!vw || !vh) return null;
 
@@ -894,8 +1109,14 @@ function captureGuideCrop(upscale = 2.2) {
   const swC = Math.max(1, Math.min(sw, vw - sxC));
   const shC = Math.max(1, Math.min(sh, vh - syC));
 
-  cropCanvas.width = Math.round(swC * upscale);
-  cropCanvas.height = Math.round(shC * upscale);
+  const ujW = Math.round(swC * upscale);
+  const ujH = Math.round(shC * upscale);
+  // A canvas átméretezése újra lefoglalja a rajzpuffert — ezért csak
+  // akkor állítjuk, ha tényleg változott (pl. elforgatták a telefont).
+  if (cropCanvas.width !== ujW || cropCanvas.height !== ujH) {
+    cropCanvas.width = ujW;
+    cropCanvas.height = ujH;
+  }
   // A sima (nem kikapcsolt) simítás jobb eredményt ad a dekódolásnál,
   // mint az élesen pixeles verzió — a dekóder algoritmusok a finom
   // élátmenetekből pontosabban számolnak.
@@ -910,6 +1131,157 @@ function captureGuideCrop(upscale = 2.2) {
 // területen bármit felismer a motor (pontos körvonal helyett — mert
 // felnagyított/kivágott képen dolgozunk, a pontos pozíció nem 1:1
 // mapolható vissza egyszerűen a képernyőre).
+/* =========================================================================
+   ENERGIATAKARÉKOS MŰKÖDÉS
+   A telefonok melegedésének és gyors merülésének három oka volt:
+     1) a felismerés a képernyő frissítéséhez volt kötve (60-120×/mp),
+     2) akkor is futott, amikor a dolgozó nem szkennelt,
+     3) a kamera a legnagyobb felbontáson dolgozott.
+   Ezért: ütemezett felismerés (10×/mp), csak nyomva tartott gombnál,
+   és a kamera felfüggesztése, ha az alkalmazás háttérbe kerül vagy
+   hosszabb ideig nem történik semmi.
+   ========================================================================= */
+let scanLoopFut_ = false;           // fut-e épp a felismerési ciklus
+let szkennelesCiklus_ = null;       // melyik ciklust kell ébreszteni (natív / tartalék)
+const SCAN_INTERVAL_MS_ = 100;      // legfeljebb 10 felismerési kísérlet / mp
+const TETLENSEG_MS_ = 45000;        // 45 mp tétlenség után a kamera szünetel
+                                    // (egy koppintással azonnal folytatható)
+let utolsoTevekenyseg_ = Date.now();
+let kameraSzunetel_ = false;
+
+function tevekenysegVolt_() {
+  utolsoTevekenyseg_ = Date.now();
+  if (kameraSzunetel_) kameraFolytatas_();
+  else if (elonezetAll_) elonezetFolytatas_();
+  if (scanningHeld) ebresztSzkennelest_();
+}
+["touchstart", "mousedown", "keydown"].forEach(ev =>
+  document.addEventListener(ev, tevekenysegVolt_, { passive: true }));
+
+// Akkor dolgozunk, ha a gombot nyomva tartják, a lap előtérben van és a
+// kamera nem szünetel.
+function szkennelesAktiv_() {
+  return scanningHeld && !document.hidden && !kameraSzunetel_;
+}
+
+/* Az ELŐNÉZET felfüggesztése rövid tétlenség után. A kamera ilyenkor
+   NEM áll le (a gombnyomásra azonnal folytatódik, nincs újraindulási
+   várakozás), csak a kép kirajzolása szünetel — ez percenként több mint
+   ezer képkocka feldolgozását spórolja meg. A képkockaszámot is
+   levesszük, amíg nem szkennelnek. */
+const ELONEZET_SZUNET_MS_ = 6000;
+let elonezetAll_ = false;
+
+function elonezetSzunet_() {
+  if (elonezetAll_ || !activeStream) return;
+  elonezetAll_ = true;
+  try { video.pause(); } catch (e) { /* nem kritikus */ }
+  kepkockaSzam_(5);
+  const jelzo = el("elonezetJelzo");
+  if (jelzo) jelzo.style.display = "flex";
+}
+
+function elonezetFolytatas_() {
+  if (!elonezetAll_) return;
+  elonezetAll_ = false;
+  const jelzo = el("elonezetJelzo");
+  if (jelzo) jelzo.style.display = "none";
+  kepkockaSzam_(20);
+  try { const p = video.play(); if (p && p.catch) p.catch(() => {}); } catch (e) { /* nem kritikus */ }
+}
+
+function kepkockaSzam_(fps) {
+  try {
+    const track = getActiveVideoTrack();
+    if (track && track.applyConstraints) {
+      track.applyConstraints({ frameRate: { ideal: fps, max: fps } }).catch(() => {});
+    }
+  } catch (e) { /* ha az eszköz nem támogatja, marad az alap */ }
+}
+
+// A következő kör ütemezése: fix időzítéssel, nem a képernyő
+// frissítéséhez kötve (így egy 120 Hz-es kijelző sem hajtja fel a
+// terhelést). Ha épp nem szkennelnek, ritkábban ébredünk.
+function utemezKovetkezoKort_(fn) {
+  // Ha nem szkennelnek, a ciklus NEM ütemez új kört: teljesen leáll.
+  // Korábban üresen is ébredt másodpercenként tizenhatszor. A gomb
+  // lenyomása azonnal újraindítja (lásd ebresztSzkennelest_), tehát egy
+  // gyors koppintás sem marad le.
+  if (!szkennelesAktiv_()) {
+    scanLoopFut_ = false;
+    szkennelesCiklus_ = fn;      // megjegyezzük, melyik ciklust kell ébreszteni
+    return;
+  }
+  setTimeout(fn, SCAN_INTERVAL_MS_);
+}
+
+// A felismerési ciklus ébresztése (gombnyomáskor, kamera-folytatáskor).
+function ebresztSzkennelest_() {
+  if (scanLoopFut_ || !szkennelesCiklus_) return;
+  scanLoopFut_ = true;
+  szkennelesCiklus_();
+}
+
+function kameraSzunet_(okSzoveg) {
+  if (kameraSzunetel_) return;
+  kameraSzunetel_ = true;
+  try {
+    // A vaku a telefon legnagyobb egyedi fogyasztója — szünetnél
+    // mindenképp lekapcsoljuk.
+    const track = getActiveVideoTrack();
+    if (torchOn && track) {
+      torchOn = false;
+      track.applyConstraints({ advanced: [{ torch: false }] });
+      const tb = el("torchBtn"); if (tb) tb.style.background = "rgba(0,0,0,0.5)";
+    }
+  } catch (e) { /* nem kritikus */ }
+  try {
+    if (activeStream) activeStream.getTracks().forEach(t => t.stop());
+  } catch (e) { /* nem kritikus */ }
+  activeStream = null;
+  const jelzo = el("kameraSzunetJelzo");
+  if (jelzo) {
+    jelzo.querySelector(".szunetOk").textContent = okSzoveg || "A kamera szünetel az akkumulátor kímélése miatt.";
+    jelzo.style.display = "flex";
+  }
+}
+
+async function kameraFolytatas_() {
+  if (!kameraSzunetel_) return;
+  kameraSzunetel_ = false;
+  utolsoTevekenyseg_ = Date.now();
+  const jelzo = el("kameraSzunetJelzo");
+  if (jelzo) jelzo.style.display = "none";
+  try {
+    await startCamera();      // a felismerési ciklus már fut, nem indul újra
+  } catch (e) {
+    debugLog("kamera újraindítás: " + (e && e.message ? e.message : e));
+  }
+}
+
+// Háttérbe kerüléskor azonnal leállítjuk a kamerát (lezárt képernyőnél
+// vagy másik alkalmazásnál is fogyasztana), visszatéréskor újraindul.
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) {
+    if (activeStream) kameraSzunet_("Az alkalmazás háttérben volt — koppints a folytatáshoz.");
+  } else {
+    utolsoTevekenyseg_ = Date.now();
+  }
+});
+
+// Tétlenség figyelése: ha hosszabb ideig nem történik semmi, a kamera
+// szünetel. Egy koppintással azonnal folytatható.
+setInterval(() => {
+  if (kameraSzunetel_ || !activeStream) return;
+  if (scanningHeld) { utolsoTevekenyseg_ = Date.now(); return; }
+  const tetlen = Date.now() - utolsoTevekenyseg_;
+  if (tetlen > TETLENSEG_MS_) {
+    kameraSzunet_("Szünetel az akkumulátor kímélése miatt — koppints a folytatáshoz.");
+  } else if (tetlen > ELONEZET_SZUNET_MS_) {
+    elonezetSzunet_();          // a kamera fut, csak a kép áll
+  }
+}, 3000);
+
 let guideActiveTimeout = null;
 function highlightGuide() {
   guide.classList.add("active");
@@ -922,7 +1294,14 @@ function highlightGuide() {
    ========================================================================= */
 async function nativeScanLoop() {
   try {
-    if (video.readyState >= 2 && video.videoWidth) {
+    // ENERGIA: csak akkor dolgozunk, ha tényleg szkennelnek (a gomb
+    // nyomva van) és a lap előtérben van. Korábban a felismerés a
+    // képernyő frissítéséhez volt kötve, vagyis másodpercenként 60-120
+    // alkalommal futott — akkor is, amikor a dolgozó épp a mennyiséget
+    // írta be vagy a listát nézte. Ez a telefon processzorát és
+    // grafikus egységét folyamatosan terhelte (melegedés, gyors
+    // merülés), miközben a munka nagy része fölösleges volt.
+    if (szkennelesAktiv_() && video.readyState >= 2 && video.videoWidth) {
       frameCount++;
       const crop = captureGuideCrop();
       if (crop) {
@@ -934,13 +1313,11 @@ async function nativeScanLoop() {
         debugLog(`natív mód · videó: ${video.videoWidth}x${video.videoHeight} · `
           + `${frameCount} kocka feldolgozva · ${detectCount} találat`);
       }
-    } else {
-      debugLog(`videó nem kész (readyState=${video.readyState}, width=${video.videoWidth})`);
     }
   } catch (e) {
     debugLog("nativeScanLoop hiba: " + (e && e.message ? e.message : e));
   }
-  requestAnimationFrame(nativeScanLoop);
+  utemezKovetkezoKort_(nativeScanLoop);
 }
 
 /* =========================================================================
@@ -987,7 +1364,8 @@ async function startFallbackScanner() {
     const stream = await navigator.mediaDevices.getUserMedia({
       video: {
         facingMode: { ideal: "environment" },
-        width: { ideal: 4096 }, height: { ideal: 2160 },
+        width: { ideal: 1920 }, height: { ideal: 1080 },
+        frameRate: { ideal: 20, max: 24 },
         advanced: [{ focusMode: "continuous" }],
       },
       audio: false,
@@ -1004,7 +1382,8 @@ async function startFallbackScanner() {
   setCamMsg("");
   refreshTorchButton();
   debugLog(`tartalék mód (ZXing-WASM) · kamera fut · videó:${video.videoWidth}x${video.videoHeight}`);
-  requestAnimationFrame(fallbackScanLoop);
+  szkennelesCiklus_ = fallbackScanLoop;
+  if (!scanLoopFut_) { scanLoopFut_ = true; fallbackScanLoop(); }
 }
 
 let lastFallbackDecodeAt = 0;
@@ -1012,9 +1391,9 @@ let fallbackAttempts = 0, fallbackFound = 0;
 async function fallbackScanLoop() {
   try {
     const now = Date.now();
-    // A WASM dekódolás sokkal gyorsabb, mint a tiszta JS verzió volt,
-    // ezért sűrűbben próbálkozhatunk anélkül, hogy akadozna a felület.
-    if (now - lastFallbackDecodeAt > 90 && video.videoWidth) {
+    // Lásd a natív ciklus megjegyzését: csak nyomva tartott gombnál és
+    // előtérben lévő lapnál dekódolunk.
+    if (szkennelesAktiv_() && now - lastFallbackDecodeAt > SCAN_INTERVAL_MS_ && video.videoWidth) {
       lastFallbackDecodeAt = now;
       const crop = captureGuideCrop();
       if (crop) {
@@ -1022,9 +1401,14 @@ async function fallbackScanLoop() {
         try {
           const imageData = cropCtx.getImageData(0, 0, crop.width, crop.height);
           const results = await ZXingWASM.readBarcodesFromImageData(imageData, {
-            tryHarder: true,
+            // A "tryHarder" minden második próbálkozásnál: a legtöbb
+            // vonalkódot az alapmód is elolvassa, és ez jóval olcsóbb.
+            tryHarder: (fallbackAttempts % 2) === 0,
             maxSymbols: 1,
-            formats: ["EAN-13", "EAN-8", "UPC-A", "UPC-E", "Code128", "Code39", "ITF", "QRCode"],
+            // QR-kódot itt nem keresünk (az csak a csatlakozáshoz kell) —
+            // így nem fordulhat elő, hogy egy doboz QR-kódja bekerül
+            // tételként, és a felismerés is gyorsabb.
+            formats: ["EAN-13", "EAN-8", "UPC-A", "UPC-E", "Code128", "Code39", "ITF"],
           });
           if (results && results.length) {
             fallbackFound++;
@@ -1044,7 +1428,7 @@ async function fallbackScanLoop() {
   } catch (e) {
     debugLog("fallbackScanLoop hiba: " + (e && e.message ? e.message : e));
   }
-  requestAnimationFrame(fallbackScanLoop);
+  utemezKovetkezoKort_(fallbackScanLoop);
 }
 
 /* =========================================================================
@@ -1155,7 +1539,7 @@ async function acceptCode(barcode) {
   renderHitCard();
 
   const result = await lookupProduct(barcode);
-  const finalName = result.found ? result.name : "Ismeretlen vonalkód";
+  const finalName = result.found ? result.name : "⚠ Ismeretlen vonalkód";
 
   // A már rögzített tétel nevének/vonalkódjának utólagos pótlása a
   // listában — függetlenül attól, hogy a felhasználó időközben
@@ -1318,6 +1702,9 @@ function commitPending() {
     lastAcceptedCode = null;
     scanningHeld = true;
     btn.classList.add("active");
+    // A kamera/előnézet felébresztése és a felismerés azonnali indítása.
+    tevekenysegVolt_();
+    ebresztSzkennelest_();
   };
   const stop = () => { scanningHeld = false; btn.classList.remove("active"); };
   btn.addEventListener("pointerdown", start);
@@ -1357,9 +1744,37 @@ el("qtyInput").addEventListener("keydown", (e) => {
 });
 el("nextBtn").addEventListener("click", commitPending);
 
+// A szektor újrakezdése: a benne lévő beolvasások törlése, hogy
+// elölről lehessen kezdeni. A már feltöltött tételeket a szerver a
+// következő feltöltésnél felülírja (szektoronként a legutóbbi állapot
+// számít), tehát az admin oldalon is a tiszta, új számolás látszik.
+el("resetSectorBtn").addEventListener("click", async () => {
+  if (!currentSector) return;
+  const tetelek = scanned.filter(s => s.sector === currentSector);
+  if (!tetelek.length) { showToast("Ebben a szektorban még nincs beolvasott tétel.", "warn"); return; }
+  const db = tetelek.reduce((a, s) => a + (Number(s.qty) || 0), 0);
+  if (!(await showConfirm(`Biztosan újrakezded a(z) ${currentSector}. szektort? `
+    + `A benne lévő ${tetelek.length} féle (${db} db) beolvasás törlődik, és elölről kezdheted.`))) return;
+  if (pendingHit) { pendingHit = null; collapseHitCard_(); }
+  const voltFeltoltve = tetelek.some(s => s.synced);
+  scanned = scanned.filter(s => s.sector !== currentSector);
+  // Jelzés a szervernek, hogy ebben a szektorban újraszámolás indult:
+  // egy üres beküldés felülírja a korábbi tételeket.
+  if (voltFeltoltve && activeLeltar) {
+    apiPost({ action: "reset_sector", leltar_id: activeLeltar.leltar_id,
+      sector: currentSector, user: userEmail || "ismeretlen", device: deviceId_ })
+      .catch(() => debugLog("a szektor nullázása a szerveren később megtörténik"));
+  }
+  renderList();
+  showToast(`${currentSector}. szektor újrakezdve.`, "success");
+});
+
 function updateGateUI() {
   const joined = !!activeLeltar;
   el("joinFirstHint").style.display = joined ? "none" : "block";
+
+  const resetWrap = el("resetSectorWrap");
+  if (resetWrap) resetWrap.style.display = (joined && currentSector) ? "block" : "none";
 
   const badge = el("sectorBadge");
   if (!joined) {
@@ -1423,6 +1838,7 @@ el("sectorModalOkBtn").addEventListener("click", () => {
   const val = el("sectorModalInput").value.trim();
   if (!val) { el("sectorModalInput").focus(); return; }
   currentSector = val;
+  munkamenetMentes_();
   renderList();
   updateGateUI();
 });
@@ -1457,10 +1873,33 @@ document.querySelectorAll("[data-back]").forEach(btn => {
 /* =========================================================================
    SZEKTOR LEZÁRÁSA / BEFEJEZÉS
    ========================================================================= */
-async function syncPendingScans() {
-  if (syncInProgress_) return;
+/* ---------- OFFLINE MŰKÖDÉS ----------
+   A raktár alsó szintjén nincs térerő, ezért a beolvasás SOHA nem függ
+   a hálózattól: minden tétel azonnal a telefonra kerül (lásd
+   scansDirty_), a szerverre küldés pedig csak egy háttérfeladat. Ha nem
+   megy át, a tételek megmaradnak, és a rendszer magától újrapróbálja —
+   amint van hálózat, vagy amikor a dolgozó kijön a térerős részre.
+   Egy oldalfrissítés vagy böngésző-újraindítás sem okoz adatvesztést. */
+let syncUjraTimer_ = null;
+
+function utemezUjraSzinkront_(masodperc) {
+  if (syncUjraTimer_) return;
+  syncUjraTimer_ = setTimeout(() => {
+    syncUjraTimer_ = null;
+    syncPendingScans();
+  }, masodperc * 1000);
+}
+
+async function syncPendingScans(csendben) {
+  if (syncInProgress_) return { ok: false, oka: "fut" };
   const pendingItems = scanned.filter(s => !s.synced);
-  if (!pendingItems.length || !APPS_SCRIPT_URL || !activeLeltar) return;
+  if (!pendingItems.length) return { ok: true, kuldve: 0 };
+  if (!APPS_SCRIPT_URL || !activeLeltar) return { ok: false, oka: "nincs leltár" };
+  if (navigator.onLine === false) {
+    // Nincs hálózat — nem is próbálkozunk, de nem veszik el semmi.
+    utemezUjraSzinkront_(20);
+    return { ok: false, oka: "offline", varakozik: pendingItems.length };
+  }
   syncInProgress_ = true;
   try {
     await apiPost({
@@ -1472,23 +1911,65 @@ async function syncPendingScans() {
       })),
     });
     pendingItems.forEach(s => s.synced = true);
+    scansDirty_();            // a "feltöltve" állapotot is elmentjük
     updatePendingCount();
+    return { ok: true, kuldve: pendingItems.length };
   } catch (e) {
-    debugLog("háttér-szinkron hiba: " + e.message);
+    debugLog("szinkron nem sikerült (" + e.message + ") — a tételek megmaradtak, később újrapróbáljuk");
+    utemezUjraSzinkront_(30);
+    return { ok: false, oka: "hiba", varakozik: pendingItems.length };
   } finally {
     syncInProgress_ = false;
   }
 }
 
+// Amint visszatér a hálózat, azonnal megpróbáljuk a feltöltést.
+window.addEventListener("online", () => {
+  el("netDot").className = "dot online";
+  const varakozo = scanned.filter(s => !s.synced).length;
+  if (varakozo) {
+    showToast(`Van újra térerő — ${varakozo} tétel feltöltése…`, "success");
+    syncPendingScans();
+  }
+});
+// Rendszeres, csendes újrapróbálkozás, ha maradt feltöltetlen tétel.
+setInterval(() => {
+  if (!activeLeltar || syncInProgress_) return;
+  if (scanned.some(s => !s.synced) && navigator.onLine !== false) syncPendingScans(true);
+}, 60000);
+
 el("closeSectorBtn").addEventListener("click", async () => {
   if (!currentSector) return;
-  if (!(await showConfirm(`Biztosan lezárod a(z) ${currentSector}. szektort? Utána új szektort kell megadnod a folytatáshoz.`))) return;
+  if (pendingHit) commitPending();
+  // Ha maradt ismeretlen vonalkód a szektorban, külön figyelmeztetünk —
+  // ezeket a lezárás után már nehezebb tisztázni.
+  const ismeretlenek = scanned.filter(s =>
+    s.sector === currentSector && (!s.name || /^⚠?\s*Ismeretlen/.test(s.name)));
+  if (ismeretlenek.length) {
+    const ok = await showConfirm(
+      `Ebben a szektorban ${ismeretlenek.length} ISMERETLEN vonalkód van `
+      + `(${ismeretlenek.slice(0, 3).map(x => x.barcode).join(", ")}${ismeretlenek.length > 3 ? "…" : ""}). `
+      + `Ezeket a listában a „Vonalkód javítása" gombbal tudod rendbe tenni. Így is lezárod a szektort?`);
+    if (!ok) return;
+  }
+  const osszDb = scanned.filter(s => s.sector === currentSector).reduce((a, s) => a + (Number(s.qty) || 0), 0);
+  if (!(await showConfirm(`Lezárod a(z) ${currentSector}. szektort? Összesen ${osszDb} db beolvasva. `
+    + `Utána új szektort kell megadnod a folytatáshoz.`))) return;
   if (pendingHit) commitPending();
   const closedSector = currentSector;
-  const count = scanned.filter(s => s.sector === closedSector).length;
-  await syncPendingScans();
-  showToast(`${closedSector}. szektor lezárva. Tételek: ${count}`, "success");
+  const tetelek = scanned.filter(s => s.sector === closedSector);
+  const db = tetelek.reduce((a, s) => a + (Number(s.qty) || 0), 0);
+  const eredmeny = await syncPendingScans();
+  if (eredmeny && !eredmeny.ok && eredmeny.varakozik) {
+    // Nincs hálózat: a szektor ettől még lezárható, a tételek a
+    // telefonon maradnak és automatikusan feltöltődnek.
+    showToast(`${closedSector}. szektor lezárva (${db} db). ${eredmeny.varakozik} tétel feltöltésre vár — `
+      + `amint lesz térerő, automatikusan felmegy.`, "warn");
+  } else {
+    showToast(`${closedSector}. szektor lezárva. Összesen ${db} db.`, "success");
+  }
   currentSector = "";
+  munkamenetMentes_();
   renderList();
   updateGateUI();
 });
@@ -1501,6 +1982,8 @@ el("finishAllBtn").addEventListener("click", async () => {
   activeLeltar = null;
   currentSector = "";
   scanned = [];
+  munkamenetMentes_();
+  try { localStorage.removeItem(SCAN_STORE_KEY_); } catch (e) { /* nem kritikus */ }
   renderList();
   updateGateUI();
   el("sectorModalOverlay").classList.remove("show");
@@ -1560,11 +2043,20 @@ function updatePendingCount() {
 let listExpanded = false;
 let lastRenderedCount = 0;
 
+let torlesMod_ = false;                 // kijelölős törlés be/ki
+let torlesKijelolt_ = new Set();        // "vonalkod|szektor" kulcsok
+
+function torlesKulcs_(s) { return s.barcode + "|" + s.sector; }
+
 function rowItemHtml(s) {
+  const ismeretlen = !s.name || /^⚠?\s*Ismeretlen/.test(s.name) || s.name === "Keresés…";
   return `
-    <div class="rowItem">
+    <div class="rowItem${ismeretlen ? " ismeretlenSor" : ""}">
+      ${torlesMod_ ? `<input type="checkbox" class="torlesBox" data-key="${escapeHtml(torlesKulcs_(s))}"
+        ${torlesKijelolt_.has(torlesKulcs_(s)) ? "checked" : ""}>` : ""}
       <div class="info">
         <b>${escapeHtml(s.name)}</b>
+        ${ismeretlen ? `<button class="javitBtn" data-fix-barcode="${escapeHtml(s.barcode)}" data-fix-sector="${escapeHtml(s.sector)}">Vonalkód javítása</button>` : ""}
         <span>${s.barcode} · ${s.sector}</span>
         ${checkedNoteHtml(s.checked)}
       </div>
@@ -1581,6 +2073,40 @@ function findScannedItem(barcode, sector) {
   return scanned.find(s => s.barcode === barcode && s.sector === sector);
 }
 
+// A törlés mód kezelése: egyszerre több tétel kijelölhető és törölhető.
+function bindTorlesSav_() {
+  const sav = el("torlesSav");
+  if (!sav) return;
+  const q = (id) => sav.querySelector("#" + id);
+  if (q("torlesIndit")) q("torlesIndit").onclick = () => {
+    torlesMod_ = true; torlesKijelolt_.clear(); renderList();
+  };
+  if (q("torlesKilep")) q("torlesKilep").onclick = () => {
+    torlesMod_ = false; torlesKijelolt_.clear(); renderList();
+  };
+  if (q("torlesMind")) q("torlesMind").onclick = () => {
+    const sorok = Array.from(el("list").querySelectorAll(".torlesBox"));
+    const mind = sorok.every(cb => torlesKijelolt_.has(cb.dataset.key));
+    sorok.forEach(cb => { if (mind) torlesKijelolt_.delete(cb.dataset.key); else torlesKijelolt_.add(cb.dataset.key); });
+    renderList();
+  };
+  if (q("torlesVegrehajt")) q("torlesVegrehajt").onclick = async () => {
+    if (!torlesKijelolt_.size) { showToast("Előbb jelölj ki tételeket.", "warn"); return; }
+    const db = torlesKijelolt_.size;
+    if (!(await showConfirm(`Biztosan törlöd a kijelölt ${db} tételt?`))) return;
+    scanned = scanned.filter(s => !torlesKijelolt_.has(torlesKulcs_(s)));
+    torlesKijelolt_.clear(); torlesMod_ = false;
+    renderList();
+    showToast(`${db} tétel törölve.`, "success");
+    syncPendingScans();
+  };
+  el("list").querySelectorAll(".torlesBox").forEach(cb => cb.addEventListener("change", () => {
+    if (cb.checked) torlesKijelolt_.add(cb.dataset.key); else torlesKijelolt_.delete(cb.dataset.key);
+    const cimke = el("torlesSav").querySelector("span");
+    if (cimke) cimke.textContent = `${torlesKijelolt_.size} kijelölve`;
+  }));
+}
+
 function bindRowEvents(container) {
   container.querySelectorAll(".qMinus").forEach(btn => btn.addEventListener("click", () => {
     const it = findScannedItem(btn.dataset.barcode, btn.dataset.sector);
@@ -1594,6 +2120,55 @@ function bindRowEvents(container) {
     e.stopPropagation();
     askDeleteConfirmation(btn.dataset.barcode, btn.dataset.sector);
   }));
+  // Ismeretlen tétel vonalkódjának javítása (pl. félreolvasás esetén).
+  container.querySelectorAll("[data-fix-barcode]").forEach(btn => btn.addEventListener("click", async (e) => {
+    e.stopPropagation();
+    const regi = btn.dataset.fixBarcode, szektor = btn.dataset.fixSector;
+    const uj = await showPrompt_(`A beolvasott vonalkód: ${regi}\nAdd meg a helyeset:`, regi);
+    if (uj === null) return;
+    const ujKod = String(uj).trim();
+    if (!ujKod || ujKod === regi) return;
+    const it = findScannedItem(regi, szektor);
+    if (!it) return;
+    // Ha az új vonalkód már szerepel ebben a szektorban, összevonjuk.
+    const letezo = findScannedItem(ujKod, szektor);
+    if (letezo) {
+      letezo.qty += it.qty; letezo.synced = false;
+      scanned = scanned.filter(x => x !== it);
+    } else {
+      it.barcode = ujKod;
+      it.name = katalogusbolNev_(ujKod) || "Keresés…";
+      it.synced = false;
+      if (!katalogusbolNev_(ujKod)) {
+        lookupProduct(ujKod).then(r => {
+          it.name = r.found ? r.name : "⚠ Ismeretlen vonalkód";
+          renderList();
+        }).catch(() => {});
+      }
+    }
+    renderList();
+    showToast(`Vonalkód javítva: ${regi} → ${ujKod}`, "success");
+  }));
+}
+
+// Egyszerű szövegbekérés (a böngésző saját ablakánál megbízhatóbb
+// mobilon, mert nem vonja el a fókuszt a kamerától).
+function showPrompt_(uzenet, alapertek) {
+  return new Promise(resolve => {
+    const ov = el("promptOverlay");
+    const inp = el("promptInput");
+    el("promptMsg").textContent = uzenet;
+    inp.value = alapertek || "";
+    ov.classList.add("show");
+    setTimeout(() => inp.focus(), 50);
+    const zar = (v) => { ov.classList.remove("show"); inp.onkeydown = null; resolve(v); };
+    el("promptOk").onclick = () => zar(inp.value);
+    el("promptCancel").onclick = () => zar(null);
+    inp.onkeydown = (ev) => {
+      if (ev.key === "Enter") { ev.preventDefault(); zar(inp.value); }
+      if (ev.key === "Escape") { ev.preventDefault(); zar(null); }
+    };
+  });
 }
 
 /* ---------- Törlés megerősítése ---------- */
@@ -1619,8 +2194,14 @@ el("confirmDelete").addEventListener("click", () => {
 });
 
 function renderList() {
+  scansDirty_();     // a lista változott — késleltetve mentjük helyben is
   const items = scanned.filter(s => !currentSector || s.sector === currentSector);
-  el("itemCount").textContent = items.length;
+  // A fejlécben az ÖSSZES BEOLVASOTT DARABSZÁM látszik (nem a féleség),
+  // hogy össze lehessen vetni a szektorban előre leszámolt mennyiséggel.
+  const osszDb = items.reduce((a, x) => a + (Number(x.qty) || 0), 0);
+  el("itemCount").textContent = osszDb;
+  const cimke = el("itemCountLabel");
+  if (cimke) cimke.textContent = "db";
   updatePendingCount();
 
   const panel = el("listPanel");
@@ -1643,9 +2224,32 @@ function renderList() {
 
   panel.classList.toggle("expanded", listExpanded);
 
+  // Törlés mód sáv (több tétel egyszerre)
+  const sav = el("torlesSav");
+  if (sav) {
+    sav.style.display = listExpanded ? "flex" : "none";
+    sav.innerHTML = torlesMod_
+      ? `<span>${torlesKijelolt_.size} kijelölve</span>
+         <button id="torlesMind">Mind</button>
+         <button id="torlesVegrehajt" class="danger">Kijelöltek törlése</button>
+         <button id="torlesKilep">Mégse</button>`
+      : `<button id="torlesIndit">🗑 Több tétel törlése</button>`;
+  }
+
   if (listExpanded) {
-    el("list").innerHTML = items.map(rowItemHtml).join("");
+    // Hosszú műszak alatt a lista több ezer tételes lehet; a teljes
+    // újrarajzolás minden beolvasásnál lassítana és fogyasztana. A
+    // legutóbbi tételeket mutatjuk (azokkal dolgozik az ember), a többit
+    // a kereséssel lehet elérni.
+    const MAX_SOR_ = 150;
+    const lathato = items.length > MAX_SOR_ ? items.slice(-MAX_SOR_) : items;
+    el("list").innerHTML =
+      (items.length > lathato.length
+        ? `<div class="listInfoSor">A legutóbbi ${lathato.length} tétel látszik (összesen ${items.length}).</div>`
+        : "")
+      + lathato.map(rowItemHtml).join("");
     bindRowEvents(el("list"));
+  bindTorlesSav_();
   } else {
     el("list").innerHTML = "";
   }
@@ -1717,6 +2321,24 @@ el("startBtn").addEventListener("click", () => {
   el("startBtn").style.display = "none";
   startCamera().catch(err => debugLog("startCamera hiba: " + (err && err.message ? err.message : err)));
 });
+// A munkamenet folytatása: csatlakozás, szektor, beolvasások.
+const folytatott_ = munkamenetVisszaallit_();
+katalogusBetolt_();   // a korábban letöltött terméknevek
+restoreScans_();      // a még fel nem töltött tételek
+if (folytatott_) {
+  el("nameGateOverlay").classList.add("hide");
+  katalogusFrissit_();
+  // Ha a korábbi munkamenetből maradtak feltöltetlen tételek (pl. mert a
+  // raktárban nem volt térerő), AZONNAL megpróbáljuk elküldeni őket —
+  // nem kell megvárni a következő ütemet.
+  setTimeout(() => {
+    const varakozo = scanned.filter(s => !s.synced).length;
+    if (varakozo && navigator.onLine !== false) {
+      debugLog(`${varakozo} korábbi tétel feltöltése…`);
+      syncPendingScans();
+    }
+  }, 1200);
+}
 renderList();
 updateGateUI();
 
@@ -1900,6 +2522,10 @@ async function joinLeltarWithCode(code) {
     if (!result.found) { showToast("Nincs ilyen csatlakozási kód.", "warn"); return; }
     if (!result.active) { showToast(result.message || "Ez a leltár már nem aktív.", "warn"); return; }
     activeLeltar = { leltar_id: result.leltar_id, code: code.toUpperCase(), tipus: result.tipus, raktar: result.raktar };
+    munkamenetMentes_();
+    // A termékkatalógus a háttérben töltődik — nem várakoztatja a
+    // csatlakozást, és amint kész, a nevek azonnal megjelennek.
+    katalogusFrissit_();
     saveNameForLeltar_(result.leltar_id, userEmail, code);
     renderLeltarScreen();
     el("leltarScreen").classList.remove("show");
@@ -1945,7 +2571,8 @@ async function openJoinScanner() {
     const v = el("joinVideo");
     v.srcObject = joinStream;
     await v.play();
-    requestAnimationFrame(joinScanLoop);
+    // ENERGIA: ütemezetten (kb. 10×/mp), nem a képernyő frissítéséhez kötve.
+  if (joinScanning) setTimeout(joinScanLoop, SCAN_INTERVAL_MS_);
   } catch (e) {
     el("joinScanMsg").textContent = "Kamera hiba: " + e.message;
   }
@@ -1977,7 +2604,8 @@ async function joinScanLoop() {
       }
     }
   } catch (e) { /* átmeneti hiba, folytatjuk */ }
-  requestAnimationFrame(joinScanLoop);
+  // ENERGIA: ütemezetten (kb. 10×/mp), nem a képernyő frissítéséhez kötve.
+  if (joinScanning) setTimeout(joinScanLoop, SCAN_INTERVAL_MS_);
 }
 
 function handleJoinScanResult(code) {
@@ -2012,7 +2640,7 @@ async function openCheckScanner() {
     const v = el("checkVideo");
     v.srcObject = checkStream;
     await v.play();
-    requestAnimationFrame(checkScanLoop);
+    if (checkScanning) setTimeout(checkScanLoop, SCAN_INTERVAL_MS_);
   } catch (e) {
     el("checkMsg").textContent = "Kamera hiba: " + e.message;
   }
@@ -2055,7 +2683,7 @@ async function checkScanLoop() {
       }
     }
   } catch (e) { /* átmeneti hiba, folytatjuk */ }
-  requestAnimationFrame(checkScanLoop);
+  if (checkScanning) setTimeout(checkScanLoop, SCAN_INTERVAL_MS_);
 }
 
 async function handleCheckScanResult(barcode) {
