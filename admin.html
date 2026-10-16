@@ -1635,11 +1635,17 @@ function renderFullReport(container, report, opts) {
           <div class="sectionStat secondary" id="summaryErtekAbsz">${formatFtSigned(osszesito.elteres_ertek_netto)}</div>
         </div>
       </div>
-      ${!isOpen ? `
       <div class="summaryGrid">
+        <div class="summaryBox"><div class="num">${(() => {
+          // Összes beolvasott darabszám — ezt lehet összevetni a
+          // szektorokban előre leszámolt mennyiséggel.
+          return diff.reduce((a, r) => a + (Number(r.szamolt_mennyiseg) || 0), 0);
+        })()} db</div><div class="lbl">beolvasva összesen (db)</div></div>
+        <div class="summaryBox"><div class="num">${diff.filter(r => (r.szektorok || []).length || (r.ujraszamolasok || []).length).length}</div><div class="lbl">beolvasott tétel (féle)</div></div>
+        ${!isOpen ? `
         <div class="summaryBox"><div class="num">${osszesito.osszes_rendszer_db} db</div><div class="lbl">teljes készlet (rendszer szerint, db)</div></div>
-        <div class="summaryBox"><div class="num">${formatFt(osszesito.osszes_rendszer_ertek)}</div><div class="lbl">teljes készlet értéke (rendszer szerint)</div></div>
-      </div>` : ""}
+        <div class="summaryBox"><div class="num">${formatFt(osszesito.osszes_rendszer_ertek)}</div><div class="lbl">teljes készlet értéke (rendszer szerint)</div></div>` : ""}
+      </div>
 
       <div class="cardTitle collapsible collapsed" data-collapse="progressWrap"><span class="arrow">▾</span>Szektoronkénti haladás${(() => {
         const u = unknownBySector_(diff);
