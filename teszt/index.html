@@ -557,7 +557,7 @@
     </div>
     <button id="manualBtn" aria-label="Vonalkód beírása kézzel">⌨️</button>
     <button id="torchBtn" aria-label="Vaku">🔦</button>
-    <div id="elonezetJelzo"><span>A kép szünetel — koppints vagy nyomd a gombot</span></div>
+    <div id="elonezetJelzo"><span>Nyomd a gombot a szkenneléshez</span></div>
     <div id="kameraSzunetJelzo">
       <div class="szunetDoboz">
         <div style="font-size:30px; margin-bottom:8px;">🔋</div>
@@ -1029,7 +1029,6 @@ async function startCamera() {
         // miközben a kivágott területen 1080p-nél is 5-7 képpont jut egy
         // vonalkód-vonalra — ez bőven elég a biztos olvasáshoz.
         width: { ideal: 1920 }, height: { ideal: 1080 },
-        frameRate: { ideal: 20, max: 24 },
         advanced: [{ focusMode: "continuous" }] },
       audio: false,
     });
@@ -1063,7 +1062,7 @@ async function startCamera() {
   }
 }
 
-const APP_VERSION = "v76";
+const APP_VERSION = "v77";
 let frameCount = 0, detectCount = 0;
 function debugLog(msg) {
   // A felületen csak a verziószám látszik (lásd lent) — a részletes
@@ -1087,7 +1086,7 @@ const cropCtx = cropCanvas.getContext("2d", { willReadFrequently: true });
 // — a feldolgozandó képpontok száma a négyzetével nő, tehát ez önmagában
 // a felére csökkenti a felismerés munkáját. 1080p-s képnél a vonalkód
 // így is bőven olvasható marad.
-function captureGuideCrop(upscale = 1.4) {
+function captureGuideCrop(upscale = 2.0) {
   const vw = video.videoWidth, vh = video.videoHeight;
   if (!vw || !vh) return null;
 
@@ -1157,7 +1156,6 @@ let kameraSzunetel_ = false;
 function tevekenysegVolt_() {
   utolsoTevekenyseg_ = Date.now();
   if (kameraSzunetel_) kameraFolytatas_();
-  else if (elonezetAll_) elonezetFolytatas_();
   if (scanningHeld) ebresztSzkennelest_();
 }
 ["touchstart", "mousedown", "keydown"].forEach(ev =>
@@ -1196,6 +1194,11 @@ function elonezetFolytatas_() {
 }
 
 function kepkockaSzam_(fps) {
+  // KIKAPCSOLVA: a képkockaszám menet közbeni átállítása egyes
+  // telefonokon elakasztotta a kamerát vagy alacsony felbontású módba
+  // váltott, ami rontotta a felismerést. Az energiát most az előnézet
+  // megállítása spórolja meg (lásd elonezetSzunet_).
+  return;
   try {
     const track = getActiveVideoTrack();
     if (track && track.applyConstraints) {
@@ -1370,7 +1373,6 @@ async function startFallbackScanner() {
       video: {
         facingMode: { ideal: "environment" },
         width: { ideal: 1920 }, height: { ideal: 1080 },
-        frameRate: { ideal: 20, max: 24 },
         advanced: [{ focusMode: "continuous" }],
       },
       audio: false,
@@ -1408,7 +1410,7 @@ async function fallbackScanLoop() {
           const results = await ZXingWASM.readBarcodesFromImageData(imageData, {
             // A "tryHarder" minden második próbálkozásnál: a legtöbb
             // vonalkódot az alapmód is elolvassa, és ez jóval olcsóbb.
-            tryHarder: (fallbackAttempts % 2) === 0,
+            tryHarder: true,
             maxSymbols: 1,
             // QR-kódot itt nem keresünk (az csak a csatlakozáshoz kell) —
             // így nem fordulhat elő, hogy egy doboz QR-kódja bekerül
@@ -1709,9 +1711,16 @@ function commitPending() {
     btn.classList.add("active");
     // A kamera/előnézet felébresztése és a felismerés azonnali indítása.
     tevekenysegVolt_();
+    elonezetFolytatas_();
     ebresztSzkennelest_();
   };
-  const stop = () => { scanningHeld = false; btn.classList.remove("active"); };
+  const stop = () => {
+    scanningHeld = false;
+    btn.classList.remove("active");
+    // Elengedéskor a kép azonnal megfagy: a kamera fut tovább (a
+    // következő lenyomáskor nincs várakozás), csak a kirajzolás áll.
+    elonezetSzunet_();
+  };
   btn.addEventListener("pointerdown", start);
   btn.addEventListener("pointerup", stop);
   btn.addEventListener("pointerleave", stop);
