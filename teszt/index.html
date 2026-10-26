@@ -344,12 +344,17 @@
   /* A szektor újrakezdése: a lista legalján, a tételektől jól
      elválasztva, kis gombként — véletlenül nehéz megnyomni. */
   .szektorVeszely{margin:22px 16px 26px; padding-top:16px; border-top:1px dashed var(--line); text-align:center;}
-  #szektorUjrakezdBtn{padding:8px 14px; border-radius:9px; font-size:12px; font-weight:600;
-    background:transparent; border:1px solid rgba(255,107,92,.55); color:#ff9b90;}
+  #torlesSav #szektorUjrakezdBtn{margin-left:auto; background:transparent;
+    border:1px solid rgba(255,107,92,.55); color:#ff9b90;}
   .szektorVeszelyMegj{margin-top:6px; font-size:11px; color:var(--text-dim);}
   .elozmenyKi{padding:9px 16px; font-size:12px; color:var(--text-dim); background:var(--panel-2);
     border-bottom:1px solid var(--line);}
   .elozmenyIdegen, .idegenCimke{font-size:11px; color:var(--warn); margin-top:3px;}
+  .vtkSav{margin:10px 16px; padding:10px 12px; border-radius:10px; font-size:12.5px; line-height:1.45;
+    background:rgba(240,180,41,.08); border:1px solid rgba(240,180,41,.45);}
+  .vtkSav button{margin-top:8px; padding:7px 12px; border-radius:8px; font-size:12px; font-weight:600;
+    background:var(--panel-2); border:1px solid var(--line); color:var(--text);}
+  .vtkAllapot{margin-top:5px; color:var(--text-dim);}
   .elozmenyUres{padding:20px 16px; color:var(--text-dim); font-size:13px; text-align:center;}
 
   #torlesSav{display:none; align-items:center; gap:8px; padding:8px 16px; flex-wrap:wrap;
@@ -1166,7 +1171,7 @@ async function startCamera() {
   }
 }
 
-const APP_VERSION = "v90";
+const APP_VERSION = "v91";
 let frameCount = 0, detectCount = 0;
 function debugLog(msg) {
   // A felületen csak a verziószám látszik (lásd lent) — a részletes
@@ -2279,6 +2284,8 @@ function bindTorlesSav_() {
   const sav = el("torlesSav");
   if (!sav) return;
   const q = (id) => sav.querySelector("#" + id);
+  // (megnyomásra a szkenner rákérdez, mielőtt bármit törölne)
+  if (q("szektorUjrakezdBtn")) q("szektorUjrakezdBtn").onclick = () => el("resetSectorBtn").click();
   if (q("torlesIndit")) q("torlesIndit").onclick = () => {
     torlesMod_ = true; torlesKijelolt_.clear(); renderList();
   };
@@ -2424,7 +2431,7 @@ function elozmenyHtml_() {
   return `<div class="elozmenyKi"><b>${escapeHtml(userEmail || "ismeretlen")}</b> beolvasásai ·
       ezen a telefonon: ${escapeHtml(eszkozNev_)}</div>
     <div class="elozmenyFej"><span>${lista.length} szektor · összesen ${ossz} db</span>
-      <button id="szerverVisszaBtn">⟳ Visszatöltés a szerverről</button></div>`
+      <button id="szerverVisszaBtn">⟳ Visszatöltés a szerverről</button></div>` + vtkHtml_()
     + (lista.length ? lista.map(x => `
       <div class="elozmenySor${x.szektor === currentSector ? " aktualis" : ""}" data-szektor-nyit="${escapeHtml(x.szektor)}">
         <div><b>${escapeHtml(x.szektor)}. szektor</b>${x.szektor === currentSector ? `<span class="elozmenyCimke">aktuális</span>` : ""}
@@ -2466,13 +2473,63 @@ async function szektorMegnyit_(sz) {
   showToast(`${sz}. szektor megnyitva — módosíthatod, vagy folytathatod a beolvasást.`, "success");
 }
 
-async function visszatoltesSzerverrol_() {
+// A visszatöltés állapota: a MÁSIK eszközről (de ugyanezen a néven)
+// beolvasott tételek csak admin jóváhagyás után tölthetők vissza.
+let vtkAllapot_ = null;     // { masik, szektorok, allapot: "nincs"|"var"|"elutasitva"|"felhasznalva" }
+let vtkTimer_ = null;
+
+function vtkFigyelesLeall_() { if (vtkTimer_) { clearInterval(vtkTimer_); vtkTimer_ = null; } }
+// Jóváhagyásra várva 15 mp-enként rákérdez (csak előtérben és térerővel,
+// legfeljebb 15 percig) — amint az admin jóváhagyja, magától visszatölt.
+function vtkFigyel_() {
+  if (vtkTimer_) return;
+  const kezd = Date.now();
+  vtkTimer_ = setInterval(async () => {
+    if (Date.now() - kezd > 15 * 60000) { vtkFigyelesLeall_(); return; }
+    if (document.hidden || navigator.onLine === false) return;
+    await visszatoltesSzerverrol_(true);
+    if (!vtkAllapot_ || vtkAllapot_.allapot !== "var") vtkFigyelesLeall_();
+  }, 15000);
+}
+
+async function vtkKeres_() {
   if (!activeLeltar) return;
-  if (navigator.onLine === false) { showToast("A visszatöltéshez térerő kell.", "warn"); return; }
-  const btn = el("szerverVisszaBtn");
-  if (btn) { btn.disabled = true; btn.textContent = "Betöltés…"; }
+  if (navigator.onLine === false) { showToast("A kéréshez térerő kell.", "warn"); return; }
   try {
-    const data = await apiGet({ action: "my_scans", leltar_id: activeLeltar.leltar_id, user: userEmail || "ismeretlen" });
+    const r = await apiPost({ action: "restore_request", leltar_id: activeLeltar.leltar_id,
+      user: userEmail || "ismeretlen", device: deviceId_, device_name: eszkozNev_ });
+    if (r && r.error) throw new Error(r.error);
+    if (r && r.nincs) { vtkAllapot_ = null; showToast("Nincs másik eszközről származó tételed.", "success"); }
+    else {
+      vtkAllapot_ = Object.assign(vtkAllapot_ || {}, { allapot: "var" });
+      showToast("Kérés elküldve — amint az admin jóváhagyja, a tételek automatikusan visszatöltődnek.", "success");
+      vtkFigyel_();
+    }
+  } catch (e) {
+    showToast("A kérés nem sikerült: " + e.message, "error");
+  }
+  renderList();
+}
+
+function vtkHtml_() {
+  const a = vtkAllapot_;
+  if (!a || !a.masik) return "";
+  const mi = `A szerveren még <b>${a.masik} tétel</b>${a.szektorok ? ` (${a.szektorok} szektor)` : ""} van a nevedhez,
+    amit <b>másik eszközről</b> olvastak be.`;
+  if (a.allapot === "var") return `<div class="vtkSav">${mi}<div class="vtkAllapot">⏳ Admin jóváhagyásra vár — utána automatikusan visszatöltődik.</div></div>`;
+  return `<div class="vtkSav">${mi} Ezek visszatöltéséhez admin jóváhagyás kell.
+    ${a.allapot === "elutasitva" ? `<div class="vtkAllapot">Az előző kérést az admin elutasította.</div>` : ""}
+    <button id="vtkKerBtn">Jóváhagyás kérése</button></div>`;
+}
+
+async function visszatoltesSzerverrol_(csendes) {
+  if (!activeLeltar) return;
+  if (navigator.onLine === false) { if (!csendes) showToast("A visszatöltéshez térerő kell.", "warn"); return; }
+  const btn = el("szerverVisszaBtn");
+  if (btn && !csendes) { btn.disabled = true; btn.textContent = "Betöltés…"; }
+  try {
+    const data = await apiGet({ action: "my_scans", leltar_id: activeLeltar.leltar_id,
+      user: userEmail || "ismeretlen", device: deviceId_ });
     if (!data || data.error || !Array.isArray(data.tetelek)) {
       throw new Error((data && data.error) || "a szerver ezt még nem ismeri (frissíteni kell az Apps Scriptet)");
     }
@@ -2489,9 +2546,17 @@ async function visszatoltesSzerverrol_() {
         eszkozNev: r.eszkoz_nev || ("másik eszköz #" + String(r.eszkoz || "????").slice(-4).toUpperCase()) });
       uj++;
     });
-    showToast(uj ? `${uj} tétel visszatöltve a szerverről.` : "Minden feltöltött tételed megvan a telefonon.", "success");
+    vtkAllapot_ = { masik: Number(data.masik_db) || 0, szektorok: Number(data.masik_szektorok) || 0,
+      allapot: data.kerelem_allapot || "nincs" };
+    if (vtkAllapot_.allapot === "var") vtkFigyel_();
+    if (data.jovahagyott) {
+      showToast(`Az admin jóváhagyta — ${uj} tétel visszatöltve.`, "success");
+    } else if (!csendes) {
+      showToast(uj ? `${uj} tétel visszatöltve a szerverről.`
+        : (vtkAllapot_.masik ? "A saját eszközödről minden megvan — a többihez jóváhagyás kell." : "Minden feltöltött tételed megvan a telefonon."), "success");
+    }
   } catch (e) {
-    showToast("Visszatöltés nem sikerült: " + e.message, "error");
+    if (!csendes) showToast("Visszatöltés nem sikerült: " + e.message, "error");
   }
   renderList();
 }
@@ -2532,7 +2597,8 @@ function renderList() {
     el("list").innerHTML = elozmenyHtml_();
     el("list").querySelectorAll("[data-szektor-nyit]").forEach(r =>
       r.addEventListener("click", () => szektorMegnyit_(r.dataset.szektorNyit)));
-    const sv = el("szerverVisszaBtn"); if (sv) sv.addEventListener("click", visszatoltesSzerverrol_);
+    const sv = el("szerverVisszaBtn"); if (sv) sv.addEventListener("click", () => visszatoltesSzerverrol_(false));
+    const vk = el("vtkKerBtn"); if (vk) vk.addEventListener("click", vtkKeres_);
     lapFulFrissit_();
     return;
   }
@@ -2572,7 +2638,8 @@ function renderList() {
          <button id="torlesMind">Mind</button>
          <button id="torlesVegrehajt" class="danger">Kijelöltek törlése</button>
          <button id="torlesKilep">Mégse</button>`
-      : `<button id="torlesIndit">🗑 Több tétel törlése</button>`;
+      : `<button id="torlesIndit">🗑 Több tétel törlése</button>
+         <button id="szektorUjrakezdBtn">↺ Szektor újrakezdése</button>`;
   }
 
   if (listExpanded) {
@@ -2586,14 +2653,8 @@ function renderList() {
       (items.length > lathato.length
         ? `<div class="listInfoSor">A legutóbbi ${lathato.length} tétel látszik (összesen ${items.length}).</div>`
         : "")
-      + lathato.map(rowItemHtml).join("")
-      + `<div class="szektorVeszely">
-          <button id="szektorUjrakezdBtn">↺ Szektor újrakezdése</button>
-          <div class="szektorVeszelyMegj">A szektor összes beolvasása törlődik, és elölről kezdheted.</div>
-        </div>`;
+      + lathato.map(rowItemHtml).join("");
     bindRowEvents(el("list"));
-    const ujrakezd = el("szektorUjrakezdBtn");
-    if (ujrakezd) ujrakezd.addEventListener("click", () => el("resetSectorBtn").click());
   bindTorlesSav_();
   } else {
     el("list").innerHTML = "";
