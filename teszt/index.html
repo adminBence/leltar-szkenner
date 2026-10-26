@@ -509,7 +509,7 @@
 <div id="app">
 
   <header>
-    <button id="menuBtn" aria-label="Menü">☰</button>
+    <button id="menuBtn" aria-label="Menü" style="display:none">☰</button>
     <div id="sectorBadge">Nincs aktív szektor</div>
     <div class="dot" id="netDot" title="Kapcsolat állapota"></div>
     <div class="stat">
@@ -519,7 +519,6 @@
   </header>
 
   <!-- Szektor újrakezdése -->
-  <div id="torlesSav"></div>
   <div id="resetSectorWrap" style="display:none;">
     <button id="resetSectorBtn">↺ Szektor újrakezdése</button>
   </div>
@@ -638,6 +637,7 @@
 
   <div id="listPanel">
     <div id="listCloseBar"><div class="lapFulek"><button class="lapFul" id="listSzektorCim"></button><button class="lapFul" id="lapOsszes">Összes szektorom</button></div><button id="szektorModositBtn">✎ Módosítás</button><button id="elozmenyVisszaBtn">‹ Vissza</button></div>
+    <div id="torlesSav"></div>
     <div id="list"></div>
   </div>
 
@@ -1174,7 +1174,7 @@ async function startCamera() {
   }
 }
 
-const APP_VERSION = "v95";
+const APP_VERSION = "v96";
 let frameCount = 0, detectCount = 0;
 function debugLog(msg) {
   // A felületen csak a verziószám látszik (lásd lent) — a részletes
@@ -2729,7 +2729,7 @@ function renderList() {
   // Törlés mód sáv (több tétel egyszerre)
   const sav = el("torlesSav");
   if (sav) {
-    sav.style.display = listExpanded ? "flex" : "none";
+    sav.style.display = (listExpanded && currentSector) ? "flex" : "none";
     sav.innerHTML = torlesMod_
       ? `<span>${torlesKijelolt_.size} kijelölve</span>
          <button id="torlesMind">Mind</button>
