@@ -323,8 +323,25 @@
     padding:10px 16px; font-size:14px; font-weight:700; color:var(--text);
     border-bottom:1px solid var(--line); background:var(--panel-2); flex:0 0 auto;}
   #listPanel.expanded #listCloseBar{display:flex;}
-  #szektorModositBtn{padding:7px 12px; border-radius:9px; font-size:12px; font-weight:600;
+  #szektorModositBtn, #elozmenyVisszaBtn{flex:0 0 auto; padding:7px 11px; border-radius:9px; font-size:12px; font-weight:600;
     background:var(--panel); border:1px solid var(--line); color:var(--text);}
+  .lapFulek{display:flex; gap:4px; min-width:0;}
+  .lapFul{padding:7px 10px; border-radius:9px; font-size:13px; font-weight:700; white-space:nowrap;
+    background:transparent; border:1px solid transparent; color:var(--text-dim);}
+  .lapFul.aktiv{background:var(--panel); border-color:var(--line); color:var(--accent);}
+  /* "Összes szektorom" nézet */
+  .elozmenyFej{display:flex; align-items:center; justify-content:space-between; gap:8px;
+    padding:10px 16px; font-size:12px; color:var(--text-dim); border-bottom:1px solid var(--line);}
+  .elozmenyFej button{padding:6px 10px; border-radius:8px; font-size:12px;
+    background:var(--panel-2); border:1px solid var(--line); color:var(--text);}
+  .elozmenySor{display:flex; align-items:center; justify-content:space-between; gap:10px;
+    padding:12px 16px; border-bottom:1px solid var(--line); cursor:pointer;}
+  .elozmenySor:active{background:var(--panel-2);}
+  .elozmenySor.aktualis{border-left:3px solid var(--accent);}
+  .elozmenyMeta{font-size:12px; color:var(--text-dim); margin-top:2px;}
+  .elozmenyCimke{font-size:11px; color:var(--accent); font-weight:600; margin-left:6px;}
+  .elozmenyNyil{font-size:22px; color:var(--text-dim);}
+  .elozmenyUres{padding:20px 16px; color:var(--text-dim); font-size:13px; text-align:center;}
 
   #torlesSav{display:none; align-items:center; gap:8px; padding:8px 16px; flex-wrap:wrap;
     border-bottom:1px solid var(--line); background:var(--panel-2); font-size:12px;}
@@ -606,7 +623,7 @@
   </div>
 
   <div id="listPanel">
-    <div id="listCloseBar"><span id="listSzektorCim"></span><button id="szektorModositBtn">Szektor módosítása</button></div>
+    <div id="listCloseBar"><div class="lapFulek"><button class="lapFul" id="listSzektorCim"></button><button class="lapFul" id="lapOsszes">Összes szektorom</button></div><button id="szektorModositBtn">✎ Módosítás</button><button id="elozmenyVisszaBtn">‹ Vissza</button></div>
     <div id="list"></div>
   </div>
 
@@ -632,6 +649,7 @@
       <p class="nameGateNote">Add meg, melyik szektort kezded — utána minden beolvasás ebbe kerül, amíg le nem zárod.</p>
       <input id="sectorModalInput" type="text" inputmode="numeric" pattern="[0-9]*" placeholder="pl. 12">
       <button id="sectorModalOkBtn" class="bigBtn">OK</button>
+      <button id="elozmenyBtn" class="secondaryBtn" style="display:none">📋 Korábbi szektoraim</button>
       <button id="finishAllBtn" class="secondaryBtn">Befejezem</button>
     </div>
   </div>
@@ -806,7 +824,9 @@ let toroltTetelek_ = [];   // [{ barcode, sector }]
 function torolve_(lista) {
   lista.forEach(s => {
     if (!toroltTetelek_.some(t => t.barcode === s.barcode && t.sector === s.sector)) {
-      toroltTetelek_.push({ barcode: s.barcode, sector: s.sector });
+      const t = { barcode: s.barcode, sector: s.sector };
+      if (typeof s.eszkoz === "string") t.eszkoz = s.eszkoz;
+      toroltTetelek_.push(t);
     }
   });
 }
@@ -1126,7 +1146,7 @@ async function startCamera() {
   }
 }
 
-const APP_VERSION = "v87";
+const APP_VERSION = "v88";
 let frameCount = 0, detectCount = 0;
 function debugLog(msg) {
   // A felületen csak a verziószám látszik (lásd lent) — a részletes
@@ -1963,7 +1983,12 @@ function updateGateUI() {
   // A szektor-modal pontosan akkor jelenik meg, ha már csatlakoztunk egy
   // leltárhoz, de még nincs kiválasztva/megadva szektor (induláskor,
   // vagy egy "Szektor lezárása" után, amíg meg nem adjuk a következőt).
-  el("sectorModalOverlay").classList.toggle("show", joined && !currentSector);
+  el("sectorModalOverlay").classList.toggle("show", joined && !currentSector && !elozmenyNyitva_);
+  const elozmenyGomb = el("elozmenyBtn");
+  if (elozmenyGomb) {
+    elozmenyGomb.style.display = scanned.length ? "" : "none";
+    elozmenyGomb.textContent = `📋 Korábbi szektoraim (${szektorOsszesito_().length})`;
+  }
   if (joined && !currentSector) {
     el("sectorModalInput").value = "";
     setTimeout(() => el("sectorModalInput").focus(), 50);
@@ -1997,6 +2022,10 @@ el("manualInput").addEventListener("keydown", (e) => {
   if (e.key === "Enter") { e.preventDefault(); submitManualEntry_(); }
 });
 
+el("elozmenyBtn").addEventListener("click", () => {
+  elozmenyNyitva_ = true; listNezet_ = "osszes"; listExpanded = true;
+  updateGateUI(); renderList();
+});
 el("sectorModalOkBtn").addEventListener("click", () => {
   const val = el("sectorModalInput").value.trim();
   if (!val) { el("sectorModalInput").focus(); return; }
@@ -2060,9 +2089,9 @@ async function syncPendingScans(csendben) {
     const valasz = await apiPost({
       action: "submit_scans",
       leltar_id: activeLeltar.leltar_id,
-      items: pendingItems.map(s => ({ sector: s.sector, barcode: s.barcode, qty: s.qty, user: user, device: deviceId_ }))
+      items: pendingItems.map(s => ({ sector: s.sector, barcode: s.barcode, qty: s.qty, user: user, device: eszkozE_(s) }))
         // törölt tételek: 0 darab = a szerver kitörli
-        .concat(torlesek.map(t => ({ sector: t.sector, barcode: t.barcode, qty: 0, user: user, device: deviceId_ }))),
+        .concat(torlesek.map(t => ({ sector: t.sector, barcode: t.barcode, qty: 0, user: user, device: eszkozE_(t) }))),
     });
     // Ha a szerver hibával utasította el, NEM jelöljük feltöltöttnek.
     if (valasz && valasz.error) throw new Error(valasz.error);
@@ -2342,6 +2371,99 @@ el("confirmDelete").addEventListener("click", () => {
   renderList();
 });
 
+/* ÖSSZES SZEKTOROM — a telefonon minden beolvasás megmarad (az összes
+   szektoré), így ha bármi történik (bezárul az ablak, nincs térerő),
+   vissza lehet nézni, melyik szektorban mennyit olvastál be, és bármelyik
+   korábbi szektor újra megnyitható módosításra vagy folytatásra. Ha a
+   telefon tárolója is elveszne, a feltöltött tételek a szerverről
+   visszatölthetők. */
+let listNezet_ = "szektor";       // "szektor" | "osszes"
+let elozmenyNyitva_ = false;      // szektor nélkül, a szektor-ablakból nyitva
+
+function szektorOsszesito_() {
+  const m = {};
+  scanned.forEach(s => {
+    const k = String(s.sector || "");
+    if (!m[k]) m[k] = { szektor: k, db: 0, varakozik: 0, utolso: 0 };
+    m[k].db += Number(s.qty) || 0;
+    if (!s.synced) m[k].varakozik++;
+    m[k].utolso = Math.max(m[k].utolso, s.ts || 0);
+  });
+  aktivTorlesek_().forEach(t => { const k = String(t.sector || ""); if (m[k]) m[k].varakozik++; });
+  return Object.values(m).sort((a, b) => b.utolso - a.utolso);
+}
+
+function elozmenyHtml_() {
+  const lista = szektorOsszesito_();
+  const ossz = lista.reduce((a, x) => a + x.db, 0);
+  return `<div class="elozmenyFej"><span>${lista.length} szektor · összesen ${ossz} db</span>
+      <button id="szerverVisszaBtn">⟳ Visszatöltés a szerverről</button></div>`
+    + (lista.length ? lista.map(x => `
+      <div class="elozmenySor${x.szektor === currentSector ? " aktualis" : ""}" data-szektor-nyit="${escapeHtml(x.szektor)}">
+        <div><b>${escapeHtml(x.szektor)}. szektor</b>${x.szektor === currentSector ? `<span class="elozmenyCimke">aktuális</span>` : ""}
+          <div class="elozmenyMeta">${x.db} db · ${x.varakozik ? `⏳ ${x.varakozik} tétel vár feltöltésre` : "✓ feltöltve"}</div></div>
+        <span class="elozmenyNyil">›</span>
+      </div>`).join("")
+    : `<div class="elozmenyUres">Ebben a leltárban még nincs beolvasott szektorod.</div>`);
+}
+
+function lapFulFrissit_() {
+  const osszesNezet = listNezet_ === "osszes" || !currentSector;
+  const sz = el("listSzektorCim"), o = el("lapOsszes");
+  const mod = el("szektorModositBtn"), vissza = el("elozmenyVisszaBtn");
+  if (sz) { sz.style.display = currentSector ? "" : "none"; sz.classList.toggle("aktiv", !osszesNezet); }
+  if (o) { o.classList.toggle("aktiv", osszesNezet); }
+  if (mod) mod.style.display = (!osszesNezet && currentSector) ? "" : "none";
+  if (vissza) vissza.style.display = !currentSector ? "" : "none";
+}
+
+// Egy korábbi (vagy az aktuális) szektor megnyitása: a beolvasások
+// ettől kezdve ide kerülnek, a tételei módosíthatók/törölhetők.
+function szektorMegnyit_(sz) {
+  if (pendingHit) commitPending();
+  currentSector = sz;
+  listNezet_ = "szektor";
+  elozmenyNyitva_ = false;
+  listExpanded = true;
+  munkamenetMentes_();
+  updateGateUI();
+  renderList();
+  showToast(`${sz}. szektor megnyitva — módosíthatod, vagy folytathatod a beolvasást.`, "success");
+}
+
+async function visszatoltesSzerverrol_() {
+  if (!activeLeltar) return;
+  if (navigator.onLine === false) { showToast("A visszatöltéshez térerő kell.", "warn"); return; }
+  const btn = el("szerverVisszaBtn");
+  if (btn) { btn.disabled = true; btn.textContent = "Betöltés…"; }
+  try {
+    const data = await apiGet({ action: "my_scans", leltar_id: activeLeltar.leltar_id, user: userEmail || "ismeretlen" });
+    if (!data || data.error || !Array.isArray(data.tetelek)) {
+      throw new Error((data && data.error) || "a szerver ezt még nem ismeri (frissíteni kell az Apps Scriptet)");
+    }
+    let uj = 0;
+    data.tetelek.forEach(r => {
+      const sz = String(r.szektor), bc = String(r.vonalkod);
+      // Ami a telefonon már megvan (vagy amit itt töröltél, de még nem
+      // ment fel), azt nem írjuk felül.
+      if (scanned.some(s => s.sector === sz && s.barcode === bc)) return;
+      if (aktivTorlesek_().some(t => t.sector === sz && t.barcode === bc)) return;
+      scanned.push({ barcode: bc, name: katalogusbolNev_(bc) || "⚠ Ismeretlen vonalkód",
+        qty: Number(r.mennyiseg) || 0, sector: sz, ts: Number(r.ms) || Date.now(), checked: null,
+        synced: true, eszkoz: String(r.eszkoz || "") });
+      uj++;
+    });
+    showToast(uj ? `${uj} tétel visszatöltve a szerverről.` : "Minden feltöltött tételed megvan a telefonon.", "success");
+  } catch (e) {
+    showToast("Visszatöltés nem sikerült: " + e.message, "error");
+  }
+  renderList();
+}
+
+// A szerverről visszatöltött tétel a saját eredeti eszköz-azonosítóját
+// viszi tovább, hogy egy módosítás ugyanazt a sort írja felül.
+function eszkozE_(s) { return (typeof s.eszkoz === "string") ? s.eszkoz : deviceId_; }
+
 function renderList() {
   scansDirty_();     // a lista változott — késleltetve mentjük helyben is
   // A lenyíló lista a fejléc alá kerül (a fejléc magassága eszközönként eltér).
@@ -2356,12 +2478,34 @@ function renderList() {
   el("itemCount").textContent = osszDb;
   const szCim = el("listSzektorCim");
   if (szCim) szCim.textContent = currentSector ? `${currentSector}. szektor` : "";
+  lapFulFrissit_();
   const cimke = el("itemCountLabel");
   if (cimke) cimke.textContent = "db";
   updatePendingCount();
 
   const panel = el("listPanel");
   const toggle = el("listToggle");
+
+  if (listExpanded && (listNezet_ === "osszes" || !currentSector)) {
+    panel.classList.add("expanded");
+    toggle.classList.remove("show");
+    const sav0 = el("torlesSav"); if (sav0) sav0.style.display = "none";
+    el("list").innerHTML = elozmenyHtml_();
+    el("list").querySelectorAll("[data-szektor-nyit]").forEach(r =>
+      r.addEventListener("click", () => szektorMegnyit_(r.dataset.szektorNyit)));
+    const sv = el("szerverVisszaBtn"); if (sv) sv.addEventListener("click", visszatoltesSzerverrol_);
+    lapFulFrissit_();
+    return;
+  }
+  if (!items.length && listExpanded && currentSector) {
+    panel.classList.add("expanded");
+    toggle.classList.remove("show");
+    const sav1 = el("torlesSav"); if (sav1) sav1.style.display = "none";
+    el("list").innerHTML = `<div class="elozmenyUres">Ebben a szektorban még nincs beolvasott tétel.</div>`;
+    lapFulFrissit_();
+    lastRenderedCount = 0;
+    return;
+  }
 
   if (!items.length) {
     el("list").innerHTML = "";
@@ -2426,7 +2570,13 @@ el("listToggle").addEventListener("click", () => {
 el("sectorBadge").addEventListener("click", () => {
   if (!activeLeltar || !currentSector) return;
   listExpanded = !listExpanded;
+  if (listExpanded) listNezet_ = "szektor";
   renderList();
+});
+el("listSzektorCim").addEventListener("click", () => { listNezet_ = "szektor"; renderList(); });
+el("lapOsszes").addEventListener("click", () => { listNezet_ = "osszes"; renderList(); });
+el("elozmenyVisszaBtn").addEventListener("click", () => {
+  elozmenyNyitva_ = false; listExpanded = false; updateGateUI(); renderList();
 });
 // A szektor számának módosítása (pl. elgépelt szektorszám esetén).
 // Ha a tételek egy része már fel van töltve, a szerveren is áthelyezi
