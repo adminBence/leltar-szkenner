@@ -790,6 +790,26 @@ function munkamenetVisszaallit_() {
   } catch (e) { return false; }
 }
 let scanStoreTimer_ = null;
+/* TÖRÖLT TÉTELEK. Ha egy már feltöltött tételt törölsz a telefonon,
+   annak a szerverről is el kell tűnnie — korábban csak a telefonról
+   tűnt el, az adminban megmaradt és beleszámított a leltárba. A törölt
+   tételeket ezért megjegyezzük, és a következő feltöltéskor 0 darabbal
+   küldjük el: a szerver ezeket kitörli. Térerő nélkül is működik, a
+   törlés ugyanúgy a feltöltésre vár, mint a beolvasások. */
+let toroltTetelek_ = [];   // [{ barcode, sector }]
+function torolve_(lista) {
+  lista.forEach(s => {
+    if (!toroltTetelek_.some(t => t.barcode === s.barcode && t.sector === s.sector)) {
+      toroltTetelek_.push({ barcode: s.barcode, sector: s.sector });
+    }
+  });
+}
+// Csak azok a törlések számítanak, amelyek helyére nem olvastak be újra
+// ugyanabba a szektorba ugyanazt a terméket (az új érték felülírja).
+function aktivTorlesek_() {
+  return toroltTetelek_.filter(t => !scanned.some(s => s.barcode === t.barcode && s.sector === t.sector));
+}
+
 function scansDirty_() {
   if (scanStoreTimer_) return;
   scanStoreTimer_ = setTimeout(() => {
@@ -798,7 +818,7 @@ function scansDirty_() {
       localStorage.setItem(SCAN_STORE_KEY_, JSON.stringify({
         leltarId: (activeLeltar && activeLeltar.leltar_id) || null,
         sector: currentSector || null,
-        mentve: Date.now(), tetelek: scanned,
+        mentve: Date.now(), tetelek: scanned, torolt: toroltTetelek_,
       }));
     } catch (e) { /* ha nem fér el, a munkát attól még lehet folytatni */ }
   }, 2500);
@@ -815,6 +835,7 @@ function restoreScans_() {
     if (adat.leltarId && mostaniId && adat.leltarId !== mostaniId) return;
     if (Date.now() - (adat.mentve || 0) > 43200000) return;
     scanned = adat.tetelek;
+    toroltTetelek_ = Array.isArray(adat.torolt) ? adat.torolt : [];
     if (!currentSector && adat.sector) currentSector = adat.sector;
     debugLog(`visszaállítva ${scanned.length} korábbi tétel`);
   } catch (e) { /* sérült adat esetén egyszerűen üresen indulunk */ }
@@ -1099,7 +1120,7 @@ async function startCamera() {
   }
 }
 
-const APP_VERSION = "v85";
+const APP_VERSION = "v86";
 let frameCount = 0, detectCount = 0;
 function debugLog(msg) {
   // A felületen csak a verziószám látszik (lásd lent) — a részletes
@@ -1892,6 +1913,7 @@ el("resetSectorBtn").addEventListener("click", async () => {
     + `A benne lévő ${tetelek.length} féle (${db} db) beolvasás törlődik, és elölről kezdheted.`))) return;
   if (pendingHit) { pendingHit = null; collapseHitCard_(); }
   const voltFeltoltve = tetelek.some(s => s.synced);
+  torolve_(tetelek);   // a szerveren is törlődjenek (a következő feltöltéskor)
   scanned = scanned.filter(s => s.sector !== currentSector);
   // Jelzés a szervernek, hogy ebben a szektorban újraszámolás indult:
   // egy üres beküldés felülírja a korábbi tételeket.
@@ -2015,46 +2037,39 @@ document.querySelectorAll("[data-back]").forEach(btn => {
    megy át, a tételek megmaradnak, és a rendszer magától újrapróbálja —
    amint van hálózat, vagy amikor a dolgozó kijön a térerős részre.
    Egy oldalfrissítés vagy böngésző-újraindítás sem okoz adatvesztést. */
-let syncUjraTimer_ = null;
-
-function utemezUjraSzinkront_(masodperc) {
-  if (syncUjraTimer_) return;
-  syncUjraTimer_ = setTimeout(() => {
-    syncUjraTimer_ = null;
-    syncPendingScans();
-  }, masodperc * 1000);
-}
-
 async function syncPendingScans(csendben) {
   if (syncInProgress_) return { ok: false, oka: "fut" };
   const pendingItems = scanned.filter(s => !s.synced);
-  if (!pendingItems.length) return { ok: true, kuldve: 0 };
+  const torlesek = aktivTorlesek_();
+  const osszes = pendingItems.length + torlesek.length;
+  if (!osszes) { toroltTetelek_ = []; return { ok: true, kuldve: 0 }; }
   if (!APPS_SCRIPT_URL || !activeLeltar) return { ok: false, oka: "nincs leltár" };
   if (navigator.onLine === false) {
-    // Nincs hálózat — nem is próbálkozunk, de nem veszik el semmi.
-    utemezUjraSzinkront_(20);
-    return { ok: false, oka: "offline", varakozik: pendingItems.length };
+    // Nincs hálózat — semmi nem veszik el, a gombbal később feltölthető.
+    return { ok: false, oka: "offline", varakozik: osszes };
   }
   syncInProgress_ = true;
+  const user = userEmail || "ismeretlen";
   try {
-    await apiPost({
+    const valasz = await apiPost({
       action: "submit_scans",
       leltar_id: activeLeltar.leltar_id,
-      items: pendingItems.map(s => ({
-        sector: s.sector, barcode: s.barcode, qty: s.qty, user: userEmail || "ismeretlen",
-        device: deviceId_,
-      })),
+      items: pendingItems.map(s => ({ sector: s.sector, barcode: s.barcode, qty: s.qty, user: user, device: deviceId_ }))
+        // törölt tételek: 0 darab = a szerver kitörli
+        .concat(torlesek.map(t => ({ sector: t.sector, barcode: t.barcode, qty: 0, user: user, device: deviceId_ }))),
     });
+    // Ha a szerver hibával utasította el, NEM jelöljük feltöltöttnek.
+    if (valasz && valasz.error) throw new Error(valasz.error);
     pendingItems.forEach(s => s.synced = true);
+    toroltTetelek_ = toroltTetelek_.filter(t => !torlesek.includes(t));
     scansDirty_();            // a "feltöltve" állapotot is elmentjük
-    updatePendingCount();
-    return { ok: true, kuldve: pendingItems.length };
+    return { ok: true, kuldve: osszes };
   } catch (e) {
-    debugLog("szinkron nem sikerült (" + e.message + ") — a tételek megmaradtak, később újrapróbáljuk");
-    utemezUjraSzinkront_(30);
-    return { ok: false, oka: "hiba", varakozik: pendingItems.length };
+    debugLog("feltöltés nem sikerült (" + e.message + ") — a tételek megmaradtak");
+    return { ok: false, oka: "hiba", hiba: e.message, varakozik: osszes };
   } finally {
     syncInProgress_ = false;
+    updatePendingCount();
   }
 }
 
@@ -2069,17 +2084,10 @@ window.addEventListener("online", () => {
       renderList();
     }).catch(() => {});
   });
-  const varakozo = scanned.filter(s => !s.synced).length;
-  if (varakozo) {
-    showToast(`Van újra térerő — ${varakozo} tétel feltöltése…`, "success");
-    syncPendingScans();
-  }
+  // Magától nem tölt fel (csak a gombbal és szektorzáráskor) — de szólunk.
+  const varakozo = scanned.filter(s => !s.synced).length + aktivTorlesek_().length;
+  if (varakozo) showToast(`Van újra térerő — ${varakozo} tétel vár feltöltésre (Feltöltés gomb).`, "success");
 });
-// Rendszeres, csendes újrapróbálkozás, ha maradt feltöltetlen tétel.
-setInterval(() => {
-  if (!activeLeltar || syncInProgress_) return;
-  if (scanned.some(s => !s.synced) && navigator.onLine !== false) syncPendingScans(true);
-}, 60000);
 
 el("closeSectorBtn").addEventListener("click", async () => {
   if (!currentSector) return;
@@ -2139,40 +2147,22 @@ el("syncBtn").addEventListener("click", async () => {
   const btn = el("syncBtn");
   btn.disabled = true;
   btn.textContent = "Feltöltés…";
-  syncInProgress_ = true;
-
-  const pendingItems = scanned.filter(s => !s.synced);
-
-  if (APPS_SCRIPT_URL && activeLeltar && pendingItems.length) {
-    try {
-      await apiPost({
-        action: "submit_scans",
-        leltar_id: activeLeltar.leltar_id,
-        items: pendingItems.map(s => ({
-          sector: s.sector, barcode: s.barcode, qty: s.qty, user: userEmail || "ismeretlen",
-          device: deviceId_,
-        })),
-      });
-      pendingItems.forEach(s => s.synced = true);
-    } catch (e) {
-      showToast("Szinkronizálási hiba: " + e.message, "error");
-    }
-  } else {
-    // Demo mód (nincs beállítva backend URL, vagy nincs aktív leltár) —
-    // csak lokálisan jelöljük szinkronizáltnak, hogy a felület tesztelhető legyen.
-    await new Promise(r => setTimeout(r, 400));
-    scanned.forEach(s => s.synced = true);
+  const eredmeny = await syncPendingScans();
+  if (eredmeny.ok) {
+    showToast(eredmeny.kuldve ? `${eredmeny.kuldve} tétel feltöltve.` : "Minden fent van.", "success");
+  } else if (eredmeny.oka === "offline") {
+    showToast(`Nincs térerő — ${eredmeny.varakozik} tétel vár. Próbáld újra, ha van térerő.`, "warn");
+  } else if (eredmeny.oka === "hiba") {
+    showToast("Feltöltési hiba: " + eredmeny.hiba, "error");
   }
-
-  syncInProgress_ = false;
   btn.disabled = false;
   updatePendingCount();
 });
 
-// A gomb egyértelműen mutatja, áll-e még valami feltöltésre — a háttérben
-// (percenként és szektorzáráskor) magától is feltölt, a gombbal azonnal.
+// A gomb egyértelműen mutatja, áll-e még valami feltöltésre. Feltöltés
+// csak a gombbal, szektorzáráskor és a leltár befejezésekor történik.
 function updatePendingCount() {
-  const pending = scanned.filter(s => !s.synced).length;
+  const pending = scanned.filter(s => !s.synced).length + aktivTorlesek_().length;
   const btn = el("syncBtn");
   if (!btn || syncInProgress_) return;
   if (pending) {
@@ -2246,11 +2236,11 @@ function bindTorlesSav_() {
     if (!torlesKijelolt_.size) { showToast("Előbb jelölj ki tételeket.", "warn"); return; }
     const db = torlesKijelolt_.size;
     if (!(await showConfirm(`Biztosan törlöd a kijelölt ${db} tételt?`))) return;
+    torolve_(scanned.filter(s => torlesKijelolt_.has(torlesKulcs_(s))));
     scanned = scanned.filter(s => !torlesKijelolt_.has(torlesKulcs_(s)));
     torlesKijelolt_.clear(); torlesMod_ = false;
     renderList();
     showToast(`${db} tétel törölve.`, "success");
-    syncPendingScans();
   };
   el("list").querySelectorAll(".torlesBox").forEach(cb => cb.addEventListener("change", () => {
     if (cb.checked) torlesKijelolt_.add(cb.dataset.key); else torlesKijelolt_.delete(cb.dataset.key);
@@ -2338,6 +2328,7 @@ el("confirmCancel").addEventListener("click", () => {
 });
 el("confirmDelete").addEventListener("click", () => {
   if (pendingDelete) {
+    torolve_([pendingDelete]);
     scanned = scanned.filter(s => !(s.barcode === pendingDelete.barcode && s.sector === pendingDelete.sector));
   }
   pendingDelete = null;
@@ -2531,16 +2522,7 @@ restoreScans_();      // a még fel nem töltött tételek
 if (folytatott_) {
   el("nameGateOverlay").classList.add("hide");
   katalogusFrissit_();
-  // Ha a korábbi munkamenetből maradtak feltöltetlen tételek (pl. mert a
-  // raktárban nem volt térerő), AZONNAL megpróbáljuk elküldeni őket —
-  // nem kell megvárni a következő ütemet.
-  setTimeout(() => {
-    const varakozo = scanned.filter(s => !s.synced).length;
-    if (varakozo && navigator.onLine !== false) {
-      debugLog(`${varakozo} korábbi tétel feltöltése…`);
-      syncPendingScans();
-    }
-  }, 1200);
+  // Ha maradtak feltöltetlen tételek, a Feltöltés gomb mutatja a számukat.
 }
 renderList();
 updateGateUI();
