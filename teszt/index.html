@@ -900,7 +900,11 @@ function flashScreen() {
 /* =========================================================================
    TERMÉK KERESÉS
    ========================================================================= */
+const OFFLINE_ISMERETLEN_ = "⚠ Ismeretlen (nincs térerő)";
 async function lookupProductRaw_(barcode) {
+  // Térerő nélkül nem várunk a (többször újrapróbált) kérésre: azonnal
+  // jelezzük, és amint visszatér a hálózat, újra megnézzük.
+  if (navigator.onLine === false) return { found: false, name: null, checked: null, offline: true };
   if (APPS_SCRIPT_URL) {
     try {
       const data = await apiGet({ action: "lookup", barcode: barcode });
@@ -1076,7 +1080,7 @@ async function startCamera() {
   }
 }
 
-const APP_VERSION = "v82";
+const APP_VERSION = "v83";
 let frameCount = 0, detectCount = 0;
 function debugLog(msg) {
   // A felületen csak a verziószám látszik (lásd lent) — a részletes
@@ -1159,18 +1163,25 @@ function captureGuideCrop(upscale = 2.2) {
    és a kamera felfüggesztése, ha az alkalmazás háttérbe kerül vagy
    hosszabb ideig nem történik semmi.
    ========================================================================= */
-let zaroltKod_ = null;              // az előző lenyomás utolsó kódja — amíg látszik, nem olvassuk be újra
+let zaroltKod_ = null;
+let nyomasKezdete_ = 0;             // az aktuális gombnyomás kezdete
+const ZAROLAS_MS_ = 450;            // ennyi ideig nem fogadjuk el az előző kódot újra
+const KEPFOLYAM_KI_MS_ = 2500;      // elengedés után ennyi idővel kapcsol ki a kamera képfolyama
+let kepfolyamTimer_ = null;
+let kepfolyamKi_ = false;           // ki van-e kapcsolva a képfolyam (újraindításkor friss képre várunk)              // az előző lenyomás utolsó kódja — amíg látszik, nem olvassuk be újra
 let scanLoopFut_ = false;           // fut-e épp a felismerési ciklus
 let szkennelesCiklus_ = null;       // melyik ciklust kell ébreszteni (natív / tartalék)
-const SCAN_INTERVAL_MS_ = 100;      // legfeljebb 10 felismerési kísérlet / mp
-const TETLENSEG_MS_ = 45000;        // 45 mp tétlenség után a kamera szünetel
+const SCAN_INTERVAL_MS_ = 70;       // nyomva tartáskor ~14 felismerési kísérlet / mp (csak ilyenkor fut)
+const ZXING_INTERVAL_MS_ = 100;     // a tartalék (iPhone) felismerő drágább — ott 10 / mp
+const TETLENSEG_MS_ = 90000;        // 1,5 perc tétlenség után a kamera teljesen leáll (a gomb indítja újra)
                                     // (egy koppintással azonnal folytatható)
 let utolsoTevekenyseg_ = Date.now();
 let kameraSzunetel_ = false;
 
 function tevekenysegVolt_() {
   utolsoTevekenyseg_ = Date.now();
-  if (kameraSzunetel_) kameraFolytatas_();
+  // A kamerát NEM indítjuk újra akármilyen érintésre (pl. a lista
+  // görgetésére) — csak a szkennelés gombja indítja.
   // A felismerést itt NEM ébresztjük: a gomb lenyomása maga indítja,
   // az első friss képkockán (lásd bindHoldScanButton_).
 }
@@ -1194,35 +1205,35 @@ let elonezetAll_ = false;
 function elonezetSzunet_() {
   if (elonezetAll_ || !activeStream) return;
   elonezetAll_ = true;
-  // A kamera KÉPFOLYAMÁT kapcsoljuk ki, nem csak a kirajzolást. A
-  // videó megállítása (pause) korábban csak a megjelenítést állította
-  // le — a kamera a háttérben végig teljes sebességgel futott (ez
-  // melegítette a telefont), és a megállított kép a pufferben maradt,
-  // így a következő lenyomásnál a régi vonalkódot is beolvashatta.
-  // Kikapcsolt képfolyamnál a kamera fekete képet ad, a telefon
-  // alacsony fogyasztású állapotba teheti, és lenyomáskor csak friss
-  // kép érkezik.
-  try {
-    const track = getActiveVideoTrack();
-    if (track) track.enabled = false;
-  } catch (e) { /* nem kritikus */ }
-  // A kép eltűnik (nem marad látható az utolsó képkocka): teljesen
-  // fekete, amíg a gombot újra meg nem nyomod.
+  // A kép AZONNAL eltűnik (fekete), a kamera képfolyamát viszont csak
+  // rövid várakozás után kapcsoljuk ki. Ha gyorsan újra lenyomod (pl.
+  // ugyanaz a termék még egyszer, vagy a következő doboz mellette), a
+  // kamera még kész: nem kell újra beállítania a fókuszt és a fényerőt,
+  // ezért azonnal felismer. Ha nem nyomod újra, a képfolyam kikapcsol
+  // (fekete képet ad, a telefon alacsony fogyasztású állapotba teheti).
   el("camWrap").classList.add("kameraKi");
-  const jelzo = el("elonezetJelzo");
-  if (jelzo) jelzo.style.display = "flex";
+  if (kepfolyamTimer_) clearTimeout(kepfolyamTimer_);
+  kepfolyamTimer_ = setTimeout(() => {
+    kepfolyamTimer_ = null;
+    if (!elonezetAll_ || scanningHeld) return;
+    try {
+      const track = getActiveVideoTrack();
+      if (track) { track.enabled = false; kepfolyamKi_ = true; }
+    } catch (e) { /* nem kritikus */ }
+  }, KEPFOLYAM_KI_MS_);
 }
 
 function elonezetFolytatas_() {
+  if (kepfolyamTimer_) { clearTimeout(kepfolyamTimer_); kepfolyamTimer_ = null; }
   if (!elonezetAll_) return;
   elonezetAll_ = false;
-  const jelzo = el("elonezetJelzo");
-  if (jelzo) jelzo.style.display = "none";
+  kepfolyamKi_ = false;   // (egy teljes kamera-újraindítás után az új képfolyam eleve be van kapcsolva)
   el("camWrap").classList.remove("kameraKi");
   try {
     const track = getActiveVideoTrack();
     if (track) {
       track.enabled = true;
+      kepfolyamKi_ = false;
       // Ha be volt kapcsolva a vaku, a képfolyam visszakapcsolása után
       // újra be kell kapcsolni (egyes telefonok kikapcsolják közben).
       if (torchOn && track.applyConstraints) {
@@ -1299,11 +1310,12 @@ function kameraSzunet_(okSzoveg) {
     if (activeStream) activeStream.getTracks().forEach(t => t.stop());
   } catch (e) { /* nem kritikus */ }
   activeStream = null;
-  const jelzo = el("kameraSzunetJelzo");
-  if (jelzo) {
-    jelzo.querySelector(".szunetOk").textContent = okSzoveg || "A kamera szünetel az akkumulátor kímélése miatt.";
-    jelzo.style.display = "flex";
-  }
+  // Felirat helyett egyszerűen fekete marad a kép — a szkennelés
+  // gombjának lenyomása újraindítja a kamerát.
+  if (kepfolyamTimer_) { clearTimeout(kepfolyamTimer_); kepfolyamTimer_ = null; }
+  kepfolyamKi_ = true;
+  elonezetAll_ = true;
+  el("camWrap").classList.add("kameraKi");
 }
 
 async function kameraFolytatas_() {
@@ -1336,11 +1348,11 @@ setInterval(() => {
   if (scanningHeld) { utolsoTevekenyseg_ = Date.now(); return; }
   const tetlen = Date.now() - utolsoTevekenyseg_;
   if (tetlen > TETLENSEG_MS_) {
-    kameraSzunet_("Szünetel az akkumulátor kímélése miatt — koppints a folytatáshoz.");
+    kameraSzunet_();
   } else if (tetlen > ELONEZET_SZUNET_MS_) {
-    elonezetSzunet_();          // a kamera fut, csak a kép áll
+    elonezetSzunet_();
   }
-}, 3000);
+}, 10000);
 
 let guideActiveTimeout = null;
 function highlightGuide() {
@@ -1454,9 +1466,12 @@ async function fallbackScanLoop() {
     const now = Date.now();
     // Lásd a natív ciklus megjegyzését: csak nyomva tartott gombnál és
     // előtérben lévő lapnál dekódolunk.
-    if (szkennelesAktiv_() && now - lastFallbackDecodeAt > SCAN_INTERVAL_MS_ && video.videoWidth) {
+    if (szkennelesAktiv_() && now - lastFallbackDecodeAt > ZXING_INTERVAL_MS_ && video.videoWidth) {
       lastFallbackDecodeAt = now;
-      const crop = captureGuideCrop();
+      // A tartalék felismerőnek (ZXing) nem kell a nagy nagyítás — a
+      // kamera saját felbontása bőven elég neki, a nagyított képen pedig
+      // feleslegesen sokat számolna (ez melegíti a telefont).
+      const crop = captureGuideCrop(1.5);
       if (crop) {
         fallbackAttempts++;
         try {
@@ -1550,8 +1565,14 @@ function handleDetections(codes) {
   // mozdult el az előző termékről, a kamera a lenyomás pillanatában
   // még azt látja — ez ugyanaz a doboz, nem egy újabb darab.
   if (zaroltKod_) {
-    if (code === zaroltKod_) return;
-    zaroltKod_ = null;            // másik kód látszik — a zárolás feloldva
+    if (code === zaroltKod_) {
+      // Ugyanaz a kód, mint az előző lenyomásnál. A lenyomás első
+      // pillanatában nem fogadjuk el (véletlen dupla olvasás ellen), de
+      // ha a gombot nyomva tartva a kamera ezután is ezt látja, az
+      // tudatos célzás (pl. egy második ugyanolyan doboz) — elfogadjuk.
+      if (Date.now() - nyomasKezdete_ < ZAROLAS_MS_) return;
+    }
+    zaroltKod_ = null;            // a zárolás feloldva
   }
   if (pressAcceptedCodes_.has(code)) return;
   pressAcceptedCodes_.add(code);
@@ -1612,7 +1633,7 @@ async function acceptCode(barcode) {
   renderHitCard();
 
   const result = await lookupProduct(barcode);
-  const finalName = result.found ? result.name : "⚠ Ismeretlen vonalkód";
+  const finalName = result.found ? result.name : (result.offline ? OFFLINE_ISMERETLEN_ : "⚠ Ismeretlen vonalkód");
 
   // A már rögzített tétel nevének/vonalkódjának utólagos pótlása a
   // listában — függetlenül attól, hogy a felhasználó időközben
@@ -1780,10 +1801,14 @@ function commitPending() {
     // csak az első FRISS képkockán indul — különben a megfagyott, régi
     // képen futna (ami elmosódott lehet, vagy épp egy másik vonalkódot
     // mutat a keretben).
+    nyomasKezdete_ = Date.now();
     tevekenysegVolt_();
-    const alltAKep = elonezetAll_;
+    if (kameraSzunetel_) kameraFolytatas_();     // hosszabb szünet után a gomb indítja újra
+    // Csak akkor várunk friss képkockára, ha a képfolyam ténylegesen ki
+    // volt kapcsolva — gyors ismétlésnél a kamera kész, azonnal mehet.
+    const kellFrissKep = kepfolyamKi_;
     elonezetFolytatas_();
-    if (alltAKep) frissKepkockaUtan_(ebresztSzkennelest_);
+    if (kellFrissKep) frissKepkockaUtan_(ebresztSzkennelest_);
     else ebresztSzkennelest_();
   };
   const stop = () => {
@@ -2017,6 +2042,14 @@ async function syncPendingScans(csendben) {
 // Amint visszatér a hálózat, azonnal megpróbáljuk a feltöltést.
 window.addEventListener("online", () => {
   el("netDot").className = "dot online";
+  // A térerő nélkül "ismeretlen"-nek jelölt tételeket újra megnézzük.
+  scanned.filter(s => s.name === OFFLINE_ISMERETLEN_).forEach(s => {
+    lookupProduct(s.barcode).then(r => {
+      s.name = r.found ? r.name : (r.offline ? OFFLINE_ISMERETLEN_ : "⚠ Ismeretlen vonalkód");
+      if (r.found && r.matchedBarcode) s.barcode = r.matchedBarcode;
+      renderList();
+    }).catch(() => {});
+  });
   const varakozo = scanned.filter(s => !s.synced).length;
   if (varakozo) {
     showToast(`Van újra térerő — ${varakozo} tétel feltöltése…`, "success");
