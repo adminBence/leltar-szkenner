@@ -961,36 +961,49 @@ setInterval(productCacheSave_, 10000);
 const CATALOG_KEY_ = "TESZT_leltarKatalogus";
 let katalogus_ = null;          // { leltarId, tetelek: { vonalkod: nev } }
 
+// A katalógust TÖMÖR formában tároljuk a telefonon (nevek listája +
+// vonalkód → név-sorszám), és betöltéskor építjük fel a keresőtáblát.
+function katalogusTerkep_(data) {
+  const map = {};
+  const tesz = (b, n) => {
+    map[b] = n;
+    // A vezető nullák nélküli alakra is, mert a beolvasott kód és a
+    // törzsben tárolt alak eltérhet.
+    const mag = String(b).replace(/^0+/, "");
+    if (mag && mag !== b) map[mag] = n;
+  };
+  if (data.nevek) data.tetelek.forEach(t => tesz(String(t[0]), data.nevek[t[1]]));   // teljes törzs
+  else data.tetelek.forEach(t => tesz(String(t.b), t.n));                            // régi forma
+  return map;
+}
+
 function katalogusBetolt_() {
   try {
     const nyers = localStorage.getItem(CATALOG_KEY_);
     if (!nyers) return;
     const adat = JSON.parse(nyers);
-    if (!adat || !adat.tetelek) return;
-    katalogus_ = adat;
+    if (!adat || !adat.data || !adat.data.tetelek) return;
+    katalogus_ = { leltarId: adat.leltarId, teljes: !!adat.data.nevek,
+      tetelek: katalogusTerkep_(adat.data), letoltve: adat.letoltve };
   } catch (e) { katalogus_ = null; }
 }
 
 async function katalogusFrissit_() {
   const lid = activeLeltar && activeLeltar.leltar_id;
   if (!lid) return;
-  if (katalogus_ && katalogus_.leltarId === lid) return;   // már megvan
+  // Ha már megvan a TELJES terméktörzs ehhez a leltárhoz, nem töltjük újra.
+  if (katalogus_ && katalogus_.leltarId === lid && katalogus_.teljes) return;
   try {
     debugLog("termékkatalógus letöltése…");
-    const data = await apiGet({ action: "catalog", leltar_id: lid });
+    // A teljes terméktörzset kérjük (ha a szerver még régi változat, a
+    // leltár induló listáját kapjuk — akkor a hiányzó neveket egyenként
+    // kérdezi le, mint korábban).
+    const data = await apiGet({ action: "catalog", leltar_id: lid, teljes: "1" });
     if (!data || !data.tetelek) return;
-    const map = {};
-    data.tetelek.forEach(t => {
-      map[t.b] = t.n;
-      // A vezető nullák nélküli alakra is, mert a beolvasott kód és a
-      // törzsben tárolt alak eltérhet.
-      const mag = String(t.b).replace(/^0+/, "");
-      if (mag && mag !== t.b) map[mag] = t.n;
-    });
-    katalogus_ = { leltarId: lid, tetelek: map, letoltve: Date.now() };
-    try { localStorage.setItem(CATALOG_KEY_, JSON.stringify(katalogus_)); }
+    katalogus_ = { leltarId: lid, teljes: !!data.nevek, tetelek: katalogusTerkep_(data), letoltve: Date.now() };
+    try { localStorage.setItem(CATALOG_KEY_, JSON.stringify({ leltarId: lid, letoltve: Date.now(), data: data })); }
     catch (e) { /* ha nem fér el, memóriában akkor is használható */ }
-    debugLog(`termékkatalógus kész: ${data.tetelek.length} tétel`);
+    debugLog(`termékkatalógus kész: ${data.tetelek.length} vonalkód${data.nevek ? " (teljes terméktörzs)" : ""}`);
   } catch (e) {
     debugLog("katalógus letöltés sikertelen (a nevek egyenként jönnek): " + (e && e.message ? e.message : e));
   }
@@ -1006,6 +1019,9 @@ async function lookupProduct(barcode) {
   // 1) A letöltött katalógusból — azonnali, hálózat nélkül.
   const katNev = katalogusbolNev_(barcode);
   if (katNev) return { found: true, name: katNev, checked: null, matchedBarcode: barcode };
+  // Ha a TELJES terméktörzs megvan és ebben sincs benne, akkor a kód
+  // valóban ismeretlen — nincs mit keresni, azonnal jelezzük.
+  if (katalogus_ && katalogus_.teljes) return { found: false, name: null, checked: null, matchedBarcode: barcode };
   const cached = productCache_[barcode];
   if (cached) return { found: !!cached.n, name: cached.n || null, checked: null, matchedBarcode: cached.b || barcode };
   const result = await lookupProductRaw_(barcode);
@@ -1080,7 +1096,7 @@ async function startCamera() {
   }
 }
 
-const APP_VERSION = "v83";
+const APP_VERSION = "v84";
 let frameCount = 0, detectCount = 0;
 function debugLog(msg) {
   // A felületen csak a verziószám látszik (lásd lent) — a részletes
