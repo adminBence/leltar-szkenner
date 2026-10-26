@@ -918,10 +918,13 @@ function showToast(message, type) {
   toast.querySelector(".toastClose").addEventListener("click", remove);
   setTimeout(remove, type === "error" ? 6000 : 4000);
 }
-function showConfirm(message) {
+function showConfirm(message, opts) {
+  opts = opts || {};
   return new Promise(resolve => {
     const overlay = el("confirmModalOverlay");
     el("confirmModalMessage").textContent = message;
+    el("confirmModalYesBtn").textContent = opts.igen || "Igen";
+    el("confirmModalNoBtn").textContent = opts.nem || "Mégse";
     overlay.classList.add("show");
     el("confirmModalYesBtn").onclick = () => { overlay.classList.remove("show"); resolve(true); };
     el("confirmModalNoBtn").onclick = () => { overlay.classList.remove("show"); resolve(false); };
@@ -1171,7 +1174,7 @@ async function startCamera() {
   }
 }
 
-const APP_VERSION = "v94";
+const APP_VERSION = "v95";
 let frameCount = 0, detectCount = 0;
 function debugLog(msg) {
   // A felületen csak a verziószám látszik (lásd lent) — a részletes
@@ -1879,6 +1882,12 @@ function commitPending() {
   if (!btn) return;
   const start = (e) => {
     e.preventDefault();
+    if (elozoSzektor_ && elozoSzektor_ !== currentSector) {
+      // szektorváltás után előbb erősítse meg, hová kerüljenek a beolvasások
+      listExpanded = false; renderList();
+      szektorValtasEllenoriz_();
+      return;
+    }
     // Minden ÚJ lenyomás tiszta lappal indul: a korábban beolvasott
     // kódok újra elfogadhatók (pl. ugyanaz a termék még egyszer).
     pressAcceptedCodes_ = new Set();
@@ -2091,6 +2100,7 @@ el("sectorModalOkBtn").addEventListener("click", async () => {
     if (!ok) { oldalTetejere_(); input.select(); return; }
   }
   input.blur();
+  elozoSzektor_ = null;
   currentSector = val;
   munkamenetMentes_();
   renderList();
@@ -2493,6 +2503,28 @@ function lapFulFrissit_() {
 
 // Egy korábbi (vagy az aktuális) szektor megnyitása: a beolvasások
 // ettől kezdve ide kerülnek, a tételei módosíthatók/törölhetők.
+/* SZEKTORVÁLTÁS A LISTÁBÓL. Ha az "Összes szektorom" listából egy másik
+   szektort nyitsz meg (pl. hogy megnézd), az új beolvasások már oda
+   kerülnek. Megjegyezzük, melyikben dolgoztál előtte, és a lista
+   bezárásakor (vagy ha nyitott listával szkennelnél) rákérdezünk. */
+let elozoSzektor_ = null;
+async function szektorValtasEllenoriz_() {
+  if (!elozoSzektor_ || !currentSector || elozoSzektor_ === currentSector) { elozoSzektor_ = null; return; }
+  const elozo = elozoSzektor_, most = currentSector;
+  elozoSzektor_ = null;
+  const marad = await showConfirm(
+    `Most a ${most}. szektor van megnyitva — az új beolvasások ehhez a szektorhoz adódnak hozzá. `
+    + `Előtte a ${elozo}. szektort olvastad. Melyikben folytatod?`,
+    { igen: `${most}. szektorban`, nem: `Vissza a ${elozo}. szektorba` });
+  if (!marad) {
+    currentSector = elozo;
+    munkamenetMentes_();
+    updateGateUI();
+    renderList();
+    showToast(`Visszaváltva a ${elozo}. szektorra.`, "success");
+  }
+}
+
 async function szektorMegnyit_(sz) {
   // Ha a szektorban másik eszközről származó tételek is vannak (szerverről
   // visszatöltve), rákérdezünk — így nem lehet észrevétlenül más
@@ -2502,6 +2534,8 @@ async function szektorMegnyit_(sz) {
       `A(z) ${sz}. szektorban másik eszközön beolvasott tételek is vannak (${idegen.join(", ")}). `
       + `Ha nem te olvastad be őket, ne módosítsd. Biztosan megnyitod?`))) return;
   if (pendingHit) commitPending();
+  if (currentSector && currentSector !== sz && !elozoSzektor_) elozoSzektor_ = currentSector;
+  if (sz === elozoSzektor_) elozoSzektor_ = null;      // visszament az eredetire
   currentSector = sz;
   listNezet_ = "szektor";
   elozmenyNyitva_ = false;
@@ -2736,11 +2770,12 @@ el("listToggle").addEventListener("click", () => {
 });
 // A fejlécben mindig látható szektor-jelvényre koppintva is megnyílik
 // (vagy bezárul) a beolvasott tételek listája.
-el("sectorBadge").addEventListener("click", () => {
+el("sectorBadge").addEventListener("click", async () => {
   if (!activeLeltar || !currentSector) return;
   listExpanded = !listExpanded;
   if (listExpanded) listNezet_ = "szektor";
   renderList();
+  if (!listExpanded) await szektorValtasEllenoriz_();
 });
 el("listSzektorCim").addEventListener("click", () => { listNezet_ = "szektor"; renderList(); });
 el("lapOsszes").addEventListener("click", () => {
