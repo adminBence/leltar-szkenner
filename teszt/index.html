@@ -1171,7 +1171,7 @@ async function startCamera() {
   }
 }
 
-const APP_VERSION = "v92";
+const APP_VERSION = "v93";
 let frameCount = 0, detectCount = 0;
 function debugLog(msg) {
   // A felületen csak a verziószám látszik (lásd lent) — a részletes
@@ -2562,6 +2562,16 @@ async function visszatoltesSzerverrol_(csendes) {
     });
     vtkAllapot_ = { masik: Number(data.masik_db) || 0, mennyiseg: Number(data.masik_mennyiseg) || 0,
       szektorok: Number(data.masik_szektorok) || 0, allapot: data.kerelem_allapot || "nincs" };
+    // Csak azok számítanak, amelyek MÉG NINCSENEK a telefonon — ami egy
+    // korábbi (jóváhagyott) visszatöltésből már megvan, ahhoz nem kell újra
+    // jóváhagyást kérni.
+    if (Array.isArray(data.masik_tetelek)) {
+      const hianyzik = data.masik_tetelek.filter(r =>
+        !scanned.some(s => s.sector === String(r.szektor) && s.barcode === String(r.vonalkod)));
+      vtkAllapot_.masik = hianyzik.length;
+      vtkAllapot_.mennyiseg = hianyzik.reduce((a, r) => a + (Number(r.mennyiseg) || 0), 0);
+      vtkAllapot_.szektorok = new Set(hianyzik.map(r => String(r.szektor))).size;
+    }
     if (data.jovahagyott || !vtkAllapot_.masik) { vtkAllapot_ = null; vtkFigyelesLeall_(); }
     if (vtkAllapot_ && vtkAllapot_.allapot === "var") vtkFigyel_();
     if (data.jovahagyott) {
