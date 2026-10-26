@@ -312,10 +312,13 @@
   #listToggle:active{color:var(--text);}
 
   /* A kinyitott lista saját, jól látható bezáró-sávot kap a tetején. */
-  #listCloseBar{display:none; width:100%; text-align:center; padding:14px 16px;
-    font-size:14px; font-weight:700; color:var(--text); cursor:pointer;
+  #syncBtn.feltoltve{opacity:.7;}
+  #listCloseBar{display:none; width:100%; align-items:center; justify-content:space-between; gap:10px;
+    padding:10px 16px; font-size:14px; font-weight:700; color:var(--text);
     border-bottom:1px solid var(--line); background:var(--panel-2); flex:0 0 auto;}
-  #listPanel.expanded #listCloseBar{display:block;}
+  #listPanel.expanded #listCloseBar{display:flex;}
+  #szektorModositBtn{padding:7px 12px; border-radius:9px; font-size:12px; font-weight:600;
+    background:var(--panel); border:1px solid var(--line); color:var(--text);}
 
   #torlesSav{display:none; align-items:center; gap:8px; padding:8px 16px; flex-wrap:wrap;
     border-bottom:1px solid var(--line); background:var(--panel-2); font-size:12px;}
@@ -597,7 +600,7 @@
   </div>
 
   <div id="listPanel">
-    <div id="listCloseBar">▴ Bezárás</div>
+    <div id="listCloseBar"><span id="listSzektorCim"></span><button id="szektorModositBtn">Szektor módosítása</button></div>
     <div id="list"></div>
   </div>
 
@@ -644,7 +647,7 @@
 
   <footer>
     <button id="closeSectorBtn">Szektor lezárása</button>
-    <button id="syncBtn" class="primary">Szinkronizálás (<span id="pendingCount">0</span>)</button>
+    <button id="syncBtn" class="feltoltve">✓ Minden feltöltve</button>
   </footer>
 
 </div>
@@ -1096,7 +1099,7 @@ async function startCamera() {
   }
 }
 
-const APP_VERSION = "v84";
+const APP_VERSION = "v85";
 let frameCount = 0, detectCount = 0;
 function debugLog(msg) {
   // A felületen csak a verziószám látszik (lásd lent) — a részletes
@@ -2135,7 +2138,7 @@ el("syncBtn").addEventListener("click", async () => {
   if (pendingHit) commitPending();
   const btn = el("syncBtn");
   btn.disabled = true;
-  btn.textContent = "Szinkronizálás…";
+  btn.textContent = "Feltöltés…";
   syncInProgress_ = true;
 
   const pendingItems = scanned.filter(s => !s.synced);
@@ -2164,12 +2167,21 @@ el("syncBtn").addEventListener("click", async () => {
   syncInProgress_ = false;
   btn.disabled = false;
   updatePendingCount();
-  btn.innerHTML = `Szinkronizálás (<span id="pendingCount">0</span>)`;
 });
 
+// A gomb egyértelműen mutatja, áll-e még valami feltöltésre — a háttérben
+// (percenként és szektorzáráskor) magától is feltölt, a gombbal azonnal.
 function updatePendingCount() {
   const pending = scanned.filter(s => !s.synced).length;
-  el("pendingCount") && (el("pendingCount").textContent = pending);
+  const btn = el("syncBtn");
+  if (!btn || syncInProgress_) return;
+  if (pending) {
+    btn.innerHTML = `Feltöltés (<span id="pendingCount">${pending}</span>)`;
+    btn.classList.add("primary"); btn.classList.remove("feltoltve");
+  } else {
+    btn.textContent = "✓ Minden feltöltve";
+    btn.classList.remove("primary"); btn.classList.add("feltoltve");
+  }
 }
 
 /* =========================================================================
@@ -2345,6 +2357,8 @@ function renderList() {
   // hogy össze lehessen vetni a szektorban előre leszámolt mennyiséggel.
   const osszDb = items.reduce((a, x) => a + (Number(x.qty) || 0), 0);
   el("itemCount").textContent = osszDb;
+  const szCim = el("listSzektorCim");
+  if (szCim) szCim.textContent = currentSector ? `${currentSector}. szektor` : "";
   const cimke = el("itemCountLabel");
   if (cimke) cimke.textContent = "db";
   updatePendingCount();
@@ -2417,9 +2431,46 @@ el("sectorBadge").addEventListener("click", () => {
   listExpanded = !listExpanded;
   renderList();
 });
-el("listCloseBar").addEventListener("click", () => {
-  listExpanded = false;
+// A szektor számának módosítása (pl. elgépelt szektorszám esetén).
+// Ha a tételek egy része már fel van töltve, a szerveren is áthelyezi
+// őket: a régi szektorból törli (csak az erről a telefonról érkezetteket),
+// és az új szektorszámmal tölti fel újra.
+el("szektorModositBtn").addEventListener("click", async (e) => {
+  e.stopPropagation();
+  if (!currentSector) return;
+  if (pendingHit) commitPending();
+  const regi = currentSector;
+  const uj = await showPrompt_(`Jelenlegi szektor: ${regi}\nMi legyen a helyes szektorszám?`, regi);
+  if (uj === null) return;
+  const ujSz = String(uj).trim();
+  if (!ujSz || ujSz === regi) return;
+  const tetelek = scanned.filter(s => s.sector === regi);
+  if (tetelek.some(s => s.synced)) {
+    if (navigator.onLine === false) {
+      showToast("Ehhez térerő kell, mert a tételek egy része már fel van töltve. Próbáld újra, amikor van térerő.", "warn");
+      return;
+    }
+    try {
+      const r = await apiPost({ action: "reset_sector", leltar_id: activeLeltar.leltar_id,
+        sector: regi, user: userEmail || "ismeretlen", device: deviceId_ });
+      if (r && r.error) throw new Error(r.error);
+    } catch (err) {
+      showToast("Nem sikerült módosítani: " + err.message, "error");
+      return;
+    }
+  }
+  tetelek.forEach(t => {
+    const letezo = scanned.find(x => x !== t && x.sector === ujSz && x.barcode === t.barcode);
+    if (letezo) { letezo.qty += t.qty; letezo.synced = false; t._torolni = true; }
+    else { t.sector = ujSz; t.synced = false; }
+  });
+  scanned = scanned.filter(t => !t._torolni);
+  currentSector = ujSz;
+  munkamenetMentes_();
+  updateGateUI();
   renderList();
+  syncPendingScans();
+  showToast(`Szektor módosítva: ${regi}. → ${ujSz}.`, "success");
 });
 
 function escapeHtml(str) {
