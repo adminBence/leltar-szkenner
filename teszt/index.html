@@ -1171,7 +1171,7 @@ async function startCamera() {
   }
 }
 
-const APP_VERSION = "v91";
+const APP_VERSION = "v92";
 let frameCount = 0, detectCount = 0;
 function debugLog(msg) {
   // A felületen csak a verziószám látszik (lásd lent) — a részletes
@@ -2261,7 +2261,7 @@ function rowItemHtml(s) {
         ${torlesKijelolt_.has(torlesKulcs_(s)) ? "checked" : ""}>` : ""}
       <div class="info">
         <b>${escapeHtml(s.name)}</b>
-        ${!sajatEszkozE_(s) ? `<div class="idegenCimke">másik eszközről: ${escapeHtml(s.eszkozNev || "ismeretlen")}</div>` : ""}
+        ${idegenE_(s) ? `<div class="idegenCimke">másik eszközről: ${escapeHtml(s.eszkozNev || "ismeretlen")}</div>` : ""}
         ${ismeretlen ? `<button class="javitBtn" data-fix-barcode="${escapeHtml(s.barcode)}" data-fix-sector="${escapeHtml(s.sector)}">Vonalkód javítása</button>` : ""}
         <span>${s.barcode} · ${s.sector}</span>
         ${checkedNoteHtml(s.checked)}
@@ -2417,12 +2417,15 @@ function szektorOsszesito_() {
     const k = String(s.sector || "");
     if (!m[k]) m[k] = { szektor: k, db: 0, varakozik: 0, utolso: 0, idegen: new Set() };
     m[k].db += Number(s.qty) || 0;
-    if (!sajatEszkozE_(s)) m[k].idegen.add(s.eszkozNev || "másik eszköz");
+    if (idegenE_(s)) m[k].idegen.add(s.eszkozNev || "másik eszköz");
     if (!s.synced) m[k].varakozik++;
     m[k].utolso = Math.max(m[k].utolso, s.ts || 0);
   });
   aktivTorlesek_().forEach(t => { const k = String(t.sector || ""); if (m[k]) m[k].varakozik++; });
-  return Object.values(m).sort((a, b) => b.utolso - a.utolso);
+  // Az aktuális szektor mindig az első — így egy visszatöltés vagy új
+  // beolvasás miatt a sorok nem cserélnek helyet egy koppintás alatt.
+  return Object.values(m).sort((a, b) =>
+    (b.szektor === currentSector) - (a.szektor === currentSector) || b.utolso - a.utolso);
 }
 
 function elozmenyHtml_() {
@@ -2458,7 +2461,7 @@ async function szektorMegnyit_(sz) {
   // Ha a szektorban másik eszközről származó tételek is vannak (szerverről
   // visszatöltve), rákérdezünk — így nem lehet észrevétlenül más
   // beolvasásait átírni.
-  const idegen = [...new Set(scanned.filter(s => s.sector === sz && !sajatEszkozE_(s)).map(s => s.eszkozNev || "másik eszköz"))];
+  const idegen = [...new Set(scanned.filter(s => s.sector === sz && idegenE_(s)).map(s => s.eszkozNev || "másik eszköz"))];
   if (idegen.length && !(await showConfirm(
       `A(z) ${sz}. szektorban másik eszközön beolvasott tételek is vannak (${idegen.join(", ")}). `
       + `Ha nem te olvastad be őket, ne módosítsd. Biztosan megnyitod?`))) return;
@@ -2485,12 +2488,20 @@ function vtkFigyel_() {
   if (vtkTimer_) return;
   const kezd = Date.now();
   vtkTimer_ = setInterval(async () => {
-    if (Date.now() - kezd > 15 * 60000) { vtkFigyelesLeall_(); return; }
+    if (Date.now() - kezd > 60 * 60000) { vtkFigyelesLeall_(); return; }
     if (document.hidden || navigator.onLine === false) return;
     await visszatoltesSzerverrol_(true);
     if (!vtkAllapot_ || vtkAllapot_.allapot !== "var") vtkFigyelesLeall_();
   }, 15000);
 }
+
+// Ha a telefon közben háttérben volt (lezárt képernyő, másik alkalmazás),
+// visszatéréskor azonnal megnézzük, jóváhagyták-e már a kérést.
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden || !vtkAllapot_ || vtkAllapot_.allapot !== "var") return;
+  visszatoltesSzerverrol_(true);
+  vtkFigyel_();
+});
 
 async function vtkKeres_() {
   if (!activeLeltar) return;
@@ -2514,7 +2525,7 @@ async function vtkKeres_() {
 function vtkHtml_() {
   const a = vtkAllapot_;
   if (!a || !a.masik) return "";
-  const mi = `A szerveren még <b>${a.masik} tétel</b>${a.szektorok ? ` (${a.szektorok} szektor)` : ""} van a nevedhez,
+  const mi = `A szerveren még <b>${a.mennyiseg || a.masik} db</b>${a.szektorok ? ` (${a.szektorok} szektor)` : ""} van a nevedhez,
     amit <b>másik eszközről</b> olvastak be.`;
   if (a.allapot === "var") return `<div class="vtkSav">${mi}<div class="vtkAllapot">⏳ Admin jóváhagyásra vár — utána automatikusan visszatöltődik.</div></div>`;
   return `<div class="vtkSav">${mi} Ezek visszatöltéséhez admin jóváhagyás kell.
@@ -2540,20 +2551,24 @@ async function visszatoltesSzerverrol_(csendes) {
       // ment fel), azt nem írjuk felül.
       if (scanned.some(s => s.sector === sz && s.barcode === bc)) return;
       if (aktivTorlesek_().some(t => t.sector === sz && t.barcode === bc)) return;
-      scanned.push({ barcode: bc, name: katalogusbolNev_(bc) || "⚠ Ismeretlen vonalkód",
+      // Az admin által jóváhagyott tételek a jelölés szempontjából
+      // sajátnak számítanak (az eredeti eszköz-azonosító megmarad, hogy a
+      // módosítás ugyanazt a sort írja felül a szerveren).
+      scanned.push({ barcode: bc, name: katalogusbolNev_(bc) || "⚠ Ismeretlen vonalkód", jovahagyva: !!data.jovahagyott,
         qty: Number(r.mennyiseg) || 0, sector: sz, ts: Number(r.ms) || Date.now(), checked: null,
         synced: true, eszkoz: String(r.eszkoz || ""),
         eszkozNev: r.eszkoz_nev || ("másik eszköz #" + String(r.eszkoz || "????").slice(-4).toUpperCase()) });
       uj++;
     });
-    vtkAllapot_ = { masik: Number(data.masik_db) || 0, szektorok: Number(data.masik_szektorok) || 0,
-      allapot: data.kerelem_allapot || "nincs" };
-    if (vtkAllapot_.allapot === "var") vtkFigyel_();
+    vtkAllapot_ = { masik: Number(data.masik_db) || 0, mennyiseg: Number(data.masik_mennyiseg) || 0,
+      szektorok: Number(data.masik_szektorok) || 0, allapot: data.kerelem_allapot || "nincs" };
+    if (data.jovahagyott || !vtkAllapot_.masik) { vtkAllapot_ = null; vtkFigyelesLeall_(); }
+    if (vtkAllapot_ && vtkAllapot_.allapot === "var") vtkFigyel_();
     if (data.jovahagyott) {
       showToast(`Az admin jóváhagyta — ${uj} tétel visszatöltve.`, "success");
     } else if (!csendes) {
       showToast(uj ? `${uj} tétel visszatöltve a szerverről.`
-        : (vtkAllapot_.masik ? "A saját eszközödről minden megvan — a többihez jóváhagyás kell." : "Minden feltöltött tételed megvan a telefonon."), "success");
+        : (vtkAllapot_ && vtkAllapot_.masik ? "A saját eszközödről minden megvan — a többihez jóváhagyás kell." : "Minden feltöltött tételed megvan a telefonon."), "success");
     }
   } catch (e) {
     if (!csendes) showToast("Visszatöltés nem sikerült: " + e.message, "error");
@@ -2567,6 +2582,8 @@ function eszkozE_(s) { return (typeof s.eszkoz === "string") ? s.eszkoz : device
 // Ezen a telefonon olvasták be? (A visszatöltött, másik eszközről
 // származó tételeknek saját eszköz-azonosítójuk van.)
 function sajatEszkozE_(s) { return typeof s.eszkoz !== "string" || s.eszkoz === deviceId_; }
+// Jelezni kell-e, hogy másik eszközről jött? (Admin jóváhagyás után nem.)
+function idegenE_(s) { return !sajatEszkozE_(s) && !s.jovahagyva; }
 
 function renderList() {
   scansDirty_();     // a lista változott — késleltetve mentjük helyben is
@@ -2680,7 +2697,11 @@ el("sectorBadge").addEventListener("click", () => {
   renderList();
 });
 el("listSzektorCim").addEventListener("click", () => { listNezet_ = "szektor"; renderList(); });
-el("lapOsszes").addEventListener("click", () => { listNezet_ = "osszes"; renderList(); });
+el("lapOsszes").addEventListener("click", () => {
+  listNezet_ = "osszes"; renderList();
+  // ha épp jóváhagyásra vár, megnyitáskor azonnal rákérdezünk
+  if (vtkAllapot_ && vtkAllapot_.allapot === "var") visszatoltesSzerverrol_(true);
+});
 el("elozmenyVisszaBtn").addEventListener("click", () => {
   elozmenyNyitva_ = false; listExpanded = false; updateGateUI(); renderList();
 });

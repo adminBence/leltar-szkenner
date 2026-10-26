@@ -3794,7 +3794,7 @@ function vtkRender_(container, leltarId, lista) {
   sav.innerHTML = `<div class="card vtkKartya">
       <div class="cardTitle">⚠ Visszatöltési kérés${lista.length > 1 ? `ek (${lista.length})` : ""}</div>`
     + lista.map(k => `<div class="vtkSor">
-        <div><b>${escapeHtml(k.user)}</b> kéri a nevéhez tartozó <b>${k.sorok} tétel</b> (${k.szektorok} szektor)
+        <div><b>${escapeHtml(k.user)}</b> kéri a nevéhez tartozó <b>${k.mennyiseg != null ? k.mennyiseg : k.sorok} db</b> (${k.szektorok} szektor)
           visszatöltését erre az eszközre: <b>${escapeHtml(k.device_name || "ismeretlen eszköz")}</b>.
           <div class="metaLine">A tételeket ezekről az eszközökről olvasták be: ${(k.eszkozok || []).map(escapeHtml).join(", ")}
             · kérés ideje: ${escapeHtml(formatDateTime(String((k.ido || 0) / 1000)))}</div>
