@@ -1171,7 +1171,7 @@ async function startCamera() {
   }
 }
 
-const APP_VERSION = "v93";
+const APP_VERSION = "v94";
 let frameCount = 0, detectCount = 0;
 function debugLog(msg) {
   // A felületen csak a verziószám látszik (lásd lent) — a részletes
@@ -2053,13 +2053,49 @@ el("elozmenyBtn").addEventListener("click", () => {
   elozmenyNyitva_ = true; listNezet_ = "osszes"; listExpanded = true;
   updateGateUI(); renderList();
 });
-el("sectorModalOkBtn").addEventListener("click", () => {
-  const val = el("sectorModalInput").value.trim();
-  if (!val) { el("sectorModalInput").focus(); return; }
+// A billentyűzet bezárása után a böngésző nem mindig görgeti vissza az
+// oldalt (a mező miatt feljebb tolta) — ilyenkor kilógna a fejléc.
+function oldalTetejere_() {
+  const vissza = () => { try { window.scrollTo(0, 0); document.documentElement.scrollTop = 0; document.body.scrollTop = 0; } catch (e) { /* nem kritikus */ } };
+  vissza(); setTimeout(vissza, 80); setTimeout(vissza, 350);
+}
+
+el("sectorModalOkBtn").addEventListener("click", async () => {
+  const input = el("sectorModalInput");
+  const val = input.value.trim();
+  if (!val) { input.focus(); return; }
+  // Ha ezt a szektort már rögzítették (ezen a telefonon vagy máshol),
+  // előbb rákérdezünk — így nem kezd bele valaki véletlenül egy már
+  // leszámolt szektorba.
+  const helyi = scanned.filter(s => s.sector === val);
+  let masok = [];
+  const btn = el("sectorModalOkBtn");
+  if (activeLeltar && navigator.onLine !== false) {
+    btn.disabled = true; btn.textContent = "Ellenőrzés…";
+    try {
+      const r = await Promise.race([
+        apiGet({ action: "sector_info", leltar_id: activeLeltar.leltar_id, sector: val }),
+        new Promise(res => setTimeout(() => res(null), 4000)),   // gyenge térerőnél nem várunk sokáig
+      ]);
+      if (r && Array.isArray(r.beolvasok)) masok = r.beolvasok.filter(b => b.eszkoz !== deviceId_);
+    } catch (e) { /* térerő nélkül csak a helyi adatok alapján figyelmeztetünk */ }
+    btn.disabled = false; btn.textContent = "OK";
+  }
+  if (helyi.length || masok.length) {
+    input.blur();
+    const kik = [];
+    if (helyi.length) kik.push(`te, ezen a telefonon (${helyi.reduce((a, s) => a + (Number(s.qty) || 0), 0)} db)`);
+    masok.forEach(b => kik.push(`${b.felhasznalo}${b.eszkoz_nev ? ` – ${b.eszkoz_nev}` : ""} (${b.db} db)`));
+    const ok = await showConfirm(`A(z) ${val}. szektort már rögzítette: ${kik.join(", ")}. `
+      + `Biztosan újra be szeretnéd olvasni?`);
+    if (!ok) { oldalTetejere_(); input.select(); return; }
+  }
+  input.blur();
   currentSector = val;
   munkamenetMentes_();
   renderList();
   updateGateUI();
+  oldalTetejere_();
 });
 el("sectorModalInput").addEventListener("keydown", (e) => {
   if (e.key === "Enter") el("sectorModalOkBtn").click();
