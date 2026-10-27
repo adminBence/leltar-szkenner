@@ -106,6 +106,10 @@
   .tag{display:inline-block; font-size:9.5px; font-weight:700; letter-spacing:.03em;
     padding:1px 5px; border-radius:4px; flex:0 0 auto; white-space:nowrap;}
   .tag.warn{background:#4a3a17; color:var(--warn);}
+  .vtkKartya{border-color:var(--warn); box-shadow:0 0 0 1px rgba(224,166,62,.25);}
+  .vtkKartya .cardTitle{color:var(--warn);}
+  .vtkSor{display:flex; gap:16px; align-items:center; justify-content:space-between; flex-wrap:wrap;
+    padding:12px 0; border-top:1px solid var(--line); font-size:13px; line-height:1.5;}
   .tag.danger{background:#4a1f1b; color:var(--danger);}
   .progressRow .tag{margin-left:6px;}
   /* Törlés a termék neve mellett — jól látható, piros kuka. */
@@ -1557,6 +1561,7 @@ function bindCollapsibles_(root) {
 
 function renderFullReport(container, report, opts) {
   normalizeDiffRows_(report && report.diff);
+  if (report && report.leltar) setTimeout(() => vtkRender_(container, report.leltar.leltar_id, report.visszatoltes_kerelmek), 0);
   const { leltar, diff, osszesito, szektor_felelosok, progress, torolt_ismeretlen, szektor_konfliktusok } = report;
   const isOpen = leltar.statusz === "folyamatban";
   const showActions = !!opts.showActions && isOpen;
@@ -3766,14 +3771,60 @@ function mergeDelta_(base, delta) {
 // CSAK akkor tölt le, ha még nincs megtartott riport, vagy ha a szerver
 // jelzi, hogy a változás jellege ezt igényli (szektor-döntés, lezárás,
 // túl sok egyszerre változott tétel).
+/* VISSZATÖLTÉSI KÉRÉSEK — ha egy szkennert használó valaki a szerverről
+   tölti vissza a beolvasásait, és a nevéhez MÁSIK eszközről érkezett
+   tételek is tartoznak, azokat csak admin jóváhagyás után kaphatja meg
+   (így más nevét beírva nem lehet az ő munkáját átvenni). A kérések a
+   riport-frissítéssel együtt érkeznek — külön lekérdezés nélkül. */
+function vtkRender_(container, leltarId, lista) {
+  if (!container || !container.parentNode || !Array.isArray(lista)) return;
+  let sav = container.parentNode.querySelector(":scope > .vtkAdminSav");
+  if (!sav) {
+    sav = document.createElement("div");
+    sav.className = "vtkAdminSav";
+    container.parentNode.insertBefore(sav, container);
+  }
+  if (!lista.length) { sav.innerHTML = ""; sav.style.display = "none"; return; }
+  sav.style.display = "";
+  sav.innerHTML = `<div class="card vtkKartya">
+      <div class="cardTitle">⚠ Visszatöltési kérés${lista.length > 1 ? `ek (${lista.length})` : ""}</div>`
+    + lista.map(k => `<div class="vtkSor">
+        <div><b>${escapeHtml(k.user)}</b> kéri a nevéhez tartozó <b>${k.mennyiseg != null ? k.mennyiseg : k.sorok} db</b> (${k.szektorok} szektor)
+          visszatöltését erre az eszközre: <b>${escapeHtml(k.device_name || "ismeretlen eszköz")}</b>.
+          <div class="metaLine">A tételeket ezekről az eszközökről olvasták be: ${(k.eszkozok || []).map(escapeHtml).join(", ")}
+            · kérés ideje: ${escapeHtml(formatDateTime(String((k.ido || 0) / 1000)))}</div>
+          <div class="metaLine">Csak akkor hagyd jóvá, ha biztos vagy benne, hogy valóban ő kéri (pl. elveszett a telefonja adata, vagy telefont cserélt).</div>
+        </div>
+        <div class="row" style="gap:8px; flex:0 0 auto;">
+          <button class="btn primary" data-vtk-dont="jovahagy" data-vtk-id="${escapeHtml(k.id)}">Jóváhagyás</button>
+          <button class="btn" data-vtk-dont="elutasit" data-vtk-id="${escapeHtml(k.id)}">Elutasítás</button>
+        </div>
+      </div>`).join("") + `</div>`;
+  sav.querySelectorAll("[data-vtk-dont]").forEach(b => b.addEventListener("click", async () => {
+    b.disabled = true;
+    try {
+      const r = await apiPost({ action: "restore_decide", leltar_id: leltarId, kerelem_id: b.dataset.vtkId, dontes: b.dataset.vtkDont });
+      if (r && r.error) throw new Error(r.error);
+      showToast(b.dataset.vtkDont === "jovahagy"
+        ? "Jóváhagyva — a szkenner rövidesen magától visszatölti a tételeket." : "Elutasítva.", "success");
+      vtkRender_(container, leltarId, lista.filter(k => k.id !== b.dataset.vtkId));
+    } catch (e) {
+      showToast("Hiba: " + e.message, "error");
+      b.disabled = false;
+    }
+  }));
+}
+
 async function applyDeltaTo_(leltarId, container, opts) {
   const loadFull = async () => {
     const full = await apiGet({ action: "full_report", leltar_id: leltarId });
     if (full && !full.error) updateReportLiveInPlace_(leltarId, container, full, opts);
+    if (full && !full.error) vtkRender_(container, leltarId, full.visszatoltes_kerelmek);
   };
   if (!container._report || !container._sinceMs) { await loadFull(); return; }
   const d = await apiGet({ action: "report_delta", leltar_id: leltarId, since_ms: container._sinceMs });
   if (!d || d.error) return;
+  vtkRender_(container, leltarId, d.visszatoltes_kerelmek);
   if (d.full) { await loadFull(); return; }
   if (!d.changed_barcodes || !d.changed_barcodes.length) {
     container._sinceMs = d.now_ms;   // nincs változás — csak az időpontot léptetjük
