@@ -26,10 +26,24 @@
   /* VILÁGOS NÉZET — a fejlécben lévő gombbal kapcsolható, a választás
      ezen a gépen megmarad. */
   :root[data-tema="vilagos"]{
-    --bg:#f3f5f4; --panel:#ffffff; --panel-2:#eef2f0; --line:#d6dedb;
-    --text:#17211d; --text-dim:#5c6c66; --accent:#138a55; --accent-dim:#a7dcc2;
-    --warn:#a8670a; --danger:#c63d28;
+    --bg:#f3f5f4; --panel:#ffffff; --panel-2:#eef2f0; --line:#c9d3cf;
+    --text:#0b0f0d; --text-dim:#3a4641; --accent:#0f7a4a; --accent-dim:#a7dcc2;
+    --warn:#8f5600; --danger:#b8321f;
   }
+  /* A listák elemei világos nézetben fehérek, a szöveg fekete — a lehető
+     legjobb olvashatóság és kontraszt. */
+  :root[data-tema="vilagos"] .diffRow,
+  :root[data-tema="vilagos"] .diffTable td,
+  :root[data-tema="vilagos"] .tblScroll,
+  :root[data-tema="vilagos"] #diffListWrap,
+  :root[data-tema="vilagos"] #pendingListWrap,
+  :root[data-tema="vilagos"] #okListWrap,
+  :root[data-tema="vilagos"] #pendingListWrap > div,
+  :root[data-tema="vilagos"] #okListWrap > div{background:#ffffff; color:#0b0f0d;}
+  :root[data-tema="vilagos"] .diffTable tr.tblRow:hover td{background:#eef5f1;}
+  :root[data-tema="vilagos"] .diffTable th{background:#f4f7f5; color:#26312d;}
+  :root[data-tema="vilagos"] .diffTable .tblMono,
+  :root[data-tema="vilagos"] .diffTable .tblSector{color:#26312d;}
   :root[data-tema="vilagos"] .tag.warn{background:#fbecd0;}
   :root[data-tema="vilagos"] .tag.danger{background:#fbe0db;}
   :root[data-tema="vilagos"] .act-qty{color:#1d6fc4;}
