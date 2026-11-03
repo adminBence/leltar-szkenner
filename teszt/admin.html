@@ -33,14 +33,14 @@
   /* A listák elemei világos nézetben fehérek, a szöveg fekete — a lehető
      legjobb olvashatóság és kontraszt. */
   :root[data-tema="vilagos"] .diffRow,
-  :root[data-tema="vilagos"] .diffTable td,
+  :root[data-tema="vilagos"] .diffTable tr.tblRow,
   :root[data-tema="vilagos"] .tblScroll,
   :root[data-tema="vilagos"] #diffListWrap,
   :root[data-tema="vilagos"] #pendingListWrap,
   :root[data-tema="vilagos"] #okListWrap,
   :root[data-tema="vilagos"] #pendingListWrap > div,
   :root[data-tema="vilagos"] #okListWrap > div{background:#ffffff; color:#0b0f0d;}
-  :root[data-tema="vilagos"] .diffTable tr.tblRow:hover td{background:#eef5f1;}
+  :root[data-tema="vilagos"] .diffTable tr.tblRow:hover{background:#eef5f1;}
   :root[data-tema="vilagos"] .diffTable th{background:#f4f7f5; color:#26312d;}
   :root[data-tema="vilagos"] .diffTable .tblMono,
   :root[data-tema="vilagos"] .diffTable .tblSector{color:#26312d;}
@@ -263,7 +263,11 @@
   .diffTable .tblNote input:hover{border-color:var(--line);}
   .diffTable .tblNote input:focus{border-color:var(--accent); background:var(--panel);}
   .diffTable .tblNote input.saved{border-color:var(--accent); background:rgba(62,207,142,.15);}
-  .diffTable .tblActions{white-space:nowrap; text-align:right; overflow:visible;}
+  .diffTable .tblActions{white-space:nowrap; overflow:visible; padding-left:4px; padding-right:6px;}
+  .tblGombsor{display:grid; grid-template-columns:repeat(6, 24px); gap:3px; justify-content:end; align-items:center;}
+  .tblGombsor.szuk{grid-template-columns:repeat(2, 24px);}
+  .tblGombsor .tblBtn{width:24px; height:22px; margin:0; padding:0; display:inline-flex; align-items:center; justify-content:center;}
+  .tblGombsor .tblSlot{width:24px; height:22px;}
   .diffTable th.tblHead{position:relative; padding-right:20px;}
   .diffTable .thLabel{cursor:pointer; user-select:none;}
   .diffTable .thLabel:hover{color:var(--text);}
@@ -2926,7 +2930,7 @@ function setRowColor_(leltarId, barcode, idx) {
    több szektorban is szerepelhet — ilyenkor a szűrő akkor mutatja a
    sort, ha BÁRMELYIK szektora ki van választva. */
 const TBL_COLS_ = [
-  { key: "vonalkod", cim: "Vonalkód", szel: "112px", ertekek: r => [String(r.vonalkod)],
+  { key: "vonalkod", cim: "Vonalkód", szel: "104px", ertekek: r => [String(r.vonalkod)],
     cell: r => `<td class="tblMono">${escapeHtml(r.vonalkod)}</td>` },
   { key: "cikkszam", cim: "Cikkszám", szel: "148px", ertekek: r => [r.sajat_cikkszam || "—"],
     cell: r => `<td class="tblMono"><span class="cikkCella"><span class="cikkSzoveg">${escapeHtml(r.sajat_cikkszam || "—")}</span>${masolGomb_(r.sajat_cikkszam)}</span></td>` },
@@ -3010,20 +3014,27 @@ function renderTableRowHtml_(r, showActions, isOpen, leltarId, szinekElore) {
   const szektorSzoveg = (r.szektorok || []).filter(x => x.szektor)
     .map(x => x.szektor + ": " + x.mennyiseg).join(", ") || (r.elteres !== 0 ? "— nincs beolvasva" : "");
 
+  // RÖGZÍTETT HELYŰ GOMBSOR: minden gomb mindig ugyanazon a helyen van
+  // (oszlopszerűen egymás alatt), ami egy sornál nem érhető el, ott üres
+  // hely marad — így nem lehet véletlenül mást megnyomni.
+  const bc_ = escapeHtml(r.vonalkod);
+  const ures_ = `<span class="tblSlot"></span>`;
   const g = [];
-  if (showActions) g.push(`<button class="btn tblBtn act-qty" data-qtymod-toggle="${escapeHtml(r.vonalkod)}" title="Számolt mennyiség módosítása">✎</button>`);
-  if (showActions && (!r.ismeretlen_tobblet || !r.ismeretlen_termek)) g.push(`<button class="btn tblBtn act-laurel" data-refresh-toggle="${escapeHtml(r.vonalkod)}" title="Készlet a Laurelből">⭯</button>`);
-  if (showActions && r.ismeretlen_tobblet) g.push(`<button class="btn tblBtn act-barcode" data-barcode-toggle="${escapeHtml(r.vonalkod)}" title="Vonalkód javítása">⌗</button>`);
-  if (parok.length) g.push(`<button class="btn tblBtn act-pair" data-pair-toggle="${escapeHtml(r.vonalkod)}" title="Lehetséges eltérés-pár (${parok.length})">⇄</button>`);
-  g.push(`<button class="btn tblBtn act-details" data-details-toggle="${escapeHtml(r.vonalkod)}" title="Részletek">ⓘ</button>`);
-  if (showActions && r.ismeretlen_tobblet) g.push(`<button class="btn tblBtn danger" data-delete-unknown="${escapeHtml(r.vonalkod)}" title="Törlés">${TRASH_ICON_}</button>`);
+  if (showActions) {
+    g.push(`<button class="btn tblBtn act-qty" data-qtymod-toggle="${bc_}" title="Számolt mennyiség módosítása">✎</button>`);
+    g.push((!r.ismeretlen_tobblet || !r.ismeretlen_termek) ? `<button class="btn tblBtn act-laurel" data-refresh-toggle="${bc_}" title="Készlet a Laurelből">⭯</button>` : ures_);
+    g.push(r.ismeretlen_tobblet ? `<button class="btn tblBtn act-barcode" data-barcode-toggle="${bc_}" title="Vonalkód javítása">⌗</button>` : ures_);
+  }
+  g.push(parok.length ? `<button class="btn tblBtn act-pair" data-pair-toggle="${bc_}" title="Lehetséges eltérés-pár (${parok.length})">⇄</button>` : ures_);
+  g.push(`<button class="btn tblBtn act-details" data-details-toggle="${bc_}" title="Részletek">ⓘ</button>`);
+  if (showActions) g.push(r.ismeretlen_tobblet ? `<button class="btn tblBtn danger" data-delete-unknown="${bc_}" title="Törlés">${TRASH_ICON_}</button>` : ures_);
 
   return `
     <tr class="diffRow tblRow ${cls}" id="${rowId}-row" data-sig="${escapeHtml(rowSignature_(r))}"
         data-barcode="${escapeHtml(r.vonalkod)}" style="${szin ? `box-shadow: inset 4px 0 0 ${szin}; background:${szin}22;` : ""}">
       <td class="tblSel">${showActions ? `<input type="checkbox" class="diffSelect" value="${escapeHtml(r.vonalkod)}"${selectedDiffBarcodes.has(r.vonalkod) ? " checked" : ""}${r.elteres === 0 ? " disabled" : ""}>` : ""}</td>
       ${TBL_COLS_.map(c => c.cell(r)).join("")}
-      <td class="tblActions">${g.join("")}</td>
+      <td class="tblActions"><div class="tblGombsor${showActions ? "" : " szuk"}">${g.join("")}</div></td>
     </tr>
     <tr class="tblPanelRow"><td colspan="${TBL_COLS_.length + 2}" class="tblPanelCell" id="${rowId}-panels"></td></tr>`;
 }
@@ -3310,7 +3321,7 @@ function renderRowsInto_(wrap, rows, showActions, isOpen, leltarId, container) {
     // szélességbe fér (nem lóg ki), a hosszú szöveg pedig levágódik.
     const colgroup = `<colgroup><col style="width:34px">${
       TBL_COLS_.map(c => `<col${c.szel ? ` style="width:${c.szel}"` : ""}>`).join("")
-    }<col style="width:${showActions ? 140 : 40}px"></colgroup>`;
+    }<col style="width:${showActions ? 178 : 64}px"></colgroup>`;
     wrap.innerHTML = `
       <div class="tblScroll">
       <table class="diffTable">
