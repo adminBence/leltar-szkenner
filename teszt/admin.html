@@ -41,6 +41,8 @@
   :root[data-tema="vilagos"] .act-pair{background:rgba(0,0,0,.04); border-color:rgba(0,0,0,.25); color:#333;}
   :root[data-tema="vilagos"] .btn.primary{color:#fff;}
   :root[data-tema="vilagos"] body{background:var(--bg);}
+  :root[data-tema="vilagos"] #authGateOverlay{background:radial-gradient(circle at 50% 30%, #dcefe5 0%, var(--bg) 60%);}
+  :root[data-tema="vilagos"] #authGateError{background:#fdeae6; color:#a3301e;}
   :root[data-tema="vilagos"] .colorDot.active{border-color:#222; box-shadow:0 0 0 2px rgba(0,0,0,.2);}
   *{box-sizing:border-box;}
   html,body{margin:0; min-height:100%; background:var(--bg); color:var(--text);
@@ -185,7 +187,7 @@
   .diffTable td{padding:2px 7px; border-bottom:1px solid var(--line); vertical-align:middle;
     white-space:nowrap; line-height:1.7;}
   .diffTable tr.tblRow:hover{background:var(--panel-2);}
-  .diffTable .tblSel{width:24px;}
+  .diffTable .tblSel{width:24px; overflow:visible; text-overflow:clip; padding-left:6px; padding-right:4px;}
   .diffTable .tblSel input{width:14px; height:14px; margin:0; accent-color:var(--accent);}
   .diffTable .tblMono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:10.5px; color:var(--text-dim);}
   .diffTable .tblName{overflow:hidden; text-overflow:ellipsis;}
@@ -205,6 +207,31 @@
   .pendNoteInput.saved{border-color:var(--accent);}
   .pendElozo{margin-top:3px; font-size:11px; color:var(--warn);}
   .pendElozo span{color:var(--text-dim);}
+  /* tömeges előnézet */
+  .tmOverlay{display:none; position:fixed; inset:0; z-index:1500; background:rgba(0,0,0,.6);
+    align-items:center; justify-content:center; padding:20px;}
+  .tmBox{background:var(--panel); border:1px solid var(--line); border-radius:14px; width:min(1180px,100%);
+    max-height:90vh; display:flex; flex-direction:column; padding:18px 20px;}
+  .tmCim{font-size:16px; font-weight:700; margin-bottom:6px;}
+  .tmMagy{font-size:12.5px; color:var(--text-dim); line-height:1.5; margin-bottom:12px;}
+  .tmTablaWrap{overflow:auto; flex:1; border:1px solid var(--line); border-radius:8px;}
+  .tmTabla{width:100%; border-collapse:collapse; font-size:12px;}
+  .tmTabla th{position:sticky; top:0; background:var(--panel-2); text-align:left; font-size:11px; color:var(--text-dim);
+    padding:7px 8px; border-bottom:1px solid var(--line); white-space:nowrap;}
+  .tmTabla td{padding:6px 8px; border-bottom:1px solid var(--line); vertical-align:middle;}
+  .tmTabla input{accent-color:var(--accent);}
+  .tmKod{font-size:10.5px; color:var(--text-dim); font-family:ui-monospace,Menlo,monospace;}
+  .tmSzam{text-align:right; white-space:nowrap; font-variant-numeric:tabular-nums;}
+  .tmUj{font-weight:700;}
+  .tmOk{color:var(--accent); font-weight:700; white-space:nowrap;}
+  .tmRossz{color:var(--danger); font-weight:700; white-space:nowrap;}
+  .tmMarad{color:var(--warn); white-space:nowrap;}
+  .tmIdo{font-size:11px; color:var(--text-dim);}
+  .tmIdo span{opacity:.8;}
+  .tmKimarad{font-size:12px; color:var(--text-dim); margin-top:10px;}
+  .tmUres{padding:18px; text-align:center; color:var(--text-dim);}
+  .tmLab{display:flex; gap:8px; align-items:center; justify-content:flex-end; flex-wrap:wrap; margin-top:14px;}
+  .tmSzamlalo{margin-right:auto; font-size:12px; color:var(--text-dim);}
   .temaBtn{background:none; border:1px solid var(--line); border-radius:8px; color:var(--text-dim);
     font-size:12px; padding:3px 9px; cursor:pointer; margin-right:10px;}
   .temaBtn:hover{color:var(--text); border-color:var(--text-dim);}
@@ -1605,6 +1632,141 @@ function bindCollapsibles_(root) {
   });
 }
 
+/* TÖMEGES ELŐNÉZET — "Kijelöltek készletének frissítése LKR-ből" és
+   "Visszaállítás az induló készletre". Tételenként mutatja: induló,
+   jelenleg várt, leszámolt, új várt érték és az új eltérés. A pipát
+   kivéve a tétel kimarad; "Csak ahol rendben lesz" csak azoknál
+   módosít, ahol az új várt érték megegyezik a leszámolttal. */
+async function tomegesElonezet_(container, leltar, mod, gomb) {
+  const kijeloltek = Array.from(selectedDiffBarcodes);
+  if (!kijeloltek.length) { showToast("Előbb jelölj ki tételeket.", "warn"); return; }
+  const lkr = mod === "lkr";
+  const eredetiFelirat = gomb ? gomb.textContent : "";
+  if (gomb) { gomb.disabled = true; gomb.textContent = "Előnézet készítése…"; }
+  let res;
+  try {
+    res = await apiPost({ action: lkr ? "bulk_live_correction" : "restore_snapshot_stock",
+      leltar_id: leltar.leltar_id, vonalkodok: kijeloltek, elonezet: true });
+  } catch (e) { res = { error: e.message }; }
+  if (gomb) { gomb.disabled = false; gomb.textContent = eredetiFelirat; }
+  if (!res || res.error || !Array.isArray(res.tetelek)) {
+    showToast("Az előnézet nem sikerült: " + ((res && res.error) || "a szerver ezt még nem ismeri (frissíteni kell az Apps Scriptet)"), "error");
+    return;
+  }
+  const tetelek = res.tetelek.map(t => {
+    const uj = lkr ? t.laurel : t.indulo;
+    const nincs = uj === null || uj === undefined;
+    const valtozik = !nincs && uj !== t.rendszer;
+    return Object.assign({}, t, { uj, nincs, valtozik, mostElteres: t.szamolt - t.rendszer,
+      ujElteres: valtozik ? t.szamolt - uj : null, rendben: valtozik && t.szamolt === uj, be: valtozik });
+  });
+  const valtozok = tetelek.filter(t => t.valtozik);
+  const nemValtozik = tetelek.filter(t => !t.valtozik && !t.nincs);
+  const nincsAdat = tetelek.filter(t => t.nincs);
+
+  let ov = el("tomegesModal");
+  if (!ov) { ov = document.createElement("div"); ov.id = "tomegesModal"; ov.className = "tmOverlay"; document.body.appendChild(ov); }
+  const elj = (n) => (n > 0 ? "+" : "") + n;
+  const ido = (t) => t.utolso_modositas ? `${escapeHtml(t.utolso_modositas.megjegyzes || t.utolso_modositas.forras || "")}<br><span>${escapeHtml(formatDateTime(t.utolso_modositas.idobelyeg))}</span>` : "—";
+  ov.innerHTML = `<div class="tmBox">
+    <div class="tmCim">${lkr ? "Várt készlet frissítése az LKR-ből — előnézet" : "Visszaállítás a leltár induló készletére — előnézet"}</div>
+    <div class="tmMagy">${lkr
+      ? "Tételenként látod, mi lesz a várt készlet, ha átveszed a jelenlegi LKR-értéket. Ha közben eladás vagy bevételezés történt, az LKR-érték már nem a leltár idejére vonatkozik — ilyenkor az eltérés rosszabb is lehet."
+      : "A kijelöltek várt készlete visszaáll arra az értékre, ami a leltár indulásakor rögzült. A korábbi módosítások az előzményben megmaradnak."}
+      A pipát kivéve a tétel kimarad.</div>
+    ${valtozok.length ? `<div class="tmTablaWrap"><table class="tmTabla">
+      <thead><tr><th><input type="checkbox" id="tmMind" checked></th><th>Termék</th>
+        ${lkr ? "<th>Induló</th>" : ""}<th>Várt most</th><th>Leszámolt</th>
+        <th>Új várt ${lkr ? "(LKR)" : "(induló)"}</th><th>Eltérés most → új</th><th>Eredmény</th>${lkr ? "" : "<th>Utolsó módosítás</th>"}</tr></thead>
+      <tbody>${valtozok.map(t => `<tr data-bc="${escapeHtml(t.vonalkod)}">
+        <td><input type="checkbox" class="tmSor" checked></td>
+        <td><b>${escapeHtml(t.nev)}</b><div class="tmKod">${escapeHtml(t.sajat_cikkszam || "")} · ${escapeHtml(t.vonalkod)}</div></td>
+        ${lkr ? `<td class="tmSzam">${t.indulo === null || t.indulo === undefined ? "—" : t.indulo}</td>` : ""}
+        <td class="tmSzam">${t.rendszer}</td><td class="tmSzam">${t.szamolt}</td>
+        <td class="tmSzam tmUj">${t.uj}</td>
+        <td class="tmSzam">${elj(t.mostElteres)} → <b>${elj(t.ujElteres)}</b></td>
+        <td>${t.rendben ? `<span class="tmOk">✓ rendben lesz</span>`
+          : (Math.abs(t.ujElteres) > Math.abs(t.mostElteres) ? `<span class="tmRossz">▲ nagyobb eltérés</span>` : `<span class="tmMarad">eltérés marad</span>`)}</td>
+        ${lkr ? "" : `<td class="tmIdo">${ido(t)}</td>`}
+      </tr>`).join("")}</tbody></table></div>`
+      : `<div class="tmUres">A kijelölt tételek közül egyiknél sem változna semmi.</div>`}
+    ${(nemValtozik.length || nincsAdat.length) ? `<div class="tmKimarad">
+      ${nemValtozik.length ? `${nemValtozik.length} tétel nem változik (az új érték megegyezik a mostanival).` : ""}
+      ${nincsAdat.length ? ` ${nincsAdat.length} tétel nem szerepel az LKR-ben — ezek kimaradnak.` : ""}</div>` : ""}
+    <div class="tmLab">
+      <span class="tmSzamlalo" id="tmSzamlalo"></span>
+      <button class="btn" id="tmVissza">‹ Vissza a kijelöléshez</button>
+      <button class="btn" id="tmRendben">Csak ahol rendben lesz</button>
+      <button class="btn ${lkr ? "laurel" : "primary"}" id="tmVegrehajt"></button>
+    </div></div>`;
+  ov.style.display = "flex";
+
+  const sorok = () => Array.from(ov.querySelectorAll("tbody tr"));
+  const bejelolt = () => sorok().filter(tr => tr.querySelector(".tmSor").checked).map(tr => tr.dataset.bc);
+  const tetelOf = (bc) => valtozok.find(t => t.vonalkod === bc);
+  const frissit = () => {
+    const be = bejelolt();
+    const rendben = be.filter(bc => tetelOf(bc).rendben);
+    el("tmSzamlalo").textContent = `${be.length} / ${valtozok.length} tétel bejelölve · ebből ${rendben.length} lesz rendben`;
+    el("tmVegrehajt").textContent = `${lkr ? "Frissítés" : "Visszaállítás"} mindegyik bejelöltnél (${be.length})`;
+    el("tmVegrehajt").disabled = !be.length;
+    el("tmRendben").textContent = `Csak ahol rendben lesz (${rendben.length})`;
+    el("tmRendben").disabled = !rendben.length;
+    const mind = el("tmMind");
+    if (mind) { mind.checked = be.length === valtozok.length; mind.indeterminate = be.length > 0 && be.length < valtozok.length; }
+  };
+  // a pipa kivétele a főlista kijelölésére is hat
+  ov.querySelectorAll(".tmSor").forEach(cb => cb.addEventListener("change", () => {
+    const bc = cb.closest("tr").dataset.bc;
+    if (cb.checked) selectedDiffBarcodes.add(bc); else selectedDiffBarcodes.delete(bc);
+    const lcb = container.querySelector(`.diffSelect[value="${CSS.escape(bc)}"]`); if (lcb) lcb.checked = cb.checked;
+    if (container._updateSelectionUi) container._updateSelectionUi();
+    frissit();
+  }));
+  const mindCb = el("tmMind");
+  if (mindCb) mindCb.addEventListener("change", () => {
+    ov.querySelectorAll(".tmSor").forEach(cb => { if (cb.checked !== mindCb.checked) { cb.checked = mindCb.checked; cb.dispatchEvent(new Event("change")); } });
+  });
+  const bezar = () => { ov.style.display = "none"; ov.innerHTML = ""; };
+  el("tmVissza").onclick = bezar;
+
+  const vegrehajt = async (csakRendben) => {
+    let be = bejelolt();
+    if (csakRendben) be = be.filter(bc => tetelOf(bc).rendben);
+    if (!be.length) return;
+    const kimarad = valtozok.length - be.length;
+    if (!(await showConfirm(
+      `Biztosan ${lkr ? "frissíted" : "visszaállítod"} ${be.length} tétel várt készletét${lkr ? " az LKR-ből" : " a leltár induló értékére"}?`
+      + (kimarad ? ` ${kimarad} tétel kimarad.` : "")
+      + ` Minden változás naplózódik${lkr ? ", és később visszaállítható az induló készletre" : ""}.`,
+      { yesLabel: lkr ? `Igen, ${be.length} tétel frissítése` : `Igen, ${be.length} tétel visszaállítása`, positive: true }))) return;
+    el("tmVegrehajt").disabled = true; el("tmRendben").disabled = true;
+    el("tmVegrehajt").textContent = "Folyamatban…";
+    try {
+      const payload = { action: lkr ? "bulk_live_correction" : "restore_snapshot_stock", leltar_id: leltar.leltar_id, vonalkodok: be };
+      if (lkr) { payload.ertekek = {}; be.forEach(bc => { payload.ertekek[bc] = tetelOf(bc).uj; }); }
+      const r = await apiPost(payload);
+      if (r.error) throw new Error(r.error);
+      const db = lkr ? (r.frissitve || 0) : (r.visszaallitva || 0);
+      showToast(`${db} tétel ${lkr ? "frissítve az LKR-ből" : "visszaállítva az induló készletre"}.`, "success");
+      if (lkr && r.kozben_valtozott) {
+        showToast(`${r.kozben_valtozott} tételnél az LKR-készlet az előnézet óta megváltozott — ezeket kihagytam. Nézd meg újra az előnézetet.`, "warn");
+      }
+      bezar();
+      be.forEach(bc => selectedDiffBarcodes.delete(bc));
+      container.querySelectorAll(".diffSelect").forEach(cb => { cb.checked = selectedDiffBarcodes.has(cb.value); });
+      if (container._updateSelectionUi) container._updateSelectionUi();
+      refreshSingleDiffRow(leltar.leltar_id, null, container);
+    } catch (e) {
+      showToast("Hiba: " + e.message, "error");
+      frissit();
+    }
+  };
+  el("tmVegrehajt").onclick = () => vegrehajt(false);
+  el("tmRendben").onclick = () => vegrehajt(true);
+  frissit();
+}
+
 let aktivRiportLeltarId_ = null;
 function renderFullReport(container, report, opts) {
   normalizeDiffRows_(report && report.diff);
@@ -1739,9 +1901,11 @@ function renderFullReport(container, report, opts) {
         </div>` : ""}
       </div>
       ${showActions ? `
-      <div class="row" style="margin-bottom:10px; gap:8px;">
+      <div class="row" style="margin-bottom:10px; gap:8px; flex-wrap:wrap;">
         <button class="btn primary" id="createVerifyBtn">Kiválasztottak ellenőrzése (új QR)</button>
         <button class="btn laurel" id="bulkLiveBtn">Kijelöltek készletének frissítése LKR-ből</button>
+        <button class="btn" id="bulkRestoreBtn" title="A kijelöltek várt készlete visszaáll arra, ami a leltár indulásakor rögzült">↺ Visszaállítás az induló készletre</button>
+        <button class="btn" id="selModositottBtn" title="Kijelöli azokat a tételeket, amelyeknek a várt készlete a leltár indulása óta módosult">Módosított készletűek kijelölése</button>
         <button class="btn" id="viewToggleBtn">📋 Táblázat nézet</button>
         <button class="btn" id="pairModeBtn" style="display:none;">⇄ Párosítás</button>
         <button class="btn" id="colorSortBtn" style="display:none;">🎨 Rendezés szín szerint</button>
@@ -2166,55 +2330,25 @@ function renderFullReport(container, report, opts) {
     });
   }
 
-  // Tömeges készlet-frissítés az LKR-ből a KIJELÖLT tételekre.
+  // Tömeges műveletek a KIJELÖLT tételekre — mindig ELŐNÉZETTEL: előbb
+  // tételenként megmutatjuk, mi fog történni, és csak a jóváhagyott
+  // tételeknél módosítunk.
   const bulkBtn = container.querySelector("#bulkLiveBtn");
-  if (bulkBtn) {
-    bulkBtn.addEventListener("click", async () => {
-      const kijeloltek = Array.from(selectedDiffBarcodes);
-      if (!kijeloltek.length) { showToast("Előbb jelölj ki tételeket.", "warn"); return; }
-      if (!(await showConfirm(
-        `Frissíted a rendszer szerinti készletet az LKR-ből a kijelölt ${kijeloltek.length} tételnél? ` +
-        `Csak ott történik változás, ahol az LKR más értéket mutat, és minden változás naplózva lesz (régi → új).`,
-        { yesLabel: "Frissítés", positive: true }))) return;
-      bulkBtn.disabled = true;
-      const eredetiFelirat = bulkBtn.textContent;
-      bulkBtn.innerHTML = `<span class="spinner" style="width:12px; height:12px; border-width:2px; display:inline-block; vertical-align:middle; margin-right:6px;"></span>Frissítés folyamatban…`;
-      const resultEl = container.querySelector("#bulkLiveResult");
-      try {
-        const res = await apiPost({ action: "bulk_live_correction", leltar_id: leltar.leltar_id, vonalkodok: kijeloltek });
-        if (res.error) {
-          showToast("Hiba: " + res.error, "error");
-        } else if (!res.frissitve) {
-          showToast(res.message || "Nem volt mit frissíteni.", "warn");
-          if (resultEl) resultEl.innerHTML = "";
-        } else {
-          showToast(`${res.frissitve} tétel készlete frissítve az LKR-ből.`, "success");
-          if (resultEl) {
-            resultEl.innerHTML = `
-              <div style="margin-bottom:12px; padding:10px; background:var(--panel-2); border:1px solid var(--line); border-radius:8px;">
-                <div style="font-weight:700; margin-bottom:6px;">Frissítve: ${res.frissitve} tétel</div>
-                <div class="metaLine" style="margin-bottom:6px;">
-                  Változatlan: ${res.valtozatlan} · Nem szerepel az LKR-ben (kihagyva): ${res.nincs_lkr}
-                </div>
-                ${(res.valtozasok || []).map(v => `
-                  <div style="font-size:11px; color:var(--text-dim);">
-                    ${escapeHtml(v.nev)} — <b>${v.regi_mennyiseg} db → ${v.uj_mennyiseg} db</b>
-                  </div>`).join("")}
-                ${res.frissitve > (res.valtozasok || []).length
-                  ? `<div class="metaLine">…és további ${res.frissitve - res.valtozasok.length} tétel.</div>` : ""}
-              </div>`;
-          }
-          selectedDiffBarcodes.clear();
-          if (container._updateSelectionUi) container._updateSelectionUi();
-          refreshSingleDiffRow(leltar.leltar_id, null, container);
-        }
-      } catch (e) {
-        showToast("Hiba: " + e.message, "error");
-      }
-      bulkBtn.disabled = false;
-      bulkBtn.textContent = eredetiFelirat;
-    });
-  }
+  if (bulkBtn) bulkBtn.addEventListener("click", () => tomegesElonezet_(container, leltar, "lkr", bulkBtn));
+  const restoreBtn = container.querySelector("#bulkRestoreBtn");
+  if (restoreBtn) restoreBtn.addEventListener("click", () => tomegesElonezet_(container, leltar, "visszaallitas", restoreBtn));
+  // Segéd: azok kijelölése, amelyeknek a várt készlete a leltár indulása
+  // óta módosult (pl. egy tömeges frissítés után a visszaállításhoz).
+  const selModBtn = container.querySelector("#selModositottBtn");
+  if (selModBtn) selModBtn.addEventListener("click", () => {
+    const mod = (diff || []).filter(r => (r.rendszer_korrekciok || []).length).map(r => String(r.vonalkod));
+    if (!mod.length) { showToast("Egyik tétel várt készlete sem módosult a leltár indulása óta.", "warn"); return; }
+    selectedDiffBarcodes.clear();
+    mod.forEach(bc => selectedDiffBarcodes.add(bc));
+    container.querySelectorAll(".diffSelect").forEach(cb => { cb.checked = selectedDiffBarcodes.has(cb.value); });
+    if (container._updateSelectionUi) container._updateSelectionUi();
+    showToast(`${mod.length} tétel kijelölve — ezeknek a várt készlete a leltár indulása óta módosult.`, "success");
+  });
 
   const loadMoreBtn = container.querySelector("#diffLoadMoreBtn");
   if (loadMoreBtn) {
@@ -3157,7 +3291,7 @@ function renderRowsInto_(wrap, rows, showActions, isOpen, leltarId, container) {
     }).join("");
     // Fix oszlopszélességek: így a táblázat pontosan a rendelkezésre álló
     // szélességbe fér (nem lóg ki), a hosszú szöveg pedig levágódik.
-    const colgroup = `<colgroup><col style="width:30px">${
+    const colgroup = `<colgroup><col style="width:34px">${
       TBL_COLS_.map(c => `<col${c.szel ? ` style="width:${c.szel}"` : ""}>`).join("")
     }<col style="width:${showActions ? 140 : 40}px"></colgroup>`;
     wrap.innerHTML = `
