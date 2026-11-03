@@ -1663,6 +1663,8 @@ async function tomegesElonezet_(container, leltar, mod, gomb) {
   const valtozok = tetelek.filter(t => t.valtozik);
   const nemValtozik = tetelek.filter(t => !t.valtozik && !t.nincs);
   const nincsAdat = tetelek.filter(t => t.nincs);
+  // A szerver az ismeretlen (terméktörzsben nem szereplő) tételeket kihagyja.
+  const ismeretlenDb = Math.max(0, kijeloltek.length - tetelek.length);
 
   let ov = el("tomegesModal");
   if (!ov) { ov = document.createElement("div"); ov.id = "tomegesModal"; ov.className = "tmOverlay"; document.body.appendChild(ov); }
@@ -1690,9 +1692,10 @@ async function tomegesElonezet_(container, leltar, mod, gomb) {
         ${lkr ? "" : `<td class="tmIdo">${ido(t)}</td>`}
       </tr>`).join("")}</tbody></table></div>`
       : `<div class="tmUres">A kijelölt tételek közül egyiknél sem változna semmi.</div>`}
-    ${(nemValtozik.length || nincsAdat.length) ? `<div class="tmKimarad">
+    ${(nemValtozik.length || nincsAdat.length || ismeretlenDb) ? `<div class="tmKimarad">
       ${nemValtozik.length ? `${nemValtozik.length} tétel nem változik (az új érték megegyezik a mostanival).` : ""}
-      ${nincsAdat.length ? ` ${nincsAdat.length} tétel nem szerepel az LKR-ben — ezek kimaradnak.` : ""}</div>` : ""}
+      ${nincsAdat.length ? ` ${nincsAdat.length} tétel nem szerepel az LKR-ben — ezek kimaradnak.` : ""}
+      ${ismeretlenDb ? ` ${ismeretlenDb} kijelölt tétel ismeretlen termék (nincs a terméktörzsben) — ezek kimaradnak.` : ""}</div>` : ""}
     <div class="tmLab">
       <span class="tmSzamlalo" id="tmSzamlalo"></span>
       <button class="btn" id="tmVissza">‹ Vissza a kijelöléshez</button>
